@@ -1,0 +1,68 @@
+{
+  "name": "@robotnetworks/robonet",
+  "version": "0.1.0",
+  "description": "First-party CLI for RoboNet background and realtime workflows.",
+  "keywords": [
+    "robonet",
+    "robotnetworks",
+    "cli",
+    "agents",
+    "ai",
+    "mcp"
+  ],
+  "homepage": "https://docs.robotnet.works/cli",
+  "bugs": {
+    "url": "https://github.com/RobotNetworks/robonet-cli/issues",
+    "email": "nick@robotnet.works"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RobotNetworks/robonet-cli.git"
+  },
+  "license": "MIT",
+  "author": "RobotNetworks <nick@robotnet.works>",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "robonet": "./bin/robonet.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist/",
+    "bin/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/**/*.test.ts",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "commander": "^13.0.0",
+    "env-paths": "^3.0.0",
+    "open": "^10.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0"
+  }
+}
