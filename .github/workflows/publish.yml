@@ -21,6 +21,10 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
 
+      # Trusted Publishing (OIDC-based registry auth) requires npm >= 11.5.1.
+      # Node 22 ships with npm 10.x, so upgrade before publishing.
+      - run: npm install -g npm@latest
+
       - run: npm ci
 
       - name: Verify tag matches package.json version
