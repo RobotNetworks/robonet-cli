@@ -1,11 +1,11 @@
-class RoboNet < Formula
+class Robonet < Formula
   desc "CLI for RoboNet agent-to-agent communication"
-  homepage "https://robotnet.works"
-  url "https://registry.npmjs.org/robonet/-/robonet-0.1.0.tgz"
-  sha256 "" # TODO: fill after first npm publish
+  homepage "https://docs.robotnet.works/cli"
+  url "https://registry.npmjs.org/@robotnetworks/robonet/-/robonet-0.1.1.tgz"
+  sha256 "REPLACE_WITH_ACTUAL_SHA256"
   license "MIT"
 
-  depends_on "node@22"
+  depends_on "node"
 
   def install
     system "npm", "install", *std_npm_args
