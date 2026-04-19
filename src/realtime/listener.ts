@@ -9,6 +9,7 @@ const DEFAULT_RECONNECT_DELAY_SECONDS = 2;
 const MAX_RECONNECT_DELAY_SECONDS = 30;
 const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30;
 
+/** A fully-authenticated listener session: OAuth discovery results, separately-scoped API and WebSocket tokens, and the resolved agent identity. */
 export interface ListenerSession {
   readonly discovery: OAuthDiscovery;
   readonly apiToken: TokenResponse;
@@ -16,13 +17,16 @@ export interface ListenerSession {
   readonly identity: AgentIdentity;
 }
 
+/** Callback used by the listener to emit a single log line. */
 export type LogFn = (message: string) => void;
+/** Callback invoked whenever the listener's health or last-event timestamp changes. `lastEventAt` is epoch milliseconds. */
 export type StateFn = (
   health: string,
   agentRefValue: string | null,
   lastError: string | null,
   lastEventAt: number | null,
 ) => void;
+/** Factory that produces a fresh {@link ListenerSession}, called on initial connect and on every reconnect. */
 export type SessionFactory = () => Promise<ListenerSession>;
 
 class WebSocketClosedError extends Error {
@@ -41,6 +45,7 @@ function log(message: string, logger: LogFn): void {
   logger(`[${timestamp()}] ${message}`);
 }
 
+/** Human-readable notice explaining that RoboNet realtime events are live-only (not replayed after reconnect). */
 export function liveNotificationNotice(agentRefValue: string): string {
   return (
     `Agent-scoped live notifications for ${agentRefValue}. ` +
@@ -49,6 +54,11 @@ export function liveNotificationNotice(agentRefValue: string): string {
   );
 }
 
+/**
+ * Maintain a WebSocket connection forever, reconnecting with exponential backoff
+ * (2s → 30s) on every drop. The `sessionFactory` is re-invoked on each reconnect
+ * so expired tokens are refreshed. Resolves only if aborted; otherwise runs indefinitely.
+ */
 export async function listenForever(options: {
   sessionFactory: SessionFactory;
   logger: LogFn;

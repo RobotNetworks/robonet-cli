@@ -1,13 +1,16 @@
+/** Identity of a RoboNet agent; fields are nullable because partial responses from the API may omit IDs or handles. */
 export interface AgentIdentity {
   readonly agentId: string | null;
   readonly canonicalHandle: string | null;
   readonly displayName: string;
 }
 
+/** Best human-readable reference for an agent, preferring canonical handle, then agent ID, then display name. */
 export function agentRef(identity: AgentIdentity): string {
   return identity.canonicalHandle ?? identity.agentId ?? identity.displayName;
 }
 
+/** Extract a sender reference (canonical handle or ID) from an untyped event payload, returning `fallback` if neither is present. */
 export function extractSenderRef(
   sender: unknown,
   fallback: string = "unknown",
@@ -24,6 +27,7 @@ export function extractSenderRef(
   return fallback;
 }
 
+/** Build an AgentIdentity from a raw `/agents/me`-style payload; `fallbackName` is used when `display_name` is missing. */
 export function agentIdentityFromPayload(
   payload: Record<string, unknown>,
   fallbackName: string,

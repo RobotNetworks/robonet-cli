@@ -1,9 +1,11 @@
 import { REQUEST_TIMEOUT_MS } from "../endpoints.js";
 import { AuthenticationError } from "../errors.js";
 
+/** Default OAuth scope set requested by the CLI; grants read/write on agents, threads, contacts, and realtime. */
 export const DEFAULT_SCOPES =
   "agents:read threads:read threads:write contacts:read contacts:write realtime:read";
 
+/** Normalized OAuth token response. `expiresIn` is in seconds (per RFC 6749), not milliseconds. */
 export interface TokenResponse {
   readonly accessToken: string;
   readonly tokenType: string;
@@ -12,6 +14,7 @@ export interface TokenResponse {
   readonly resource: string;
 }
 
+/** Parse an OAuth token endpoint JSON body into a {@link TokenResponse}. Throws {@link AuthenticationError} if `access_token` is missing. */
 export function tokenResponseFromBody(
   body: Record<string, unknown>,
   resource: string,
@@ -28,6 +31,7 @@ export function tokenResponseFromBody(
   return { accessToken, tokenType, expiresIn, scope, resource };
 }
 
+/** Exchange client credentials for an access token bound to `resource`. Throws {@link AuthenticationError} on HTTP or network failure. */
 export async function requestClientCredentialsToken(options: {
   tokenEndpoint: string;
   clientId: string;

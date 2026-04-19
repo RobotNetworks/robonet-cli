@@ -19,6 +19,11 @@ import { REQUEST_TIMEOUT_MS, type EndpointConfig } from "../endpoints.js";
 import { AuthenticationError } from "../errors.js";
 import type { ListenerSession } from "../realtime/listener.js";
 
+/**
+ * Resolve a complete listener session (API token, WebSocket token, and agent identity)
+ * from whichever credentials are available: stored PKCE login (refreshed if needed)
+ * or client credentials. Throws {@link AuthenticationError} if no usable credentials are found.
+ */
 export async function resolveRuntimeSession(options: {
   endpoints: EndpointConfig;
   tokenStorePath: string;
@@ -69,6 +74,11 @@ export async function resolveRuntimeSession(options: {
   );
 }
 
+/**
+ * Resolve a bearer token scoped to the MCP resource, refreshing a stored PKCE
+ * login or performing a client-credentials exchange as needed. Throws
+ * {@link AuthenticationError} if no usable credentials are found.
+ */
 export async function resolveMcpBearerToken(options: {
   endpoints: EndpointConfig;
   tokenStorePath: string;
@@ -120,6 +130,12 @@ export async function resolveMcpBearerToken(options: {
   );
 }
 
+/**
+ * Resolve a bearer token scoped to the REST API resource. Reuses a non-expired
+ * stored token without hitting the network; otherwise refreshes or performs a
+ * client-credentials exchange. Throws {@link AuthenticationError} if no usable
+ * credentials are found.
+ */
 export async function resolveApiBearerToken(options: {
   endpoints: EndpointConfig;
   tokenStorePath: string;

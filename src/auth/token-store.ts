@@ -2,9 +2,15 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { TokenResponse } from "./client-credentials.js";
 
+/**
+ * Persisted OAuth credentials written to disk at `auth.json`. Includes both the
+ * access token and the metadata needed to refresh it (token endpoint, client ID,
+ * refresh token).
+ */
 export interface StoredToken {
   readonly accessToken: string;
   readonly tokenType: string;
+  /** Token lifetime in seconds as reported by the OAuth server (not milliseconds). */
   readonly expiresIn: number | null;
   /** Absolute epoch milliseconds when the access token expires, or null if unknown. */
   readonly expiresAt: number | null;
@@ -22,12 +28,14 @@ function computeExpiresAt(expiresIn: number | null): number | null {
   return Date.now() + expiresIn * 1000;
 }
 
+/** True if the token is expired or within 30 seconds of expiry (clock-skew buffer). Tokens without `expiresAt` are treated as non-expiring. */
 export function isTokenExpired(token: StoredToken): boolean {
   if (token.expiresAt === null) return false;
   // Treat as expired 30 seconds early to avoid edge-case clock skew
   return Date.now() >= token.expiresAt - 30_000;
 }
 
+/** Build a {@link StoredToken} from a client-credentials grant; `refreshToken` and `redirectUri` are null because this flow has neither. */
 export function storedTokenFromClientCredentials(
   token: TokenResponse,
   tokenEndpoint: string,
@@ -48,6 +56,7 @@ export function storedTokenFromClientCredentials(
   };
 }
 
+/** Build a {@link StoredToken} from a PKCE login, carrying the refresh token and redirect URI needed for later refreshes. */
 export function storedTokenFromPkceLogin(options: {
   token: TokenResponse;
   tokenEndpoint: string;
@@ -86,6 +95,7 @@ function storedTokenToJson(token: StoredToken): Record<string, unknown> {
   };
 }
 
+/** Persist a token to disk with 0600 permissions (owner read/write only); creates parent directories with 0700. */
 export function saveToken(filePath: string, token: StoredToken): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
   fs.writeFileSync(filePath, JSON.stringify(storedTokenToJson(token), null, 2), {
@@ -94,6 +104,7 @@ export function saveToken(filePath: string, token: StoredToken): void {
   });
 }
 
+/** Load a stored token from disk. Returns null if the file is missing, unreadable, malformed JSON, or fails validation. */
 export function loadToken(filePath: string): StoredToken | null {
   if (!fs.existsSync(filePath)) return null;
 

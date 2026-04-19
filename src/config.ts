@@ -10,6 +10,7 @@ const DEFAULT_WEBSOCKET_URL = "wss://main-ws.dev.robotnet.works";
 const DEFAULT_ENVIRONMENT = "dev";
 const DEFAULT_PROFILE = "default";
 
+/** XDG-compliant filesystem locations the CLI uses for config, state, logs, and runtime files. */
 export interface CLIPaths {
   readonly configDir: string;
   readonly stateDir: string;
@@ -17,6 +18,7 @@ export interface CLIPaths {
   readonly runDir: string;
 }
 
+/** Fully resolved CLI configuration: profile, environment, endpoints, and filesystem paths. */
 export interface CLIConfig {
   readonly profile: string;
   readonly environment: string;
@@ -37,6 +39,7 @@ function xdgPath(envVar: string, defaultSuffix: string): string {
   return path.join(os.homedir(), defaultSuffix);
 }
 
+/** Resolve XDG-compliant default paths for the given profile; non-default profiles nest under a `profiles/` subdir. */
 export function defaultPaths(profile: string = DEFAULT_PROFILE): CLIPaths {
   const baseConfigDir = path.join(xdgPath("XDG_CONFIG_HOME", ".config"), "robonet");
   const baseStateDir = path.join(xdgPath("XDG_STATE_HOME", ".local/state"), "robonet");
@@ -96,6 +99,7 @@ function resolveProfileName(profileName?: string): string {
   );
 }
 
+/** Load configuration for the given profile, merging (in precedence order) env vars, `config.json`, and built-in defaults. */
 export function loadConfig(profileName?: string): CLIConfig {
   const profile = resolveProfileName(profileName);
   const paths = defaultPaths(profile);
@@ -136,6 +140,7 @@ export function loadConfig(profileName?: string): CLIConfig {
   };
 }
 
+/** Serialize a config to a snake_case JSON object suitable for machine-readable output. */
 export function configToJson(config: CLIConfig): Record<string, unknown> {
   return {
     profile: config.profile,
@@ -157,6 +162,7 @@ export function configToJson(config: CLIConfig): Record<string, unknown> {
   };
 }
 
+/** Flatten a config into a single-level string map for human-readable display (e.g. `robonet config show`). */
 export function configToHumanPayload(config: CLIConfig): Record<string, string> {
   return {
     environment: config.environment,

@@ -1,10 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+/** Health state for the listener daemon. `starting` → `connected` → `reconnecting` on drop → `stopped` on shutdown. */
 export type DaemonHealth = "starting" | "connected" | "reconnecting" | "stopped";
 
 const VALID_HEALTH_VALUES = new Set<string>(["starting", "connected", "reconnecting", "stopped"]);
 
+/** Serialized state of the listener daemon, persisted to `daemon.json` between `start`/`status`/`stop` invocations. All timestamps are epoch milliseconds. */
 export interface DaemonState {
   readonly pid: number | null;
   readonly health: DaemonHealth;
@@ -17,10 +19,12 @@ export interface DaemonState {
   readonly logFile: string;
 }
 
+/** Current time as epoch milliseconds; exported so daemon code uses a single time source. */
 export function epochMillis(): number {
   return Date.now();
 }
 
+/** Serialize daemon state to a snake_case JSON object matching the on-disk schema. */
 export function daemonStateToJson(state: DaemonState): Record<string, unknown> {
   return {
     pid: state.pid,
@@ -35,6 +39,7 @@ export function daemonStateToJson(state: DaemonState): Record<string, unknown> {
   };
 }
 
+/** Persist daemon state to disk with 0600 permissions; creates parent directories with 0700. */
 export function saveDaemonState(filePath: string, state: DaemonState): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
   fs.writeFileSync(filePath, JSON.stringify(daemonStateToJson(state), null, 2), {
@@ -43,6 +48,7 @@ export function saveDaemonState(filePath: string, state: DaemonState): void {
   });
 }
 
+/** Load daemon state from disk. Returns null if the file is missing, unreadable, or fails validation — callers treat this as "no daemon ever started". */
 export function loadDaemonState(filePath: string): DaemonState | null {
   if (!fs.existsSync(filePath)) return null;
 

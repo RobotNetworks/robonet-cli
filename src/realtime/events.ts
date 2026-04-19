@@ -1,11 +1,13 @@
 import { extractSenderRef } from "../api/models.js";
 
+/** A normalized realtime event: `eventType` and `data` are parsed, `raw` preserves the original WebSocket payload. */
 export interface RealtimeEvent {
   readonly eventType: string;
   readonly data: Record<string, unknown>;
   readonly raw: Record<string, unknown>;
 }
 
+/** Parse a raw WebSocket frame into a {@link RealtimeEvent}, or return null if it lacks a string `type` field. */
 export function realtimeEventFromPayload(
   payload: Record<string, unknown>,
 ): RealtimeEvent | null {
@@ -22,6 +24,7 @@ export function realtimeEventFromPayload(
   };
 }
 
+/** Render a realtime event as a single compact log line. Known event types (`message.created`, `thread.created`, `contact.request`, `pong`) get structured summaries; unknown types fall back to the type name. */
 export function summarizeEvent(event: RealtimeEvent): string {
   if (event.eventType === "message.created") {
     const senderRef = extractSenderRef(event.data.sender);

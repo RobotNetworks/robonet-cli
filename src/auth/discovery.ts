@@ -1,6 +1,7 @@
 import { DISCOVERY_TIMEOUT_MS, type EndpointConfig } from "../endpoints.js";
 import { DiscoveryError } from "../errors.js";
 
+/** Resolved OAuth endpoints plus the resource identifiers for each RoboNet surface (API, MCP, WebSocket). */
 export interface OAuthDiscovery {
   readonly authorizationEndpoint: string;
   readonly tokenEndpoint: string;
@@ -10,6 +11,7 @@ export interface OAuthDiscovery {
   readonly websocketResource: string | null;
 }
 
+/** Return the resource identifier to request for a WebSocket token, falling back to the API resource. Throws {@link DiscoveryError} if neither is available. */
 export function websocketOrApiResource(discovery: OAuthDiscovery): string {
   if (discovery.websocketResource) return discovery.websocketResource;
   if (discovery.apiResource) return discovery.apiResource;
@@ -23,6 +25,11 @@ function origin(url: string): string {
   return `${parsed.protocol}//${parsed.host}`;
 }
 
+/**
+ * Perform OAuth 2.0 discovery by fetching the protected-resource and
+ * authorization-server metadata documents. Throws {@link DiscoveryError} on
+ * network failure or missing required metadata fields.
+ */
 export async function discoverOAuth(
   endpoints: EndpointConfig,
 ): Promise<OAuthDiscovery> {

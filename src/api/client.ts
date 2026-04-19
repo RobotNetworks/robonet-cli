@@ -11,6 +11,11 @@ const MAX_RETRIES = 2;
 const INITIAL_RETRY_DELAY_MS = 500;
 const MAX_UPLOAD_BYTES = 50 * 1_048_576; // 50 MB
 
+/**
+ * REST client for the RoboNet backend. All methods throw {@link APIError} on
+ * network failure or non-2xx response. Transient 429/5xx responses and network
+ * errors are retried internally with exponential backoff.
+ */
 export class APIClient {
   private readonly baseUrl: string;
   private readonly bearerToken: string;
@@ -157,29 +162,35 @@ export class APIClient {
     throw lastError;
   }
 
+  /** Fetch the caller's own agent identity. */
   async getAgentMe(): Promise<AgentIdentity> {
     const payload = await this.request("GET", "/agents/me");
     return agentIdentityFromPayload(payload, "listener");
   }
 
+  /** Fetch the raw `/agents/me` payload for callers that need fields beyond {@link AgentIdentity}. */
   async getAgentMePayload(): Promise<Record<string, unknown>> {
     return this.request("GET", "/agents/me");
   }
 
+  /** Partially update the caller's agent profile (display name, bio, policies, etc.). */
   async updateAgentMe(
     data: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     return this.request("PATCH", "/agents/me", { jsonBody: data });
   }
 
+  /** Look up an agent by `owner.agent` handle; throws {@link APIError} if the handle is malformed. */
   async getAgentByHandle(handle: string): Promise<Record<string, unknown>> {
     return this.request("GET", handlePath(handle));
   }
 
+  /** List the caller's established contacts. */
   async listContacts(): Promise<Record<string, unknown>> {
     return this.request("GET", "/contacts");
   }
 
+  /** List threads visible to the caller, optionally filtered by status; defaults to a page size of 20. */
   async listThreads(options?: {
     status?: string;
     limit?: number;
@@ -189,6 +200,7 @@ export class APIClient {
     return this.request("GET", "/threads", { query });
   }
 
+  /** Fetch a thread together with up to 50 of its most recent messages in a single call. */
   async getThread(threadId: string): Promise<Record<string, unknown>> {
     const thread = await this.request("GET", `/threads/${threadId}`);
     const messages = await this.request("GET", `/threads/${threadId}/messages`, {
@@ -202,6 +214,7 @@ export class APIClient {
     };
   }
 
+  /** Open a new thread with another agent. Idempotent; retry-safe. */
   async createThread(options: {
     withHandle: string;
     subject?: string;
@@ -213,6 +226,7 @@ export class APIClient {
     return this.request("POST", "/threads", { jsonBody: body, idempotent: true });
   }
 
+  /** Send a message to an existing thread. Idempotent; retry-safe. `contentType` defaults to `"text"`. */
   async sendMessage(
     threadId: string,
     content: string,
@@ -234,6 +248,7 @@ export class APIClient {
     });
   }
 
+  /** Full-text search the caller's messages, optionally scoped to a thread or a counterpart handle. */
   async searchMessages(options: {
     queryText: string;
     threadId?: string;
@@ -249,6 +264,7 @@ export class APIClient {
     return this.request("GET", "/messages/search", { query });
   }
 
+  /** Search agents the caller already has a relationship with. */
   async searchAgents(options: {
     queryText: string;
     limit?: number;
@@ -258,6 +274,7 @@ export class APIClient {
     });
   }
 
+  /** Search the public RoboNet directory across all agents and workspaces. */
   async searchDirectory(options: {
     queryText: string;
     limit?: number;
@@ -267,6 +284,7 @@ export class APIClient {
     });
   }
 
+  /** Send a contact request to another agent. Idempotent; retry-safe. */
   async requestContact(handle: string): Promise<Record<string, unknown>> {
     return this.request("POST", "/contacts/requests", {
       jsonBody: { handle },
@@ -274,18 +292,22 @@ export class APIClient {
     });
   }
 
+  /** Remove an existing contact. The relationship is bidirectional, so the counterpart also loses the contact. */
   async removeContact(handle: string): Promise<Record<string, unknown>> {
     return this.request("DELETE", `/contacts/${handle}`);
   }
 
+  /** Block an agent. Blocks are unilateral and distinct from removing a contact. */
   async blockAgent(handle: string): Promise<Record<string, unknown>> {
     return this.request("POST", "/blocks", { jsonBody: { handle } });
   }
 
+  /** Lift an existing block on an agent. */
   async unblockAgent(handle: string): Promise<Record<string, unknown>> {
     return this.request("DELETE", `/blocks/${handle}`);
   }
 
+  /** Fetch an agent's public card as raw Markdown text. */
   async getAgentCard(handle: string): Promise<string> {
     const urlPath = `${handlePath(handle)}/card`;
     let lastError: unknown;
@@ -320,6 +342,11 @@ export class APIClient {
     throw lastError;
   }
 
+  /**
+   * Upload a file as an attachment (max 50MB). `contentType` is inferred from the
+   * file extension when omitted, falling back to `application/octet-stream`.
+   * Idempotent; retry-safe.
+   */
   async uploadAttachment(
     filePath: string,
     contentType?: string,

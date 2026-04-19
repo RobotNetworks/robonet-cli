@@ -1,33 +1,25 @@
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_INITIAL_DELAY_MS = 500;
 
+/** Options controlling retry cadence; both fields are optional and fall back to module defaults. */
 export interface RetryOptions {
   readonly maxRetries?: number;
   readonly initialDelayMs?: number;
 }
 
-/**
- * Returns true if the HTTP status code is transient and safe to retry.
- * 429 = rate limited, 502/503/504 = upstream/infrastructure errors.
- */
+/** True for transient HTTP statuses safe to retry: 429 (rate limited), 502/503/504 (upstream/infra). */
 export function isRetryableStatus(status: number): boolean {
   return status === 429 || status === 502 || status === 503 || status === 504;
 }
 
-/**
- * Returns true if the error is a network-level failure (not an HTTP response).
- * Covers DNS failures, connection resets, and timeouts from AbortSignal.timeout.
- */
+/** True for network-level fetch failures (DNS, connection reset) and AbortSignal.timeout errors. */
 export function isRetryableNetworkError(err: unknown): boolean {
   if (err instanceof TypeError) return true; // fetch network errors
   if (err instanceof DOMException && err.name === "TimeoutError") return true;
   return false;
 }
 
-/**
- * Execute an async function with retry on transient failures.
- * Uses exponential backoff with jitter.
- */
+/** Execute an async function with exponential-backoff-with-jitter retry on transient network failures. */
 export async function withRetry<T>(
   fn: () => Promise<T>,
   options?: RetryOptions,

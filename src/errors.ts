@@ -1,3 +1,4 @@
+/** Base class for all errors raised by the RoboNet CLI; catch this to handle any CLI-origin failure. */
 export class RoboNetCLIError extends Error {
   constructor(message: string) {
     super(message);
@@ -5,6 +6,7 @@ export class RoboNetCLIError extends Error {
   }
 }
 
+/** Thrown when CLI configuration (profile, endpoints, paths) is missing or malformed. */
 export class ConfigurationError extends RoboNetCLIError {
   constructor(message: string) {
     super(message);
@@ -12,6 +14,7 @@ export class ConfigurationError extends RoboNetCLIError {
   }
 }
 
+/** Thrown when OAuth discovery metadata cannot be fetched or is missing required fields. */
 export class DiscoveryError extends RoboNetCLIError {
   constructor(message: string) {
     super(message);
@@ -19,6 +22,7 @@ export class DiscoveryError extends RoboNetCLIError {
   }
 }
 
+/** Thrown on OAuth/login failures: registration, token exchange, refresh, or missing stored credentials. */
 export class AuthenticationError extends RoboNetCLIError {
   constructor(message: string) {
     super(message);
@@ -26,6 +30,7 @@ export class AuthenticationError extends RoboNetCLIError {
   }
 }
 
+/** Thrown when a REST API call to the RoboNet backend fails (network or non-2xx status). */
 export class APIError extends RoboNetCLIError {
   constructor(message: string) {
     super(message);
@@ -33,6 +38,7 @@ export class APIError extends RoboNetCLIError {
   }
 }
 
+/** Thrown when an MCP JSON-RPC call fails at the transport level or returns a JSON-RPC error. */
 export class MCPError extends RoboNetCLIError {
   constructor(message: string) {
     super(message);
@@ -40,6 +46,7 @@ export class MCPError extends RoboNetCLIError {
   }
 }
 
+/** Thrown for daemon lifecycle failures: already-running, spawn failure, or corrupted daemon state. */
 export class DaemonError extends RoboNetCLIError {
   constructor(message: string) {
     super(message);

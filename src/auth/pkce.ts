@@ -10,6 +10,7 @@ import { AuthenticationError } from "../errors.js";
 const DEFAULT_LOOPBACK_REDIRECT_URI = "http://127.0.0.1:8788/callback";
 const DEFAULT_PUBLIC_CLIENT_NAME = "robonet-cli";
 
+/** Result of a successful PKCE login: the API access token plus the long-lived data needed to refresh it. */
 export interface PKCELoginResult {
   readonly token: TokenResponse;
   readonly refreshToken: string;
@@ -18,6 +19,11 @@ export interface PKCELoginResult {
   readonly tokenEndpoint: string;
 }
 
+/**
+ * Drive a full OAuth 2.0 PKCE browser login: dynamic client registration,
+ * authorization URL, loopback callback, and code exchange. Throws
+ * {@link AuthenticationError} on user cancel, state mismatch, or network failure.
+ */
 export async function performPkceLogin(options: {
   endpoints: EndpointConfig;
   discovery: OAuthDiscovery;
@@ -178,6 +184,11 @@ async function requestAuthorizationCodeToken(options: {
   };
 }
 
+/**
+ * Exchange a refresh token for a fresh access token plus a rotated refresh token.
+ * The returned `refreshToken` replaces the one passed in. Throws
+ * {@link AuthenticationError} if the server omits the new refresh token or rejects the request.
+ */
 export async function requestRefreshTokenExchange(options: {
   tokenEndpoint: string;
   clientId: string;

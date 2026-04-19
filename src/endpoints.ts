@@ -7,6 +7,7 @@ export const MCP_TIMEOUT_MS = 30_000;
 /** Timeout for lightweight discovery/health requests. */
 export const DISCOVERY_TIMEOUT_MS = 10_000;
 
+/** Base URLs for the four RoboNet service surfaces the CLI talks to. */
 export interface EndpointConfig {
   readonly apiBaseUrl: string;
   readonly mcpBaseUrl: string;

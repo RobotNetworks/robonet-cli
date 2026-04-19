@@ -9,6 +9,12 @@ import { createRequire } from "node:module";
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 const VERSION = pkg.version;
 
+/**
+ * JSON-RPC 2.0 client for RoboNet's MCP (Model Context Protocol) endpoint.
+ * Handles the MCP session handshake, caches the session ID, and retries
+ * transient failures. All methods throw {@link MCPError} on transport or
+ * RPC-level errors.
+ */
 export class MCPClient {
   private readonly baseUrl: string;
   private readonly bearerToken: string;
@@ -24,6 +30,7 @@ export class MCPClient {
     return this.baseUrl.endsWith("/mcp") ? this.baseUrl : `${this.baseUrl}/mcp`;
   }
 
+  /** Perform the MCP `initialize` handshake if it hasn't been done yet; safe to call multiple times. */
   async initialize(): Promise<void> {
     if (this.sessionId) return;
     await this.rpc("initialize", {
@@ -33,6 +40,7 @@ export class MCPClient {
     });
   }
 
+  /** List the tools exposed by the MCP server, auto-initializing the session if needed. */
   async listTools(): Promise<Record<string, unknown>[]> {
     await this.initialize();
     const result = await this.rpc("tools/list");
@@ -43,6 +51,11 @@ export class MCPClient {
     );
   }
 
+  /**
+   * Invoke an MCP tool and return its structured result. If the tool responds
+   * with a single text content block that contains JSON, the JSON is parsed and
+   * returned directly (with `_meta` preserved); otherwise raw text is wrapped as `{ raw: ... }`.
+   */
   async callTool(
     name: string,
     args: Record<string, unknown>,

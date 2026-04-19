@@ -12,12 +12,14 @@ const PID_FILE_NAME = "robonet.pid";
 const MAX_LOG_BYTES = 5 * 1_048_576; // 5 MB
 const LOG_FILE_NAME = "listener.log";
 
+/** Filesystem locations of the three files the daemon uses: JSON state, PID file, and rolling log. */
 export interface DaemonPaths {
   readonly stateFile: string;
   readonly pidFile: string;
   readonly logFile: string;
 }
 
+/** Compute daemon file locations from a CLI config (state and PID under `runDir`, log under `logsDir`). */
 export function resolveDaemonPaths(config: CLIConfig): DaemonPaths {
   return {
     stateFile: path.join(config.paths.runDir, STATE_FILE_NAME),
@@ -47,6 +49,10 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Spawn the listener as a detached background process. Throws {@link DaemonError}
+ * if a daemon is already running or the child process fails to spawn.
+ */
 export function startDaemon(options: {
   config: CLIConfig;
   clientId: string | null;
@@ -120,6 +126,11 @@ export function startDaemon(options: {
   return { pid, paths };
 }
 
+/**
+ * Stop the running daemon with SIGTERM, escalating to SIGKILL after `waitTimeoutSeconds`
+ * (default 5). Returns the final persisted state, or null if no daemon was recorded.
+ * On Windows, termination is always immediate because there is no SIGTERM equivalent.
+ */
 export function stopDaemon(options: {
   config: CLIConfig;
   waitTimeoutSeconds?: number;
@@ -155,6 +166,7 @@ export function stopDaemon(options: {
   return stoppedState;
 }
 
+/** Stop any running daemon and start a new one with the given credentials. */
 export function restartDaemon(options: {
   config: CLIConfig;
   clientId: string | null;
@@ -165,6 +177,7 @@ export function restartDaemon(options: {
   return startDaemon(options);
 }
 
+/** Load the daemon's persisted state, reconciling it with the actual process: if the recorded PID is dead, the state is updated to `stopped` on disk. */
 export function loadStatus(config: CLIConfig): DaemonState | null {
   const paths = resolveDaemonPaths(config);
   const state = loadDaemonState(paths.stateFile);
@@ -187,6 +200,7 @@ function rotateLogIfNeeded(logFile: string): void {
   }
 }
 
+/** Read the last `lines` lines of the daemon log file. Returns an empty array if the file cannot be opened. Reads at most 64KB from the end, so very long lines may be dropped. */
 export function readLogTail(logFile: string, lines: number = 50): string[] {
   let fd: number;
   try {

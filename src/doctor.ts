@@ -3,12 +3,14 @@ import { loadToken } from "./auth/token-store.js";
 import type { CLIConfig } from "./config.js";
 import { DISCOVERY_TIMEOUT_MS } from "./endpoints.js";
 
+/** Result of a single diagnostic check: stable machine-readable `name`, pass/fail `ok`, and a human-readable `detail`. */
 export interface DoctorCheck {
   readonly name: string;
   readonly ok: boolean;
   readonly detail: string;
 }
 
+/** Run the full diagnostic suite: config paths, endpoint reachability, OAuth discovery, and stored auth. Never throws — failures are surfaced as `ok: false` check entries. */
 export async function runDoctor(config: CLIConfig): Promise<DoctorCheck[]> {
   const checks: DoctorCheck[] = [];
 
