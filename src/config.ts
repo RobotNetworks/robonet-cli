@@ -3,11 +3,11 @@ import * as path from "node:path";
 import * as os from "node:os";
 import type { EndpointConfig } from "./endpoints.js";
 
-const DEFAULT_API_BASE_URL = "https://main-api.dev.robotnet.works/v1";
-const DEFAULT_MCP_BASE_URL = "https://main-mcp.dev.robotnet.works/mcp";
-const DEFAULT_AUTH_BASE_URL = "https://main-auth.dev.robotnet.works";
-const DEFAULT_WEBSOCKET_URL = "wss://main-ws.dev.robotnet.works";
-const DEFAULT_ENVIRONMENT = "dev";
+const DEFAULT_API_BASE_URL = "https://api.robotnet.works/v1";
+const DEFAULT_MCP_BASE_URL = "https://mcp.robotnet.works/mcp";
+const DEFAULT_AUTH_BASE_URL = "https://auth.robotnet.works";
+const DEFAULT_WEBSOCKET_URL = "wss://ws.robotnet.works";
+const DEFAULT_ENVIRONMENT = "prod";
 const DEFAULT_PROFILE = "default";
 
 /** XDG-compliant filesystem locations the CLI uses for config, state, logs, and runtime files. */
