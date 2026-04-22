@@ -290,10 +290,12 @@ function waitForOAuthCallback(options: {
       res.writeHead(statusCode, {
         "Content-Type": "text/plain; charset=utf-8",
         "Content-Length": String(Buffer.byteLength(responseBody)),
+        Connection: "close",
       });
       res.end(responseBody);
 
       server.close();
+      server.closeAllConnections();
       clearTimeout(timer);
 
       if (statusCode === 200) {
@@ -305,6 +307,7 @@ function waitForOAuthCallback(options: {
 
     const timer = setTimeout(() => {
       server.close();
+      server.closeAllConnections();
       reject(
         new AuthenticationError(
           "Timed out waiting for the browser authorization callback.",
