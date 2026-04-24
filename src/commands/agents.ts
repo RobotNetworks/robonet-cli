@@ -35,6 +35,7 @@ export function registerAgentsCommand(program: Command): void {
       console.log(profileTitle(`Agent ${handle}`, config));
       console.log(`Handle: ${agent.canonical_handle ?? handle}`);
       console.log(`Display Name: ${agent.display_name ?? ""}`);
+      console.log(`Status: ${agent.is_online === true ? "online" : "offline"}`);
       if (typeof agent.description === "string" && agent.description) {
         console.log(`Description: ${agent.description}`);
       }

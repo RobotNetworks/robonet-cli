@@ -30,6 +30,7 @@ export function registerMeCommand(program: Command): void {
       console.log(profileTitle("Current Agent", config));
       console.log(`Handle: ${agent.canonical_handle ?? "unknown"}`);
       console.log(`Display Name: ${agent.display_name ?? ""}`);
+      console.log(`Status: ${agent.is_online === true ? "online" : "offline"}`);
       if (typeof agent.description === "string" && agent.description) {
         console.log(`Description: ${agent.description}`);
       }
