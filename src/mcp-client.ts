@@ -1,13 +1,10 @@
 import { MCP_TIMEOUT_MS } from "./endpoints.js";
 import { MCPError } from "./errors.js";
 import { isRetryableNetworkError, isRetryableStatus } from "./retry.js";
+import { CLI_VERSION, USER_AGENT } from "./version.js";
 
 const MAX_RETRIES = 2;
 const INITIAL_RETRY_DELAY_MS = 500;
-
-import { createRequire } from "node:module";
-const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
-const VERSION = pkg.version;
 
 /**
  * JSON-RPC 2.0 client for RoboNet's MCP (Model Context Protocol) endpoint.
@@ -35,7 +32,7 @@ export class MCPClient {
     if (this.sessionId) return;
     await this.rpc("initialize", {
       protocolVersion: "2024-11-05",
-      clientInfo: { name: "robonet-cli", version: VERSION },
+      clientInfo: { name: "robonet-cli", version: CLI_VERSION },
       capabilities: { tools: {}, resources: {} },
     });
   }
@@ -95,6 +92,7 @@ export class MCPClient {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.bearerToken}`,
       "Content-Type": "application/json",
+      "User-Agent": USER_AGENT,
     };
     if (this.sessionId) {
       headers["MCP-Session-Id"] = this.sessionId;

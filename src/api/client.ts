@@ -6,6 +6,7 @@ import { agentIdentityFromPayload } from "./models.js";
 import { REQUEST_TIMEOUT_MS } from "../endpoints.js";
 import { APIError } from "../errors.js";
 import { isRetryableNetworkError, isRetryableStatus } from "../retry.js";
+import { USER_AGENT } from "../version.js";
 
 const MAX_RETRIES = 2;
 const INITIAL_RETRY_DELAY_MS = 500;
@@ -43,6 +44,7 @@ export class APIClient {
 
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.bearerToken}`,
+      "User-Agent": USER_AGENT,
     };
     if (options?.idempotent) {
       headers["Idempotency-Key"] = crypto.randomUUID();

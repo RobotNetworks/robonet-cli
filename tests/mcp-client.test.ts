@@ -2,6 +2,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
 import { MCPClient } from "../src/mcp-client.js";
 import { MCPError } from "../src/errors.js";
+import { USER_AGENT } from "../src/version.js";
 
 describe("MCPClient", () => {
   let originalFetch: typeof globalThis.fetch;
@@ -44,6 +45,24 @@ describe("MCPClient", () => {
     assert.equal(body.method, "initialize");
     assert.equal(body.jsonrpc, "2.0");
     assert.ok(body.params.clientInfo);
+  });
+
+  it("sets User-Agent header on outbound RPC requests", async () => {
+    const captured: { init: RequestInit }[] = [];
+
+    globalThis.fetch = async (_input, init) => {
+      captured.push({ init: init! });
+      return new Response(
+        JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }),
+        { status: 200, headers: { "MCP-Session-Id": "session-xyz" } },
+      );
+    };
+
+    const client = new MCPClient("https://mcp.example.test/mcp", "bearer-token");
+    await client.initialize();
+
+    const headers = captured[0].init.headers as Record<string, string>;
+    assert.equal(headers["User-Agent"], USER_AGENT);
   });
 
   it("initialize is idempotent", async () => {

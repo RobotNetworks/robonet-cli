@@ -2,6 +2,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
 import { APIClient } from "../src/api/client.js";
 import { APIError } from "../src/errors.js";
+import { USER_AGENT } from "../src/version.js";
 
 describe("APIClient", () => {
   let originalFetch: typeof globalThis.fetch;
@@ -35,6 +36,21 @@ describe("APIClient", () => {
       (captured[0].init.headers as Record<string, string>).Authorization,
       "Bearer bearer-token",
     );
+  });
+
+  it("sets User-Agent header on outbound requests", async () => {
+    const captured: { init: RequestInit }[] = [];
+
+    globalThis.fetch = async (_input, init) => {
+      captured.push({ init: init! });
+      return new Response(JSON.stringify({ threads: [] }), { status: 200 });
+    };
+
+    const client = new APIClient("https://api.example.test/v1", "bearer-token");
+    await client.listThreads({});
+
+    const headers = captured[0].init.headers as Record<string, string>;
+    assert.equal(headers["User-Agent"], USER_AGENT);
   });
 
   it("send_message adds idempotency key", async () => {
