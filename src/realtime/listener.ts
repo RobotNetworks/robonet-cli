@@ -64,12 +64,14 @@ export async function listenForever(options: {
   logger: LogFn;
   stateCallback?: StateFn;
   heartbeatIntervalSeconds?: number;
+  verbose?: boolean;
 }): Promise<void> {
   const {
     sessionFactory,
     logger,
     stateCallback,
     heartbeatIntervalSeconds = DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+    verbose = false,
   } = options;
   let reconnectDelay = DEFAULT_RECONNECT_DELAY_SECONDS;
 
@@ -90,6 +92,7 @@ export async function listenForever(options: {
         logger,
         stateCallback,
         heartbeatIntervalSeconds,
+        verbose,
       });
       reconnectDelay = DEFAULT_RECONNECT_DELAY_SECONDS;
     } catch (err) {
@@ -112,9 +115,16 @@ function listenOnce(options: {
   logger: LogFn;
   stateCallback?: StateFn;
   heartbeatIntervalSeconds: number;
+  verbose: boolean;
 }): Promise<void> {
-  const { websocketUrl, bearerToken, logger, stateCallback, heartbeatIntervalSeconds } =
-    options;
+  const {
+    websocketUrl,
+    bearerToken,
+    logger,
+    stateCallback,
+    heartbeatIntervalSeconds,
+    verbose,
+  } = options;
 
   return new Promise<void>((resolve, reject) => {
     const ws = new WebSocket(websocketUrl, {
@@ -131,7 +141,7 @@ function listenOnce(options: {
       heartbeatTimer = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "ping" }));
-          log("Ping sent", logger);
+          if (verbose) log("Ping sent", logger);
         }
       }, heartbeatIntervalSeconds * 1000);
     });
@@ -151,6 +161,7 @@ function listenOnce(options: {
       const event = realtimeEventFromPayload(payload as Record<string, unknown>);
       if (!event) return;
       stateCallback?.("connected", null, null, Date.now());
+      if (event.eventType === "pong" && !verbose) return;
       log(`Event ${summarizeEvent(event)}`, logger);
     });
 

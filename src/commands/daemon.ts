@@ -257,6 +257,7 @@ export function registerListenCommand(program: Command): void {
     .addOption(clientIdOption())
     .addOption(clientSecretOption())
     .addOption(scopeOption())
+    .option("-v, --verbose", "Log connection-keepalive heartbeats (ping/pong)")
     .action(async (opts, cmd) => {
       const config = loadConfig(cmd.parent?.opts().profile);
       const { clientId, clientSecret } = await resolveCredentials(config, opts);
@@ -270,6 +271,7 @@ export function registerListenCommand(program: Command): void {
             scope: opts.scope,
           }),
         logger: (message) => console.log(message),
+        verbose: Boolean(opts.verbose),
       });
     });
 }
