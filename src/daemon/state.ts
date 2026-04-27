@@ -1,10 +1,21 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-/** Health state for the listener daemon. `starting` → `connected` → `reconnecting` on drop → `stopped` on shutdown. */
-export type DaemonHealth = "starting" | "connected" | "reconnecting" | "stopped";
+/** Health state for the listener daemon. `starting` → `connected` → `reconnecting` on transient drop → `stopped` on shutdown, or `auth_failed` when the stored credential is server-rejected and re-login is required. */
+export type DaemonHealth =
+  | "starting"
+  | "connected"
+  | "reconnecting"
+  | "stopped"
+  | "auth_failed";
 
-const VALID_HEALTH_VALUES = new Set<string>(["starting", "connected", "reconnecting", "stopped"]);
+const VALID_HEALTH_VALUES = new Set<string>([
+  "starting",
+  "connected",
+  "reconnecting",
+  "stopped",
+  "auth_failed",
+]);
 
 /** Serialized state of the listener daemon, persisted to `daemon.json` between `start`/`status`/`stop` invocations. All timestamps are epoch milliseconds. */
 export interface DaemonState {

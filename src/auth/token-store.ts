@@ -95,6 +95,16 @@ function storedTokenToJson(token: StoredToken): Record<string, unknown> {
   };
 }
 
+/** Remove the stored token file if it exists. No-op if the file is missing. */
+export function deleteToken(filePath: string): void {
+  try {
+    fs.unlinkSync(filePath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
+}
+
 /** Persist a token to disk with 0600 permissions (owner read/write only); creates parent directories with 0700. */
 export function saveToken(filePath: string, token: StoredToken): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });

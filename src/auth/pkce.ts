@@ -5,7 +5,11 @@ import { tokenResponseFromBody, DEFAULT_SCOPES } from "./client-credentials.js";
 import type { OAuthDiscovery } from "./discovery.js";
 import type { EndpointConfig } from "../endpoints.js";
 import { REQUEST_TIMEOUT_MS } from "../endpoints.js";
-import { AuthenticationError } from "../errors.js";
+import {
+  AuthenticationError,
+  FatalAuthError,
+  TransientAuthError,
+} from "../errors.js";
 
 const DEFAULT_LOOPBACK_REDIRECT_URI = "http://127.0.0.1:8788/callback";
 const DEFAULT_PUBLIC_CLIENT_NAME = "robonet-cli";
@@ -187,7 +191,9 @@ async function requestAuthorizationCodeToken(options: {
 /**
  * Exchange a refresh token for a fresh access token plus a rotated refresh token.
  * The returned `refreshToken` replaces the one passed in. Throws
- * {@link AuthenticationError} if the server omits the new refresh token or rejects the request.
+ * {@link FatalAuthError} when the stored refresh token has been server-rejected
+ * (most 4xx responses — the credential is dead and must be discarded), or
+ * {@link TransientAuthError} for retryable upstream failures (5xx, 408, 429).
  */
 export async function requestRefreshTokenExchange(options: {
   tokenEndpoint: string;
@@ -214,9 +220,16 @@ export async function requestRefreshTokenExchange(options: {
   });
 
   if (response.status >= 400) {
-    throw new AuthenticationError(
-      `Refresh token exchange failed (${response.status}) at ${options.tokenEndpoint}: ${await response.text()}`,
-    );
+    const detail = await readOAuthErrorDetail(response);
+    const message = `Refresh token exchange failed (${response.status}) at ${options.tokenEndpoint}: ${detail}`;
+    if (
+      response.status === 408 ||
+      response.status === 429 ||
+      response.status >= 500
+    ) {
+      throw new TransientAuthError(message);
+    }
+    throw new FatalAuthError(message);
   }
 
   const body = (await response.json()) as Record<string, unknown>;
@@ -231,6 +244,22 @@ export async function requestRefreshTokenExchange(options: {
     token: tokenResponseFromBody(body, options.resource),
     refreshToken: nextRefreshToken,
   };
+}
+
+async function readOAuthErrorDetail(response: Response): Promise<string> {
+  const raw = await response.text();
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const error = typeof parsed.error === "string" ? parsed.error : null;
+    const description =
+      typeof parsed.error_description === "string" ? parsed.error_description : null;
+    if (error && description) return `${error}: ${description}`;
+    if (description) return description;
+    if (error) return error;
+  } catch {
+    // body was not JSON; fall through to raw text
+  }
+  return raw;
 }
 
 function generatePkcePair(): { verifier: string; challenge: string } {

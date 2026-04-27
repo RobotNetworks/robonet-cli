@@ -59,6 +59,26 @@ describe("loadStatus", () => {
     const result = loadStatus(config);
     assert.equal(result, null);
   });
+
+  it("preserves auth_failed health when the recorded pid is dead", () => {
+    const config = loadConfig();
+    const paths = resolveDaemonPaths(config);
+
+    const state = makeState({
+      pid: 999999,
+      health: "auth_failed",
+      lastError: "Refresh token family revoked",
+      logFile: paths.logFile,
+    });
+    saveDaemonState(paths.stateFile, state);
+
+    const result = loadStatus(config);
+
+    assert.notEqual(result, null);
+    assert.equal(result!.health, "auth_failed");
+    assert.equal(result!.pid, null);
+    assert.equal(result!.lastError, "Refresh token family revoked");
+  });
 });
 
 describe("readLogTail", () => {

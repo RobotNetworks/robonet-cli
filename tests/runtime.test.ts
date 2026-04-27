@@ -13,6 +13,11 @@ import {
   saveToken,
   storedTokenFromPkceLogin,
 } from "../src/auth/token-store.js";
+import {
+  AuthenticationError,
+  FatalAuthError,
+  TransientAuthError,
+} from "../src/errors.js";
 
 const ENDPOINTS = {
   apiBaseUrl: "https://api.example.test/v1",
@@ -229,6 +234,146 @@ describe("runtime auth", () => {
       1,
     );
 
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("resolveApiBearerToken throws FatalAuthError and clears the stored token on a 4xx refresh failure", async () => {
+    const dir = tmpDir();
+    const tokenStorePath = path.join(dir, "auth.json");
+    writePkceToken(tokenStorePath);
+    const stored = loadToken(tokenStorePath);
+    assert.ok(stored);
+    saveToken(tokenStorePath, { ...stored, expiresAt: Date.now() - 1_000 });
+
+    globalThis.fetch = async (input) => {
+      const url = input as string;
+      if (url.endsWith("/.well-known/oauth-protected-resource")) {
+        return Response.json({ resource: "https://api.example.test/v1" });
+      }
+      if (url.endsWith("/.well-known/oauth-authorization-server")) {
+        return Response.json({
+          authorization_endpoint: "https://auth.example.test/authorize",
+          token_endpoint: "https://auth.example.test/token",
+          registration_endpoint: "https://auth.example.test/register",
+          resource_servers: [{ resource: "https://api.example.test/v1" }],
+        });
+      }
+      if (url === "https://auth.example.test/token") {
+        return Response.json(
+          {
+            error: "invalid_grant",
+            error_description: "Refresh token family revoked",
+          },
+          { status: 401 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    };
+
+    await assert.rejects(
+      resolveApiBearerToken({
+        endpoints: ENDPOINTS,
+        tokenStorePath,
+        clientId: null,
+        clientSecret: null,
+      }),
+      (err: unknown) => {
+        assert.ok(err instanceof FatalAuthError);
+        assert.match(err.message, /Refresh token family revoked/);
+        assert.match(err.message, /robonet login/);
+        return true;
+      },
+    );
+
+    assert.equal(fs.existsSync(tokenStorePath), false);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("resolveApiBearerToken throws TransientAuthError and keeps the stored token on a 5xx refresh failure", async () => {
+    const dir = tmpDir();
+    const tokenStorePath = path.join(dir, "auth.json");
+    writePkceToken(tokenStorePath);
+    const stored = loadToken(tokenStorePath);
+    assert.ok(stored);
+    saveToken(tokenStorePath, { ...stored, expiresAt: Date.now() - 1_000 });
+
+    globalThis.fetch = async (input) => {
+      const url = input as string;
+      if (url.endsWith("/.well-known/oauth-protected-resource")) {
+        return Response.json({ resource: "https://api.example.test/v1" });
+      }
+      if (url.endsWith("/.well-known/oauth-authorization-server")) {
+        return Response.json({
+          authorization_endpoint: "https://auth.example.test/authorize",
+          token_endpoint: "https://auth.example.test/token",
+          registration_endpoint: "https://auth.example.test/register",
+          resource_servers: [{ resource: "https://api.example.test/v1" }],
+        });
+      }
+      if (url === "https://auth.example.test/token") {
+        return new Response("upstream timeout", { status: 503 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    };
+
+    await assert.rejects(
+      resolveApiBearerToken({
+        endpoints: ENDPOINTS,
+        tokenStorePath,
+        clientId: null,
+        clientSecret: null,
+      }),
+      (err: unknown) => {
+        assert.ok(err instanceof TransientAuthError);
+        assert.ok(!(err instanceof AuthenticationError));
+        return true;
+      },
+    );
+
+    assert.equal(fs.existsSync(tokenStorePath), true);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("resolveApiBearerToken treats a 429 from refresh as transient and keeps the stored token", async () => {
+    // 429 (rate limit) must NOT delete the stored token — the CLI should
+    // back off and retry rather than force the user to re-login.
+    const dir = tmpDir();
+    const tokenStorePath = path.join(dir, "auth.json");
+    writePkceToken(tokenStorePath);
+    const stored = loadToken(tokenStorePath);
+    assert.ok(stored);
+    saveToken(tokenStorePath, { ...stored, expiresAt: Date.now() - 1_000 });
+
+    globalThis.fetch = async (input) => {
+      const url = input as string;
+      if (url.endsWith("/.well-known/oauth-protected-resource")) {
+        return Response.json({ resource: "https://api.example.test/v1" });
+      }
+      if (url.endsWith("/.well-known/oauth-authorization-server")) {
+        return Response.json({
+          authorization_endpoint: "https://auth.example.test/authorize",
+          token_endpoint: "https://auth.example.test/token",
+          registration_endpoint: "https://auth.example.test/register",
+          resource_servers: [{ resource: "https://api.example.test/v1" }],
+        });
+      }
+      if (url === "https://auth.example.test/token") {
+        return new Response("rate limited", { status: 429 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    };
+
+    await assert.rejects(
+      resolveApiBearerToken({
+        endpoints: ENDPOINTS,
+        tokenStorePath,
+        clientId: null,
+        clientSecret: null,
+      }),
+      (err: unknown) => err instanceof TransientAuthError,
+    );
+
+    assert.equal(fs.existsSync(tokenStorePath), true);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });

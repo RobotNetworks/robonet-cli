@@ -9,6 +9,7 @@ import type { OAuthDiscovery } from "./discovery.js";
 import { discoverOAuth, websocketOrApiResource } from "./discovery.js";
 import { requestRefreshTokenExchange } from "./pkce.js";
 import {
+  deleteToken,
   isTokenExpired,
   loadToken,
   saveToken,
@@ -16,8 +17,30 @@ import {
   storedTokenFromPkceLogin,
 } from "./token-store.js";
 import { REQUEST_TIMEOUT_MS, type EndpointConfig } from "../endpoints.js";
-import { AuthenticationError } from "../errors.js";
+import { AuthenticationError, FatalAuthError } from "../errors.js";
 import type { ListenerSession } from "../realtime/listener.js";
+
+/**
+ * Run a refresh-token exchange and translate a `FatalAuthError` into a deleted
+ * stored token plus a user-actionable error. Any other error type passes
+ * through unchanged so the caller can apply transient-error handling.
+ */
+async function refreshOrInvalidate<T>(
+  tokenStorePath: string,
+  exchange: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await exchange();
+  } catch (err) {
+    if (err instanceof FatalAuthError) {
+      deleteToken(tokenStorePath);
+      throw new FatalAuthError(
+        `${err.message}. Stored RoboNet login has been cleared; run \`robonet login\` to re-authenticate.`,
+      );
+    }
+    throw err;
+  }
+}
 
 /**
  * Resolve a complete listener session (API token, WebSocket token, and agent identity)
@@ -96,13 +119,15 @@ export async function resolveMcpBearerToken(options: {
         "The provided client ID does not match the stored RoboNet login.",
       );
     }
-    const { token, refreshToken } = await requestRefreshTokenExchange({
-      tokenEndpoint: stored.tokenEndpoint,
-      clientId: stored.clientId,
-      refreshToken: stored.refreshToken,
-      resource: discovery.mcpResource,
-      scope,
-    });
+    const { token, refreshToken } = await refreshOrInvalidate(tokenStorePath, () =>
+      requestRefreshTokenExchange({
+        tokenEndpoint: stored.tokenEndpoint,
+        clientId: stored.clientId,
+        refreshToken: stored.refreshToken!,
+        resource: discovery.mcpResource,
+        scope,
+      }),
+    );
     const refreshed = storedTokenFromPkceLogin({
       token,
       tokenEndpoint: stored.tokenEndpoint,
@@ -157,13 +182,15 @@ export async function resolveApiBearerToken(options: {
     }
     const discovery = await discoverOAuth(endpoints);
     const apiResource = discovery.apiResource ?? endpoints.apiBaseUrl.replace(/\/+$/, "");
-    const { token, refreshToken } = await requestRefreshTokenExchange({
-      tokenEndpoint: stored.tokenEndpoint,
-      clientId: stored.clientId,
-      refreshToken: stored.refreshToken,
-      resource: apiResource,
-      scope,
-    });
+    const { token, refreshToken } = await refreshOrInvalidate(tokenStorePath, () =>
+      requestRefreshTokenExchange({
+        tokenEndpoint: stored.tokenEndpoint,
+        clientId: stored.clientId,
+        refreshToken: stored.refreshToken!,
+        resource: apiResource,
+        scope,
+      }),
+    );
     const refreshed = storedTokenFromPkceLogin({
       token,
       tokenEndpoint: stored.tokenEndpoint,
@@ -246,13 +273,15 @@ async function resolvePkceSession(options: {
   const wsResource = websocketOrApiResource(discovery);
 
   if (!isTokenExpired(stored)) {
-    const wsResult = await requestRefreshTokenExchange({
-      tokenEndpoint: stored.tokenEndpoint,
-      clientId: stored.clientId,
-      refreshToken: stored.refreshToken,
-      resource: wsResource,
-      scope,
-    });
+    const wsResult = await refreshOrInvalidate(tokenStorePath, () =>
+      requestRefreshTokenExchange({
+        tokenEndpoint: stored.tokenEndpoint,
+        clientId: stored.clientId,
+        refreshToken: stored.refreshToken!,
+        resource: wsResource,
+        scope,
+      }),
+    );
     saveToken(tokenStorePath, {
       ...stored,
       refreshToken: wsResult.refreshToken,
@@ -263,20 +292,24 @@ async function resolvePkceSession(options: {
     return { discovery, apiToken, websocketToken: wsResult.token, identity };
   }
 
-  const apiResult = await requestRefreshTokenExchange({
-    tokenEndpoint: stored.tokenEndpoint,
-    clientId: stored.clientId,
-    refreshToken: stored.refreshToken,
-    resource: apiResource,
-    scope,
-  });
-  const wsResult = await requestRefreshTokenExchange({
-    tokenEndpoint: stored.tokenEndpoint,
-    clientId: stored.clientId,
-    refreshToken: apiResult.refreshToken,
-    resource: wsResource,
-    scope,
-  });
+  const apiResult = await refreshOrInvalidate(tokenStorePath, () =>
+    requestRefreshTokenExchange({
+      tokenEndpoint: stored.tokenEndpoint,
+      clientId: stored.clientId,
+      refreshToken: stored.refreshToken!,
+      resource: apiResource,
+      scope,
+    }),
+  );
+  const wsResult = await refreshOrInvalidate(tokenStorePath, () =>
+    requestRefreshTokenExchange({
+      tokenEndpoint: stored.tokenEndpoint,
+      clientId: stored.clientId,
+      refreshToken: apiResult.refreshToken,
+      resource: wsResource,
+      scope,
+    }),
+  );
 
   const refreshed = storedTokenFromPkceLogin({
     token: apiResult.token,

@@ -3,6 +3,7 @@ import type { AgentIdentity } from "../api/models.js";
 import { agentRef } from "../api/models.js";
 import type { TokenResponse } from "../auth/client-credentials.js";
 import type { OAuthDiscovery } from "../auth/discovery.js";
+import { AuthenticationError } from "../errors.js";
 import { realtimeEventFromPayload, summarizeEvent } from "./events.js";
 
 const DEFAULT_RECONNECT_DELAY_SECONDS = 2;
@@ -55,9 +56,11 @@ export function liveNotificationNotice(agentRefValue: string): string {
 }
 
 /**
- * Maintain a WebSocket connection forever, reconnecting with exponential backoff
- * (2s → 30s) on every drop. The `sessionFactory` is re-invoked on each reconnect
- * so expired tokens are refreshed. Resolves only if aborted; otherwise runs indefinitely.
+ * Maintain a WebSocket connection until told to stop, reconnecting with exponential
+ * backoff (2s → 30s) on transient drops. The `sessionFactory` is re-invoked on each
+ * reconnect so expired tokens are refreshed. Re-throws any {@link AuthenticationError}
+ * (stored credentials missing, malformed, or server-rejected) so the caller can
+ * surface a re-login prompt; otherwise runs indefinitely.
  */
 export async function listenForever(options: {
   sessionFactory: SessionFactory;
@@ -98,6 +101,11 @@ export async function listenForever(options: {
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") throw err;
       const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof AuthenticationError) {
+        stateCallback?.("auth_failed", null, errorMessage, null);
+        log(`Listener stopped: ${errorMessage}`, logger);
+        throw err;
+      }
       stateCallback?.("reconnecting", null, errorMessage, null);
       log(
         `WebSocket disconnected (${errorMessage}). Reconnecting in ${reconnectDelay}s...`,

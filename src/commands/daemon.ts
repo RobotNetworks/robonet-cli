@@ -35,7 +35,8 @@ function coerceHealth(value: string): DaemonHealth {
     value === "starting" ||
     value === "connected" ||
     value === "reconnecting" ||
-    value === "stopped"
+    value === "stopped" ||
+    value === "auth_failed"
   ) {
     return value;
   }

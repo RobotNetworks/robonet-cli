@@ -30,6 +30,32 @@ export class AuthenticationError extends RoboNetCLIError {
   }
 }
 
+/**
+ * Thrown when the auth server has rejected a stored credential in a way that
+ * cannot be recovered by retrying — e.g. revoked refresh-token family, expired
+ * refresh token, or a deleted authorization. Callers should surface this to
+ * the user (re-login required) rather than retry.
+ */
+export class FatalAuthError extends AuthenticationError {
+  constructor(message: string) {
+    super(message);
+    this.name = "FatalAuthError";
+  }
+}
+
+/**
+ * Thrown for retryable failures from the auth server: 5xx responses, request
+ * timeouts (408), and rate-limiting (429). Distinct from {@link AuthenticationError}
+ * because the stored credential is still valid — the listener should back off
+ * and retry rather than treat the failure as terminal.
+ */
+export class TransientAuthError extends RoboNetCLIError {
+  constructor(message: string) {
+    super(message);
+    this.name = "TransientAuthError";
+  }
+}
+
 /** Thrown when a REST API call to the RoboNet backend fails (network or non-2xx status). */
 export class APIError extends RoboNetCLIError {
   constructor(message: string) {

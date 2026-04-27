@@ -29,10 +29,14 @@ export function resolveDaemonPaths(config: CLIConfig): DaemonPaths {
 }
 
 function markStopped(state: DaemonState, stateFile: string): DaemonState {
+  // Preserve a terminal-failure health (e.g. "auth_failed") so its lastError
+  // survives a status check after the daemon has already exited; only
+  // overwrite truly-running states with "stopped".
+  const preserveHealth = state.health === "auth_failed";
   const stopped: DaemonState = {
     ...state,
     pid: null,
-    health: "stopped",
+    health: preserveHealth ? state.health : "stopped",
     updatedAt: epochMillis(),
   };
   saveDaemonState(stateFile, stopped);
