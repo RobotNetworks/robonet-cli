@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import type { EndpointConfig } from "./endpoints.js";
+import { ConfigurationError } from "./errors.js";
 
 const DEFAULT_API_BASE_URL = "https://api.robotnet.works/v1";
 const DEFAULT_MCP_BASE_URL = "https://mcp.robotnet.works/mcp";
@@ -9,6 +10,15 @@ const DEFAULT_AUTH_BASE_URL = "https://auth.robotnet.works";
 const DEFAULT_WEBSOCKET_URL = "wss://ws.robotnet.works";
 const DEFAULT_ENVIRONMENT = "prod";
 const DEFAULT_PROFILE = "default";
+const WORKSPACE_CONFIG_DIR = ".robonet";
+const WORKSPACE_CONFIG_FILE = "config.json";
+
+/** Where the active profile name was resolved from. Surfaced in `config show` for debuggability. */
+export type ProfileSource =
+  | { readonly kind: "flag" }
+  | { readonly kind: "env" }
+  | { readonly kind: "workspace"; readonly configFile: string }
+  | { readonly kind: "default" };
 
 /** XDG-compliant filesystem locations the CLI uses for config, state, logs, and runtime files. */
 export interface CLIPaths {
@@ -21,6 +31,7 @@ export interface CLIPaths {
 /** Fully resolved CLI configuration: profile, environment, endpoints, and filesystem paths. */
 export interface CLIConfig {
   readonly profile: string;
+  readonly profileSource: ProfileSource;
   readonly environment: string;
   readonly endpoints: EndpointConfig;
   readonly paths: CLIPaths;
@@ -91,17 +102,72 @@ function getNestedString(
   return undefined;
 }
 
-function resolveProfileName(profileName?: string): string {
-  return (
-    (profileName ?? "").trim() ||
-    (process.env.ROBONET_PROFILE ?? "").trim() ||
-    DEFAULT_PROFILE
-  );
+/** Walk upward from `startDir` looking for a `.robonet/config.json` workspace file. Halts at `$HOME` and at the filesystem root. Returns null if none found. */
+export function findWorkspaceConfigFile(startDir: string): string | null {
+  let current = path.resolve(startDir);
+  const home = path.resolve(os.homedir());
+  while (true) {
+    const candidate = path.join(current, WORKSPACE_CONFIG_DIR, WORKSPACE_CONFIG_FILE);
+    if (fs.existsSync(candidate)) return candidate;
+    if (current === home) return null;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
 }
 
-/** Load configuration for the given profile, merging (in precedence order) env vars, `config.json`, and built-in defaults. */
-export function loadConfig(profileName?: string): CLIConfig {
-  const profile = resolveProfileName(profileName);
+function resolveProfile(
+  profileName: string | undefined,
+  cwd: string,
+): { name: string; source: ProfileSource } {
+  const flag = (profileName ?? "").trim();
+  if (flag) return { name: flag, source: { kind: "flag" } };
+
+  const env = (process.env.ROBONET_PROFILE ?? "").trim();
+  if (env) return { name: env, source: { kind: "env" } };
+
+  const workspaceFile = findWorkspaceConfigFile(cwd);
+  if (workspaceFile) {
+    let payload: Record<string, unknown>;
+    try {
+      payload = loadJsonFile(workspaceFile);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new ConfigurationError(
+        `Workspace profile config at ${workspaceFile} is not valid JSON: ${detail}`,
+      );
+    }
+    const wsProfile = getNestedString(payload, "profile");
+    if (wsProfile) {
+      return {
+        name: wsProfile,
+        source: { kind: "workspace", configFile: workspaceFile },
+      };
+    }
+  }
+
+  return { name: DEFAULT_PROFILE, source: { kind: "default" } };
+}
+
+/** Load configuration for the given profile, merging (in precedence order) env vars, `config.json`, and built-in defaults. Profile name resolution: `--profile` flag > `ROBONET_PROFILE` env var > workspace `.robonet/config.json` (walked up from `cwd`) > `"default"`. */
+export function loadConfig(
+  profileName?: string,
+  options?: { cwd?: string },
+): CLIConfig {
+  const cwd = options?.cwd ?? process.cwd();
+  const { name: profile, source: profileSource } = resolveProfile(profileName, cwd);
+
+  if (profileSource.kind === "workspace") {
+    const profilePaths = defaultPaths(profile);
+    if (!fs.existsSync(profilePaths.configDir)) {
+      throw new ConfigurationError(
+        `Workspace at ${profileSource.configFile} requests profile "${profile}", ` +
+          `but no such profile is set up. Run \`robonet --profile ${profile} login\` ` +
+          `to create it, or remove/edit the workspace file.`,
+      );
+    }
+  }
+
   const paths = defaultPaths(profile);
   const configFile = path.join(paths.configDir, "config.json");
   const payload = loadJsonFile(configFile);
@@ -132,6 +198,7 @@ export function loadConfig(profileName?: string): CLIConfig {
 
   return {
     profile,
+    profileSource,
     environment,
     endpoints,
     paths,
@@ -140,10 +207,31 @@ export function loadConfig(profileName?: string): CLIConfig {
   };
 }
 
+function profileSourceLabel(source: ProfileSource): string {
+  switch (source.kind) {
+    case "flag":
+      return "--profile flag";
+    case "env":
+      return "ROBONET_PROFILE env var";
+    case "workspace":
+      return `workspace file ${source.configFile}`;
+    case "default":
+      return "built-in default";
+  }
+}
+
+function profileSourceJson(source: ProfileSource): Record<string, unknown> {
+  if (source.kind === "workspace") {
+    return { kind: "workspace", config_file: source.configFile };
+  }
+  return { kind: source.kind };
+}
+
 /** Serialize a config to a snake_case JSON object suitable for machine-readable output. */
 export function configToJson(config: CLIConfig): Record<string, unknown> {
   return {
     profile: config.profile,
+    profile_source: profileSourceJson(config.profileSource),
     environment: config.environment,
     config_file: config.configFile,
     token_store_file: config.tokenStoreFile,
@@ -165,6 +253,7 @@ export function configToJson(config: CLIConfig): Record<string, unknown> {
 /** Flatten a config into a single-level string map for human-readable display (e.g. `robonet config show`). */
 export function configToHumanPayload(config: CLIConfig): Record<string, string> {
   return {
+    profile_source: profileSourceLabel(config.profileSource),
     environment: config.environment,
     config_file: config.configFile,
     token_store_file: config.tokenStoreFile,
