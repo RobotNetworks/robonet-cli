@@ -20,6 +20,9 @@ import {
 import { renderKeyValues } from "../output/formatters.js";
 import { renderJson } from "../output/json-output.js";
 import { listenForever } from "../realtime/listener.js";
+import { AuthenticationError } from "../errors.js";
+
+const LISTEN_AUTH_FAILED_EXIT_CODE = 78;
 import {
   clientIdOption,
   clientSecretOption,
@@ -28,6 +31,7 @@ import {
   profileTitle,
   resolveCredentials,
   scopeOption,
+  verboseOption,
 } from "./shared.js";
 
 function coerceHealth(value: string): DaemonHealth {
@@ -75,6 +79,7 @@ export function registerDaemonCommand(program: Command): void {
     .addOption(clientIdOption())
     .addOption(clientSecretOption())
     .addOption(scopeOption())
+    .addOption(verboseOption())
     .addOption(jsonOption())
     .action(async (opts, cmd) => {
       const config = loadConfig(cmd.parent?.parent?.opts().profile);
@@ -84,6 +89,7 @@ export function registerDaemonCommand(program: Command): void {
         clientId,
         clientSecret,
         scope: opts.scope,
+        verbose: Boolean(opts.verbose),
       });
       const payload = {
         started: true,
@@ -130,6 +136,7 @@ export function registerDaemonCommand(program: Command): void {
     .addOption(clientIdOption())
     .addOption(clientSecretOption())
     .addOption(scopeOption())
+    .addOption(verboseOption())
     .addOption(jsonOption())
     .action(async (opts, cmd) => {
       const config = loadConfig(cmd.parent?.parent?.opts().profile);
@@ -139,6 +146,7 @@ export function registerDaemonCommand(program: Command): void {
         clientId,
         clientSecret,
         scope: opts.scope,
+        verbose: Boolean(opts.verbose),
       });
       const payload = {
         restarted: true,
@@ -198,6 +206,7 @@ export function registerDaemonCommand(program: Command): void {
     .addOption(clientIdOption())
     .addOption(clientSecretOption())
     .addOption(scopeOption())
+    .addOption(verboseOption())
     .action(async (opts, cmd) => {
       const config = loadConfig(cmd.parent?.parent?.opts().profile);
       const paths = resolveDaemonPaths(config);
@@ -247,6 +256,7 @@ export function registerDaemonCommand(program: Command): void {
           }),
         logger: (message) => console.log(message),
         stateCallback: updateState,
+        verbose: Boolean(opts.verbose),
       });
     });
 }
@@ -258,21 +268,29 @@ export function registerListenCommand(program: Command): void {
     .addOption(clientIdOption())
     .addOption(clientSecretOption())
     .addOption(scopeOption())
-    .option("-v, --verbose", "Log connection-keepalive heartbeats (ping/pong)")
+    .addOption(verboseOption())
     .action(async (opts, cmd) => {
       const config = loadConfig(cmd.parent?.opts().profile);
       const { clientId, clientSecret } = await resolveCredentials(config, opts);
-      await listenForever({
-        sessionFactory: () =>
-          resolveRuntimeSession({
-            endpoints: config.endpoints,
-            tokenStorePath: config.tokenStoreFile,
-            clientId,
-            clientSecret,
-            scope: opts.scope,
-          }),
-        logger: (message) => console.log(message),
-        verbose: Boolean(opts.verbose),
-      });
+      try {
+        await listenForever({
+          sessionFactory: () =>
+            resolveRuntimeSession({
+              endpoints: config.endpoints,
+              tokenStorePath: config.tokenStoreFile,
+              clientId,
+              clientSecret,
+              scope: opts.scope,
+            }),
+          logger: (message) => console.log(message),
+          verbose: Boolean(opts.verbose),
+        });
+      } catch (err) {
+        if (err instanceof AuthenticationError) {
+          console.error(`Error: ${err.message}`);
+          process.exit(LISTEN_AUTH_FAILED_EXIT_CODE);
+        }
+        throw err;
+      }
     });
 }

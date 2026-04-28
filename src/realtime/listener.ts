@@ -61,6 +61,12 @@ export function liveNotificationNotice(agentRefValue: string): string {
  * reconnect so expired tokens are refreshed. Re-throws any {@link AuthenticationError}
  * (stored credentials missing, malformed, or server-rejected) so the caller can
  * surface a re-login prompt; otherwise runs indefinitely.
+ *
+ * Logging is event-only by default: `logger` is invoked for each realtime event
+ * delivered by the server. Set `verbose: true` to also log connection diagnostics
+ * (session lifecycle, connect/disconnect, reconnect backoff, heartbeat ping/pong,
+ * and the auth-failure final message). State transitions are always reported via
+ * `stateCallback` regardless of verbosity.
  */
 export async function listenForever(options: {
   sessionFactory: SessionFactory;
@@ -84,11 +90,13 @@ export async function listenForever(options: {
       const session = await sessionFactory();
       stateCallback?.("starting", agentRef(session.identity), null, null);
       const currentAgentRef = agentRef(session.identity);
-      log(
-        `Listener session ready agent=${currentAgentRef} ws_resource=${session.websocketToken.resource}`,
-        logger,
-      );
-      log(liveNotificationNotice(currentAgentRef), logger);
+      if (verbose) {
+        log(
+          `Listener session ready agent=${currentAgentRef} ws_resource=${session.websocketToken.resource}`,
+          logger,
+        );
+        log(liveNotificationNotice(currentAgentRef), logger);
+      }
       await listenOnce({
         websocketUrl: session.websocketToken.resource,
         bearerToken: session.websocketToken.accessToken,
@@ -103,14 +111,18 @@ export async function listenForever(options: {
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (err instanceof AuthenticationError) {
         stateCallback?.("auth_failed", null, errorMessage, null);
-        log(`Listener stopped: ${errorMessage}`, logger);
+        if (verbose) {
+          log(`Listener stopped: ${errorMessage}`, logger);
+        }
         throw err;
       }
       stateCallback?.("reconnecting", null, errorMessage, null);
-      log(
-        `WebSocket disconnected (${errorMessage}). Reconnecting in ${reconnectDelay}s...`,
-        logger,
-      );
+      if (verbose) {
+        log(
+          `WebSocket disconnected (${errorMessage}). Reconnecting in ${reconnectDelay}s...`,
+          logger,
+        );
+      }
       await sleep(reconnectDelay * 1000);
       reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY_SECONDS);
     }
@@ -143,8 +155,10 @@ function listenOnce(options: {
 
     ws.on("open", () => {
       stateCallback?.("connected", null, null, null);
-      log(`Connected to ${websocketUrl}`, logger);
-      log("Listening for agent-scoped live events... (Ctrl+C to stop)", logger);
+      if (verbose) {
+        log(`Connected to ${websocketUrl}`, logger);
+        log("Listening for agent-scoped live events... (Ctrl+C to stop)", logger);
+      }
 
       heartbeatTimer = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -160,7 +174,9 @@ function listenOnce(options: {
       try {
         payload = JSON.parse(frame);
       } catch {
-        log(`Non-JSON WebSocket frame: ${frame.slice(0, 200)}`, logger);
+        if (verbose) {
+          log(`Non-JSON WebSocket frame: ${frame.slice(0, 200)}`, logger);
+        }
         return;
       }
       if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {

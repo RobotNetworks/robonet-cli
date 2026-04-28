@@ -62,8 +62,9 @@ export function startDaemon(options: {
   clientId: string | null;
   clientSecret: string | null;
   scope: string;
+  verbose?: boolean;
 }): { pid: number; paths: DaemonPaths } {
-  const { config, clientId, clientSecret, scope } = options;
+  const { config, clientId, clientSecret, scope, verbose = false } = options;
   const paths = resolveDaemonPaths(config);
 
   const existingState = loadDaemonState(paths.stateFile);
@@ -100,6 +101,7 @@ export function startDaemon(options: {
     "--scope",
     scope,
     ...(clientId ? ["--client-id", clientId] : []),
+    ...(verbose ? ["--verbose"] : []),
   ];
 
   const env: Record<string, string | undefined> = {
@@ -176,6 +178,7 @@ export function restartDaemon(options: {
   clientId: string | null;
   clientSecret: string | null;
   scope: string;
+  verbose?: boolean;
 }): { pid: number; paths: DaemonPaths } {
   stopDaemon({ config: options.config });
   return startDaemon(options);

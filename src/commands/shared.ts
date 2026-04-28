@@ -46,6 +46,12 @@ export function scopeOption(): Option {
 export function jsonOption(): Option {
   return new Option("--json", "Output as JSON").default(false);
 }
+export function verboseOption(): Option {
+  return new Option(
+    "-v, --verbose",
+    "Log connection diagnostics (heartbeats, reconnects, session lifecycle)",
+  ).default(false);
+}
 
 // ── Display helpers ──────────────────────────────────────────────────
 
