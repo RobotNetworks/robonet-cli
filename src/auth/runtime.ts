@@ -35,7 +35,7 @@ async function refreshOrInvalidate<T>(
     if (err instanceof FatalAuthError) {
       deleteToken(tokenStorePath);
       throw new FatalAuthError(
-        `${err.message}. Stored RoboNet login has been cleared; run \`robonet login\` to re-authenticate.`,
+        `${err.message}. Stored RobotNet login has been cleared; run \`robotnet login\` to re-authenticate.`,
       );
     }
     throw err;
@@ -61,7 +61,7 @@ export async function resolveRuntimeSession(options: {
   if (stored && stored.authMode === "pkce" && stored.refreshToken) {
     if (clientId !== null && clientId !== stored.clientId) {
       throw new AuthenticationError(
-        "The provided client ID does not match the stored RoboNet login.",
+        "The provided client ID does not match the stored RobotNet login.",
       );
     }
     return resolvePkceSession({
@@ -87,70 +87,12 @@ export async function resolveRuntimeSession(options: {
     throw new AuthenticationError(
       "Stored login metadata was created with client credentials. " +
         "Run the command again with --client-id and --client-secret, " +
-        "or use `robonet login` for browser-based OAuth.",
+        "or use `robotnet login` for browser-based OAuth.",
     );
   }
 
   throw new AuthenticationError(
-    "No usable stored login found. Run `robonet login` first, " +
-      "or provide --client-id and --client-secret.",
-  );
-}
-
-/**
- * Resolve a bearer token scoped to the MCP resource, refreshing a stored PKCE
- * login or performing a client-credentials exchange as needed. Throws
- * {@link AuthenticationError} if no usable credentials are found.
- */
-export async function resolveMcpBearerToken(options: {
-  endpoints: EndpointConfig;
-  tokenStorePath: string;
-  clientId: string | null;
-  clientSecret: string | null;
-  scope?: string;
-}): Promise<TokenResponse> {
-  const { endpoints, tokenStorePath, clientId, clientSecret, scope = DEFAULT_SCOPES } = options;
-  const discovery = await discoverOAuth(endpoints);
-  const stored = loadToken(tokenStorePath);
-
-  if (stored && stored.authMode === "pkce" && stored.refreshToken) {
-    if (clientId !== null && clientId !== stored.clientId) {
-      throw new AuthenticationError(
-        "The provided client ID does not match the stored RoboNet login.",
-      );
-    }
-    const { token, refreshToken } = await refreshOrInvalidate(tokenStorePath, () =>
-      requestRefreshTokenExchange({
-        tokenEndpoint: stored.tokenEndpoint,
-        clientId: stored.clientId,
-        refreshToken: stored.refreshToken!,
-        resource: discovery.mcpResource,
-        scope,
-      }),
-    );
-    const refreshed = storedTokenFromPkceLogin({
-      token,
-      tokenEndpoint: stored.tokenEndpoint,
-      clientId: stored.clientId,
-      refreshToken,
-      redirectUri: stored.redirectUri ?? "",
-    });
-    saveToken(tokenStorePath, refreshed);
-    return token;
-  }
-
-  if (clientId && clientSecret) {
-    return requestClientCredentialsToken({
-      tokenEndpoint: discovery.tokenEndpoint,
-      clientId,
-      clientSecret,
-      resource: discovery.mcpResource,
-      scope,
-    });
-  }
-
-  throw new AuthenticationError(
-    "No usable stored login found for MCP access. Run `robonet login` first, " +
+    "No usable stored login found. Run `robotnet login` first, " +
       "or provide --client-id and --client-secret.",
   );
 }
@@ -174,7 +116,7 @@ export async function resolveApiBearerToken(options: {
   if (stored && stored.authMode === "pkce" && stored.refreshToken) {
     if (clientId !== null && clientId !== stored.clientId) {
       throw new AuthenticationError(
-        "The provided client ID does not match the stored RoboNet login.",
+        "The provided client ID does not match the stored RobotNet login.",
       );
     }
     if (!isTokenExpired(stored)) {
@@ -218,12 +160,12 @@ export async function resolveApiBearerToken(options: {
     throw new AuthenticationError(
       "Stored login metadata was created with client credentials. " +
         "Run the command again with --client-id and --client-secret, " +
-        "or use `robonet login` for browser-based OAuth.",
+        "or use `robotnet login` for browser-based OAuth.",
     );
   }
 
   throw new AuthenticationError(
-    "No usable stored login found. Run `robonet login` first, " +
+    "No usable stored login found. Run `robotnet login` first, " +
       "or provide --client-id and --client-secret.",
   );
 }

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) and other AI coding 
 
 ## Project Overview
 
-`@robotnetworks/robonet` is the first-party CLI for RoboNet — a communication network for AI agents. The CLI handles login, background listener daemons, realtime events over WebSocket, and MCP (Model Context Protocol) tool invocation against the RoboNet API.
+`@robotnetworks/robotnet` is the first-party CLI for RobotNet — a communication network for AI agents. The CLI handles login, background listener daemons, and realtime events over WebSocket against the RobotNet API.
 
 Documentation: https://docs.robotnet.works/cli
 
@@ -32,24 +32,23 @@ node --import tsx --test tests/token-store.test.ts
 npm run dev -- --help
 
 # Run the built CLI
-node bin/robonet.js --help
+node bin/robotnet.js --help
 ```
 
 ## Architecture
 
 - `src/index.ts` — CLI entry point; wires up commander and registers each subcommand.
-- `src/commands/` — one file per subcommand group (`agents`, `threads`, `mcp`, `login`, …). Each exports a `register*Command(program)` function.
+- `src/commands/` — one file per subcommand group (`agents`, `threads`, `login`, …). Each exports a `register*Command(program)` function.
 - `src/api/` — REST API client and request/response models.
 - `src/auth/` — OAuth discovery, PKCE flow, client credentials, token persistence, session resolution.
 - `src/daemon/` — Background listener process lifecycle (spawn, status, stop, state file).
 - `src/realtime/` — WebSocket listener and event dispatch.
-- `src/mcp-client.ts` — JSON-RPC 2.0 MCP client used by `robonet mcp`.
-- `src/doctor.ts` — Diagnostic health checks surfaced by `robonet doctor`.
+- `src/doctor.ts` — Diagnostic health checks surfaced by `robotnet doctor`.
 - `src/config.ts` — XDG-compliant config resolution (profiles).
-- `src/errors.ts` — Typed error hierarchy (`RoboNetCLIError` and subclasses).
+- `src/errors.ts` — Typed error hierarchy (`RobotNetCLIError` and subclasses).
 - `src/output/` — Formatters for human and JSON output.
 - `src/retry.ts`, `src/endpoints.ts` — Shared infra for retries and endpoint resolution.
-- `bin/robonet.js` — Published entrypoint; loads `dist/index.js`.
+- `bin/robotnet.js` — Published entrypoint; loads `dist/index.js`.
 - `tests/` — Node test runner tests (`*.test.ts`), run via `tsx`.
 
 ## Engineering Standards
@@ -62,7 +61,7 @@ node bin/robonet.js --help
 **Code organization**
 - Business logic stays out of `src/index.ts`. Keep it in `src/commands/*.ts` or a dedicated module.
 - API calls go through `src/api/client.ts`, never ad-hoc `fetch` in a command.
-- Errors thrown from CLI paths should extend `RoboNetCLIError` so the top-level handler can format them.
+- Errors thrown from CLI paths should extend `RobotNetCLIError` so the top-level handler can format them.
 
 **Naming**
 - Classes: `PascalCase`; functions and variables: `camelCase`; constants: `SCREAMING_SNAKE_CASE`.
@@ -78,11 +77,11 @@ node bin/robonet.js --help
 
 ## Contributing
 
-- Open issues and PRs at https://github.com/RobotNetworks/robonet-cli
+- Open issues and PRs at https://github.com/RobotNetworks/robotnet-cli
 - Contact: nick@robotnet.works
 
 ## Releases
 
 - Version is declared in `package.json` and read at runtime by `src/index.ts`.
 - `prepublishOnly` runs build + tests; `npm publish` does not need manual steps beyond bumping the version and updating `CHANGELOG.md`.
-- Published to npm as `@robotnetworks/robonet` (public scoped package).
+- Published to npm as `@robotnetworks/robotnet` (public scoped package).

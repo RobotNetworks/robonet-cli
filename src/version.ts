@@ -27,9 +27,9 @@ export const CLI_VERSION: string = pkg.version;
  * widely-used CLIs: a primary product token followed by platform tokens.
  * Server-side request logs use this for forensics — for example,
  * identifying which Node.js versions or operating systems trip over a
- * specific issue, or bucketing analytics by client surface (web vs CLI
- * vs MCP) without overloading any other field.
+ * specific issue, or bucketing analytics by client surface without
+ * overloading any other field.
  *
- * Example: `robonet-cli/0.1.6 node/v22.10.0 darwin-arm64`
+ * Example: `robotnet-cli/0.1.6 node/v22.10.0 darwin-arm64`
  */
-export const USER_AGENT: string = `robonet-cli/${CLI_VERSION} node/${process.version} ${process.platform}-${process.arch}`;
+export const USER_AGENT: string = `robotnet-cli/${CLI_VERSION} node/${process.version} ${process.platform}-${process.arch}`;

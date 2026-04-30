@@ -42,9 +42,6 @@ describe("runDoctor", () => {
       if (url.includes("/agents/me")) {
         return new Response("Unauthorized", { status: 401 });
       }
-      if (url.endsWith("/health")) {
-        return new Response(JSON.stringify({ status: "healthy" }), { status: 200 });
-      }
       if (url.includes("oauth-protected-resource")) {
         return new Response(
           JSON.stringify({
@@ -59,7 +56,7 @@ describe("runDoctor", () => {
             authorization_endpoint: "https://auth.example.test/authorize",
             token_endpoint: "https://auth.example.test/token",
             registration_endpoint: "https://auth.example.test/register",
-            resource_servers: [{ resource: "https://mcp.example.test" }],
+            resource_servers: [],
           }),
           { status: 200 },
         );
@@ -71,7 +68,6 @@ describe("runDoctor", () => {
     const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
 
     assert.equal(byName.endpoint_api.ok, true);
-    assert.equal(byName.endpoint_mcp.ok, true);
     assert.equal(byName.oauth_discovery.ok, true);
     assert.equal(byName.stored_auth.ok, true);
   });
@@ -83,9 +79,6 @@ describe("runDoctor", () => {
       const url = typeof input === "string" ? input : (input as Request).url;
       if (url.includes("/agents/me")) {
         return new Response("Unauthorized", { status: 401 });
-      }
-      if (url.endsWith("/health")) {
-        return new Response(JSON.stringify({ status: "healthy" }), { status: 200 });
       }
       if (url.includes("oauth-protected-resource")) {
         return new Response(
@@ -99,7 +92,7 @@ describe("runDoctor", () => {
             authorization_endpoint: "https://auth.example.test/authorize",
             token_endpoint: "https://auth.example.test/token",
             registration_endpoint: "https://auth.example.test/register",
-            resource_servers: [{ resource: "https://mcp.example.test" }],
+            resource_servers: [],
           }),
           { status: 200 },
         );

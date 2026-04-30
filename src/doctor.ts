@@ -41,10 +41,6 @@ async function endpointChecks(config: CLIConfig): Promise<DoctorCheck[]> {
   const httpTargets = [
     { name: "api", url: `${config.endpoints.apiBaseUrl.replace(/\/+$/, "")}/agents/me` },
     {
-      name: "mcp",
-      url: `${config.endpoints.mcpBaseUrl.replace(/\/+$/, "")}/health`,
-    },
-    {
       name: "auth",
       url: `${config.endpoints.authBaseUrl.replace(/\/+$/, "")}/.well-known/oauth-authorization-server`,
     },
@@ -92,7 +88,6 @@ async function discoveryChecks(config: CLIConfig): Promise<DoctorCheck[]> {
         ok: true,
         detail:
           `token_endpoint=${discovery.tokenEndpoint} ` +
-          `mcp_resource=${discovery.mcpResource} ` +
           `api_resource=${discovery.apiResource ?? "n/a"} ` +
           `websocket_resource=${discovery.websocketResource ?? "n/a"}`,
       },

@@ -5,12 +5,11 @@ import type { EndpointConfig } from "./endpoints.js";
 import { ConfigurationError } from "./errors.js";
 
 const DEFAULT_API_BASE_URL = "https://api.robotnet.works/v1";
-const DEFAULT_MCP_BASE_URL = "https://mcp.robotnet.works/mcp";
 const DEFAULT_AUTH_BASE_URL = "https://auth.robotnet.works";
 const DEFAULT_WEBSOCKET_URL = "wss://ws.robotnet.works";
 const DEFAULT_ENVIRONMENT = "prod";
 const DEFAULT_PROFILE = "default";
-const WORKSPACE_CONFIG_DIR = ".robonet";
+const WORKSPACE_CONFIG_DIR = ".robotnet";
 const WORKSPACE_CONFIG_FILE = "config.json";
 
 /** Where the active profile name was resolved from. Surfaced in `config show` for debuggability. */
@@ -52,8 +51,8 @@ function xdgPath(envVar: string, defaultSuffix: string): string {
 
 /** Resolve XDG-compliant default paths for the given profile; non-default profiles nest under a `profiles/` subdir. */
 export function defaultPaths(profile: string = DEFAULT_PROFILE): CLIPaths {
-  const baseConfigDir = path.join(xdgPath("XDG_CONFIG_HOME", ".config"), "robonet");
-  const baseStateDir = path.join(xdgPath("XDG_STATE_HOME", ".local/state"), "robonet");
+  const baseConfigDir = path.join(xdgPath("XDG_CONFIG_HOME", ".config"), "robotnet");
+  const baseStateDir = path.join(xdgPath("XDG_STATE_HOME", ".local/state"), "robotnet");
 
   let configDir: string;
   let stateDir: string;
@@ -102,7 +101,7 @@ function getNestedString(
   return undefined;
 }
 
-/** Walk upward from `startDir` looking for a `.robonet/config.json` workspace file. Halts at `$HOME` and at the filesystem root. Returns null if none found. */
+/** Walk upward from `startDir` looking for a `.robotnet/config.json` workspace file. Halts at `$HOME` and at the filesystem root. Returns null if none found. */
 export function findWorkspaceConfigFile(startDir: string): string | null {
   let current = path.resolve(startDir);
   const home = path.resolve(os.homedir());
@@ -123,7 +122,7 @@ function resolveProfile(
   const flag = (profileName ?? "").trim();
   if (flag) return { name: flag, source: { kind: "flag" } };
 
-  const env = (process.env.ROBONET_PROFILE ?? "").trim();
+  const env = (process.env.ROBOTNET_PROFILE ?? "").trim();
   if (env) return { name: env, source: { kind: "env" } };
 
   const workspaceFile = findWorkspaceConfigFile(cwd);
@@ -149,7 +148,7 @@ function resolveProfile(
   return { name: DEFAULT_PROFILE, source: { kind: "default" } };
 }
 
-/** Load configuration for the given profile, merging (in precedence order) env vars, `config.json`, and built-in defaults. Profile name resolution: `--profile` flag > `ROBONET_PROFILE` env var > workspace `.robonet/config.json` (walked up from `cwd`) > `"default"`. */
+/** Load configuration for the given profile, merging (in precedence order) env vars, `config.json`, and built-in defaults. Profile name resolution: `--profile` flag > `ROBOTNET_PROFILE` env var > workspace `.robotnet/config.json` (walked up from `cwd`) > `"default"`. */
 export function loadConfig(
   profileName?: string,
   options?: { cwd?: string },
@@ -162,7 +161,7 @@ export function loadConfig(
     if (!fs.existsSync(profilePaths.configDir)) {
       throw new ConfigurationError(
         `Workspace at ${profileSource.configFile} requests profile "${profile}", ` +
-          `but no such profile is set up. Run \`robonet --profile ${profile} login\` ` +
+          `but no such profile is set up. Run \`robotnet --profile ${profile} login\` ` +
           `to create it, or remove/edit the workspace file.`,
       );
     }
@@ -173,25 +172,21 @@ export function loadConfig(
   const payload = loadJsonFile(configFile);
 
   const environment =
-    (process.env.ROBONET_ENVIRONMENT ?? "").trim() ||
+    (process.env.ROBOTNET_ENVIRONMENT ?? "").trim() ||
     getNestedString(payload, "environment") ||
     DEFAULT_ENVIRONMENT;
 
   const endpoints: EndpointConfig = {
     apiBaseUrl:
-      (process.env.ROBONET_API_BASE_URL ?? "").trim() ||
+      (process.env.ROBOTNET_API_BASE_URL ?? "").trim() ||
       getNestedString(payload, "endpoints", "api_base_url") ||
       DEFAULT_API_BASE_URL,
-    mcpBaseUrl:
-      (process.env.ROBONET_MCP_BASE_URL ?? "").trim() ||
-      getNestedString(payload, "endpoints", "mcp_base_url") ||
-      DEFAULT_MCP_BASE_URL,
     authBaseUrl:
-      (process.env.ROBONET_AUTH_BASE_URL ?? "").trim() ||
+      (process.env.ROBOTNET_AUTH_BASE_URL ?? "").trim() ||
       getNestedString(payload, "endpoints", "auth_base_url") ||
       DEFAULT_AUTH_BASE_URL,
     websocketUrl:
-      (process.env.ROBONET_WEBSOCKET_URL ?? "").trim() ||
+      (process.env.ROBOTNET_WEBSOCKET_URL ?? "").trim() ||
       getNestedString(payload, "endpoints", "websocket_url") ||
       DEFAULT_WEBSOCKET_URL,
   };
@@ -212,7 +207,7 @@ function profileSourceLabel(source: ProfileSource): string {
     case "flag":
       return "--profile flag";
     case "env":
-      return "ROBONET_PROFILE env var";
+      return "ROBOTNET_PROFILE env var";
     case "workspace":
       return `workspace file ${source.configFile}`;
     case "default":
@@ -237,7 +232,6 @@ export function configToJson(config: CLIConfig): Record<string, unknown> {
     token_store_file: config.tokenStoreFile,
     endpoints: {
       api_base_url: config.endpoints.apiBaseUrl,
-      mcp_base_url: config.endpoints.mcpBaseUrl,
       auth_base_url: config.endpoints.authBaseUrl,
       websocket_url: config.endpoints.websocketUrl,
     },
@@ -250,7 +244,7 @@ export function configToJson(config: CLIConfig): Record<string, unknown> {
   };
 }
 
-/** Flatten a config into a single-level string map for human-readable display (e.g. `robonet config show`). */
+/** Flatten a config into a single-level string map for human-readable display (e.g. `robotnet config show`). */
 export function configToHumanPayload(config: CLIConfig): Record<string, string> {
   return {
     profile_source: profileSourceLabel(config.profileSource),
@@ -258,7 +252,6 @@ export function configToHumanPayload(config: CLIConfig): Record<string, string> 
     config_file: config.configFile,
     token_store_file: config.tokenStoreFile,
     api_base_url: config.endpoints.apiBaseUrl,
-    mcp_base_url: config.endpoints.mcpBaseUrl,
     auth_base_url: config.endpoints.authBaseUrl,
     websocket_url: config.endpoints.websocketUrl,
     config_dir: config.paths.configDir,

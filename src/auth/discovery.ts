@@ -1,12 +1,11 @@
 import { DISCOVERY_TIMEOUT_MS, type EndpointConfig } from "../endpoints.js";
 import { DiscoveryError } from "../errors.js";
 
-/** Resolved OAuth endpoints plus the resource identifiers for each RoboNet surface (API, MCP, WebSocket). */
+/** Resolved OAuth endpoints plus the resource identifiers for each RobotNet surface (API, WebSocket). */
 export interface OAuthDiscovery {
   readonly authorizationEndpoint: string;
   readonly tokenEndpoint: string;
   readonly registrationEndpoint: string;
-  readonly mcpResource: string;
   readonly apiResource: string | null;
   readonly websocketResource: string | null;
 }
@@ -91,9 +90,7 @@ export async function discoverOAuth(
     );
   }
 
-  const mcpOrigin = origin(endpoints.mcpBaseUrl);
   const wsOrigin = origin(endpoints.websocketUrl);
-  let mcpResource: string | null = null;
   let websocketResource: string | null = null;
 
   const resourceServers = authBody.resource_servers;
@@ -103,23 +100,16 @@ export async function discoverOAuth(
       const record = rs as Record<string, unknown>;
       const resourceId = String(record.resource ?? "").replace(/\/+$/, "");
       const resourceOrigin = origin(resourceId);
-      if (!mcpResource && resourceOrigin === mcpOrigin) {
-        mcpResource = resourceId;
-      } else if (!websocketResource && resourceOrigin === wsOrigin) {
+      if (!websocketResource && resourceOrigin === wsOrigin) {
         websocketResource = resourceId;
       }
     }
-  }
-
-  if (!mcpResource) {
-    mcpResource = endpoints.mcpBaseUrl.replace(/\/+$/, "");
   }
 
   return {
     authorizationEndpoint,
     tokenEndpoint,
     registrationEndpoint,
-    mcpResource,
     apiResource,
     websocketResource,
   };

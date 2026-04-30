@@ -21,7 +21,6 @@ import {
 
 const ENDPOINTS = {
   apiBaseUrl: "https://api.example.test/v1",
-  mcpBaseUrl: "https://mcp.example.test",
   authBaseUrl: "https://auth.example.test",
   websocketUrl: "wss://ws.example.test/socket",
 } as const;
@@ -128,7 +127,6 @@ describe("runtime auth", () => {
           token_endpoint: "https://auth.example.test/token",
           registration_endpoint: "https://auth.example.test/register",
           resource_servers: [
-            { resource: "https://mcp.example.test" },
             { resource: "https://api.example.test/v1" },
             { resource: "wss://ws.example.test/socket" },
           ],
@@ -184,7 +182,6 @@ describe("runtime auth", () => {
           token_endpoint: "https://auth.example.test/token",
           registration_endpoint: "https://auth.example.test/register",
           resource_servers: [
-            { resource: "https://mcp.example.test" },
             { resource: "https://api.example.test/v1" },
             { resource: "wss://ws.example.test/socket" },
           ],
@@ -280,7 +277,7 @@ describe("runtime auth", () => {
       (err: unknown) => {
         assert.ok(err instanceof FatalAuthError);
         assert.match(err.message, /Refresh token family revoked/);
-        assert.match(err.message, /robonet login/);
+        assert.match(err.message, /robotnet login/);
         return true;
       },
     );
