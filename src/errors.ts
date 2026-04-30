@@ -1,13 +1,13 @@
-/** Base class for all errors raised by the RoboNet CLI; catch this to handle any CLI-origin failure. */
-export class RoboNetCLIError extends Error {
+/** Base class for all errors raised by the RobotNet CLI; catch this to handle any CLI-origin failure. */
+export class RobotNetCLIError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "RoboNetCLIError";
+    this.name = "RobotNetCLIError";
   }
 }
 
 /** Thrown when CLI configuration (profile, endpoints, paths) is missing or malformed. */
-export class ConfigurationError extends RoboNetCLIError {
+export class ConfigurationError extends RobotNetCLIError {
   constructor(message: string) {
     super(message);
     this.name = "ConfigurationError";
@@ -15,7 +15,7 @@ export class ConfigurationError extends RoboNetCLIError {
 }
 
 /** Thrown when OAuth discovery metadata cannot be fetched or is missing required fields. */
-export class DiscoveryError extends RoboNetCLIError {
+export class DiscoveryError extends RobotNetCLIError {
   constructor(message: string) {
     super(message);
     this.name = "DiscoveryError";
@@ -23,7 +23,7 @@ export class DiscoveryError extends RoboNetCLIError {
 }
 
 /** Thrown on OAuth/login failures: registration, token exchange, refresh, or missing stored credentials. */
-export class AuthenticationError extends RoboNetCLIError {
+export class AuthenticationError extends RobotNetCLIError {
   constructor(message: string) {
     super(message);
     this.name = "AuthenticationError";
@@ -49,31 +49,23 @@ export class FatalAuthError extends AuthenticationError {
  * because the stored credential is still valid — the listener should back off
  * and retry rather than treat the failure as terminal.
  */
-export class TransientAuthError extends RoboNetCLIError {
+export class TransientAuthError extends RobotNetCLIError {
   constructor(message: string) {
     super(message);
     this.name = "TransientAuthError";
   }
 }
 
-/** Thrown when a REST API call to the RoboNet backend fails (network or non-2xx status). */
-export class APIError extends RoboNetCLIError {
+/** Thrown when a REST API call to the RobotNet backend fails (network or non-2xx status). */
+export class APIError extends RobotNetCLIError {
   constructor(message: string) {
     super(message);
     this.name = "APIError";
   }
 }
 
-/** Thrown when an MCP JSON-RPC call fails at the transport level or returns a JSON-RPC error. */
-export class MCPError extends RoboNetCLIError {
-  constructor(message: string) {
-    super(message);
-    this.name = "MCPError";
-  }
-}
-
 /** Thrown for daemon lifecycle failures: already-running, spawn failure, or corrupted daemon state. */
-export class DaemonError extends RoboNetCLIError {
+export class DaemonError extends RobotNetCLIError {
   constructor(message: string) {
     super(message);
     this.name = "DaemonError";

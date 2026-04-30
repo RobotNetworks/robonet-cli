@@ -11,29 +11,27 @@ export function isolatedXdg(): {
   cleanup: () => void;
   originalEnv: Record<string, string | undefined>;
 } {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "robonet-test-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "robotnet-test-"));
   const configHome = path.join(tmpDir, "config");
   const stateHome = path.join(tmpDir, "state");
 
   const originalEnv: Record<string, string | undefined> = {
     XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
     XDG_STATE_HOME: process.env.XDG_STATE_HOME,
-    ROBONET_PROFILE: process.env.ROBONET_PROFILE,
-    ROBONET_ENVIRONMENT: process.env.ROBONET_ENVIRONMENT,
-    ROBONET_API_BASE_URL: process.env.ROBONET_API_BASE_URL,
-    ROBONET_MCP_BASE_URL: process.env.ROBONET_MCP_BASE_URL,
-    ROBONET_AUTH_BASE_URL: process.env.ROBONET_AUTH_BASE_URL,
-    ROBONET_WEBSOCKET_URL: process.env.ROBONET_WEBSOCKET_URL,
+    ROBOTNET_PROFILE: process.env.ROBOTNET_PROFILE,
+    ROBOTNET_ENVIRONMENT: process.env.ROBOTNET_ENVIRONMENT,
+    ROBOTNET_API_BASE_URL: process.env.ROBOTNET_API_BASE_URL,
+    ROBOTNET_AUTH_BASE_URL: process.env.ROBOTNET_AUTH_BASE_URL,
+    ROBOTNET_WEBSOCKET_URL: process.env.ROBOTNET_WEBSOCKET_URL,
   };
 
   process.env.XDG_CONFIG_HOME = configHome;
   process.env.XDG_STATE_HOME = stateHome;
-  delete process.env.ROBONET_PROFILE;
-  delete process.env.ROBONET_ENVIRONMENT;
-  delete process.env.ROBONET_API_BASE_URL;
-  delete process.env.ROBONET_MCP_BASE_URL;
-  delete process.env.ROBONET_AUTH_BASE_URL;
-  delete process.env.ROBONET_WEBSOCKET_URL;
+  delete process.env.ROBOTNET_PROFILE;
+  delete process.env.ROBOTNET_ENVIRONMENT;
+  delete process.env.ROBOTNET_API_BASE_URL;
+  delete process.env.ROBOTNET_AUTH_BASE_URL;
+  delete process.env.ROBOTNET_WEBSOCKET_URL;
 
   return {
     tmpDir,

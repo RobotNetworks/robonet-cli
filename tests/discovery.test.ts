@@ -13,7 +13,6 @@ describe("websocketOrApiResource", () => {
       authorizationEndpoint: "https://auth.test/authorize",
       tokenEndpoint: "https://auth.test/token",
       registrationEndpoint: "https://auth.test/register",
-      mcpResource: "https://mcp.test",
       apiResource: "https://api.test",
       websocketResource: "wss://ws.test",
     };
@@ -25,7 +24,6 @@ describe("websocketOrApiResource", () => {
       authorizationEndpoint: "https://auth.test/authorize",
       tokenEndpoint: "https://auth.test/token",
       registrationEndpoint: "https://auth.test/register",
-      mcpResource: "https://mcp.test",
       apiResource: "https://api.test",
       websocketResource: null,
     };
@@ -37,7 +35,6 @@ describe("websocketOrApiResource", () => {
       authorizationEndpoint: "https://auth.test/authorize",
       tokenEndpoint: "https://auth.test/token",
       registrationEndpoint: "https://auth.test/register",
-      mcpResource: "https://mcp.test",
       apiResource: null,
       websocketResource: null,
     };
@@ -72,7 +69,6 @@ describe("discoverOAuth", () => {
             token_endpoint: "https://auth.test/token",
             registration_endpoint: "https://auth.test/register",
             resource_servers: [
-              { resource: "https://mcp.test/mcp" },
               { resource: "https://api.test/v1" },
               { resource: "wss://ws.test" },
             ],
@@ -85,7 +81,6 @@ describe("discoverOAuth", () => {
 
     const result = await discoverOAuth({
       apiBaseUrl: "https://api.test/v1",
-      mcpBaseUrl: "https://mcp.test/mcp",
       authBaseUrl: "https://auth.test",
       websocketUrl: "wss://ws.test",
     });
@@ -93,7 +88,6 @@ describe("discoverOAuth", () => {
     assert.equal(result.authorizationEndpoint, "https://auth.test/authorize");
     assert.equal(result.tokenEndpoint, "https://auth.test/token");
     assert.equal(result.registrationEndpoint, "https://auth.test/register");
-    assert.equal(result.mcpResource, "https://mcp.test/mcp");
     assert.equal(result.apiResource, "https://api.test/v1");
     assert.equal(result.websocketResource, "wss://ws.test");
   });
@@ -111,7 +105,6 @@ describe("discoverOAuth", () => {
       () =>
         discoverOAuth({
           apiBaseUrl: "https://api.test/v1",
-          mcpBaseUrl: "https://mcp.test/mcp",
           authBaseUrl: "https://auth.test",
           websocketUrl: "wss://ws.test",
         }),
@@ -141,7 +134,6 @@ describe("discoverOAuth", () => {
       () =>
         discoverOAuth({
           apiBaseUrl: "https://api.test/v1",
-          mcpBaseUrl: "https://mcp.test/mcp",
           authBaseUrl: "https://auth.test",
           websocketUrl: "wss://ws.test",
         }),
@@ -158,7 +150,6 @@ describe("discoverOAuth", () => {
       () =>
         discoverOAuth({
           apiBaseUrl: "https://api.test/v1",
-          mcpBaseUrl: "https://mcp.test/mcp",
           authBaseUrl: "https://auth.test",
           websocketUrl: "wss://ws.test",
         }),

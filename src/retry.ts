@@ -45,9 +45,9 @@ export async function withRetry<T>(
 
 function shouldRetry(err: unknown): boolean {
   if (isRetryableNetworkError(err)) return true;
-  // APIError and MCPError carry the status in their message; those are handled
-  // at the call site by checking the status before throwing. For generic errors
-  // from fetch itself, we retry.
+  // APIError carries the status in its message; that's handled at the call
+  // site by checking the status before throwing. For generic errors from
+  // fetch itself, we retry.
   return false;
 }
 

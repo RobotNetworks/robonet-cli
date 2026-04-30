@@ -5,13 +5,11 @@ import { APIClient } from "../api/client.js";
 import { DEFAULT_SCOPES } from "../auth/client-credentials.js";
 import {
   resolveApiBearerToken,
-  resolveMcpBearerToken,
   resolveRuntimeSession,
 } from "../auth/runtime.js";
 import { loadToken } from "../auth/token-store.js";
 import type { CLIConfig } from "../config.js";
-import { RoboNetCLIError } from "../errors.js";
-import { MCPClient } from "../mcp-client.js";
+import { RobotNetCLIError } from "../errors.js";
 
 // ── Input parsing ────────────────────────────────────────────────────
 
@@ -27,7 +25,7 @@ export function parseThreadStatus(value: string | undefined): string | undefined
   if (THREAD_STATUSES.includes(value as (typeof THREAD_STATUSES)[number])) {
     return value;
   }
-  throw new RoboNetCLIError(
+  throw new RobotNetCLIError(
     `Invalid thread status: ${value}. Expected one of: ${THREAD_STATUSES.join(", ")}.`,
   );
 }
@@ -35,10 +33,10 @@ export function parseThreadStatus(value: string | undefined): string | undefined
 // ── Option factories ─────────────────────────────────────────────────
 
 export function clientIdOption(): Option {
-  return new Option("--client-id <id>", "RoboNet client ID");
+  return new Option("--client-id <id>", "RobotNet client ID");
 }
 export function clientSecretOption(): Option {
-  return new Option("--client-secret <secret>", "RoboNet client secret");
+  return new Option("--client-secret <secret>", "RobotNet client secret");
 }
 export function scopeOption(): Option {
   return new Option("--scope <scope>", "OAuth scopes").default(DEFAULT_SCOPES);
@@ -121,14 +119,14 @@ export async function resolveClientId(
   defaultValue?: string,
 ): Promise<string> {
   if (provided) return provided;
-  return promptText("RoboNet client ID", defaultValue);
+  return promptText("RobotNet client ID", defaultValue);
 }
 
 export async function resolveClientSecret(
   provided: string | undefined,
 ): Promise<string> {
   if (provided) return provided;
-  return promptSecret("RoboNet client secret");
+  return promptSecret("RobotNet client secret");
 }
 
 export async function resolveCredentials(
@@ -163,17 +161,4 @@ export function buildAuthenticatedApiClient(config: CLIConfig): Promise<APIClien
     (token) =>
       new APIClient(config.endpoints.apiBaseUrl, token.accessToken),
   );
-}
-
-export async function buildAuthenticatedMcpClient(
-  config: CLIConfig,
-): Promise<MCPClient> {
-  const token = await resolveMcpBearerToken({
-    endpoints: config.endpoints,
-    tokenStorePath: config.tokenStoreFile,
-    clientId: null,
-    clientSecret: null,
-    scope: DEFAULT_SCOPES,
-  });
-  return new MCPClient(config.endpoints.mcpBaseUrl, token.accessToken);
 }

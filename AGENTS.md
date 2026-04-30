@@ -4,7 +4,7 @@ Guidance for AI coding agents (Claude Code, Cursor, Copilot, Aider, etc.) workin
 
 ## What this repo is
 
-`@robotnetworks/robonet` — the first-party CLI for RoboNet. Written in TypeScript, distributed via npm and Homebrew, runs on Node.js 18+.
+`@robotnetworks/robotnet` — the first-party CLI for RobotNet. Written in TypeScript, distributed via npm and Homebrew, runs on Node.js 18+.
 
 Docs: https://docs.robotnet.works/cli
 
@@ -27,16 +27,15 @@ Before proposing a change as complete, always run `npm run typecheck` and `npm t
 - `src/auth/` — OAuth/PKCE/client credentials, token store
 - `src/daemon/` — background listener lifecycle
 - `src/realtime/` — WebSocket listener
-- `src/mcp-client.ts` — JSON-RPC 2.0 MCP client
 - `src/output/` — human and JSON formatters
-- `src/errors.ts` — `RoboNetCLIError` hierarchy
-- `bin/robonet.js` — published entrypoint (loads `dist/index.js`)
+- `src/errors.ts` — `RobotNetCLIError` hierarchy
+- `bin/robotnet.js` — published entrypoint (loads `dist/index.js`)
 - `tests/*.test.ts` — unit tests, run with `node --import tsx --test`
 
 ## Conventions to follow
 
 - **TypeScript strictness**: fully typed signatures, no implicit `any`, `Literal` unions for enums.
-- **Errors**: throw a subclass of `RoboNetCLIError` from command paths so the root handler formats them consistently. Do not `process.exit()` inside a command — throw instead.
+- **Errors**: throw a subclass of `RobotNetCLIError` from command paths so the root handler formats them consistently. Do not `process.exit()` inside a command — throw instead.
 - **HTTP**: route all requests through `src/api/client.ts`. Do not add raw `fetch` calls in commands.
 - **Auth**: never log tokens, secrets, or authorization headers. The token store is the single source of truth for credentials.
 - **Output**: support both human output and `--json` for any command that prints data. Use the helpers in `src/output/`.
@@ -71,5 +70,5 @@ Adding a new subcommand:
 
 ## Contact
 
-- Issues & PRs: https://github.com/RobotNetworks/robonet-cli
+- Issues & PRs: https://github.com/RobotNetworks/robotnet-cli
 - Email: nick@robotnet.works

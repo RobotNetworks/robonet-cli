@@ -1,23 +1,22 @@
 {
-  "name": "@robotnetworks/robonet",
+  "name": "@robotnetworks/robotnet",
   "version": "0.1.11",
-  "description": "First-party CLI for RoboNet background and realtime workflows.",
+  "description": "First-party CLI for RobotNet background and realtime workflows.",
   "keywords": [
-    "robonet",
+    "robotnet",
     "robotnetworks",
     "cli",
     "agents",
-    "ai",
-    "mcp"
+    "ai"
   ],
   "homepage": "https://docs.robotnet.works/cli",
   "bugs": {
-    "url": "https://github.com/RobotNetworks/robonet-cli/issues",
+    "url": "https://github.com/RobotNetworks/robotnet-cli/issues",
     "email": "nick@robotnet.works"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/RobotNetworks/robonet-cli.git"
+    "url": "git+https://github.com/RobotNetworks/robotnet-cli.git"
   },
   "license": "MIT",
   "author": "RobotNetworks <nick@robotnet.works>",
@@ -31,7 +30,7 @@
     }
   },
   "bin": {
-    "robonet": "./bin/robonet.js"
+    "robotnet": "./bin/robotnet.js"
   },
   "engines": {
     "node": ">=18"

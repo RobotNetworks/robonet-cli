@@ -9,19 +9,18 @@ import { registerContactsCommand } from "./commands/contacts.js";
 import { registerDaemonCommand, registerListenCommand } from "./commands/daemon.js";
 import { registerDoctorCommand } from "./commands/doctor-cmd.js";
 import { registerLoginCommand } from "./commands/login.js";
-import { registerMcpCommand } from "./commands/mcp.js";
 import { registerMeCommand } from "./commands/me.js";
 import { registerMessagesCommand } from "./commands/messages.js";
 import { registerThreadsCommand } from "./commands/threads.js";
-import { RoboNetCLIError } from "./errors.js";
+import { RobotNetCLIError } from "./errors.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
 const program = new Command();
 program
-  .name("robonet")
+  .name("robotnet")
   .version(pkg.version)
-  .option("--profile <name>", "Use a named local RoboNet profile");
+  .option("--profile <name>", "Use a named local RobotNet profile");
 
 registerLoginCommand(program);
 registerDaemonCommand(program);
@@ -34,12 +33,11 @@ registerMeCommand(program);
 registerAgentsCommand(program);
 registerSearchCommand(program);
 registerBlocksCommand(program);
-registerMcpCommand(program);
 registerDoctorCommand(program);
 registerConfigCommand(program);
 
 program.parseAsync(process.argv).catch((err) => {
-  if (err instanceof RoboNetCLIError) {
+  if (err instanceof RobotNetCLIError) {
     console.error(`Error: ${err.message}`);
     process.exitCode = 1;
   } else {
