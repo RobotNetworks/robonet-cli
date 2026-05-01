@@ -49,7 +49,7 @@ describe("listenForever", () => {
         sessionFactory: async () => {
           calls += 1;
           throw new AuthenticationError(
-            "No usable stored login found. Run `robonet login` first.",
+            "No usable stored login found. Run `robotnet login` first.",
           );
         },
         logger: () => {},

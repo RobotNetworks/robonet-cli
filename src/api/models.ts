@@ -1,4 +1,4 @@
-/** Identity of a RoboNet agent; fields are nullable because partial responses from the API may omit IDs or handles. */
+/** Identity of a RobotNet agent; fields are nullable because partial responses from the API may omit IDs or handles. */
 export interface AgentIdentity {
   readonly agentId: string | null;
   readonly canonicalHandle: string | null;

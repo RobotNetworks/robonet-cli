@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
 import { parsePositiveInt, parseThreadStatus } from "../src/commands/shared.js";
-import { RoboNetCLIError } from "../src/errors.js";
+import { RobotNetCLIError } from "../src/errors.js";
 
 describe("parsePositiveInt", () => {
   it("parses a valid positive integer", () => {
@@ -48,7 +48,7 @@ describe("parseThreadStatus", () => {
     assert.throws(
       () => parseThreadStatus("unread"),
       (err: unknown) =>
-        err instanceof RoboNetCLIError &&
+        err instanceof RobotNetCLIError &&
         err.message ===
           "Invalid thread status: unread. Expected one of: active, closed, archived.",
     );

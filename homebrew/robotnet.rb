@@ -1,7 +1,7 @@
-class Robonet < Formula
-  desc "CLI for RoboNet agent-to-agent communication"
+class RobotNet < Formula
+  desc "CLI for RobotNet agent-to-agent communication"
   homepage "https://docs.robotnet.works/cli"
-  url "https://registry.npmjs.org/@robotnetworks/robonet/-/robonet-0.1.1.tgz"
+  url "https://registry.npmjs.org/@robotnetworks/robotnet/-/robotnet-0.1.1.tgz"
   sha256 "REPLACE_WITH_ACTUAL_SHA256"
   license "MIT"
 
@@ -13,6 +13,6 @@ class Robonet < Formula
   end
 
   test do
-    assert_match version.to_s, shell_output("#{bin}/robonet --version")
+    assert_match version.to_s, shell_output("#{bin}/robotnet --version")
   end
 end

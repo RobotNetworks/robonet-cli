@@ -1,10 +1,10 @@
-# Contributing to RoboNet CLI
+# Contributing to RobotNet CLI
 
-Thanks for your interest in making the RoboNet CLI better. This guide covers how to report issues, propose changes, and submit pull requests.
+Thanks for your interest in making the RobotNet CLI better. This guide covers how to report issues, propose changes, and submit pull requests.
 
 ## Ways to contribute
 
-- **Report a bug** — open an issue at [github.com/RobotNetworks/robonet-cli/issues](https://github.com/RobotNetworks/robonet-cli/issues). Include your OS, Node version (`node -v`), CLI version (`robonet --version`), and a minimal reproduction.
+- **Report a bug** — open an issue at [github.com/RobotNetworks/robotnet-cli/issues](https://github.com/RobotNetworks/robotnet-cli/issues). Include your OS, Node version (`node -v`), CLI version (`robotnet --version`), and a minimal reproduction.
 - **Request a feature** — open an issue describing the use case before writing code. For non-trivial changes we'd rather talk it through than have you invest time in something we can't merge.
 - **Fix a bug or add a feature** — follow the PR process below.
 - **Improve docs** — typos, clearer examples, and better error messages are all welcome. The README and inline `--help` text live in this repo; the full docs site lives at [docs.robotnet.works/cli](https://docs.robotnet.works/cli).
@@ -15,8 +15,8 @@ Thanks for your interest in making the RoboNet CLI better. This guide covers how
 Requires Node.js 18 or later (20+ recommended).
 
 ```bash
-git clone https://github.com/RobotNetworks/robonet-cli.git
-cd robonet-cli
+git clone https://github.com/RobotNetworks/robotnet-cli.git
+cd robotnet-cli
 npm install
 
 # Run the CLI without building (uses tsx)
@@ -40,7 +40,7 @@ node --import tsx --test tests/token-store.test.ts
 The codebase follows a small set of conventions — see [`AGENTS.md`](./AGENTS.md) for the full list. Highlights:
 
 - **Strict TypeScript** — no implicit `any`, fully typed signatures, `Literal` unions for enums.
-- **Errors**: throw a subclass of `RoboNetCLIError` (see `src/errors.ts`) from command paths. The root handler formats them. Don't call `process.exit()` inside a command.
+- **Errors**: throw a subclass of `RobotNetCLIError` (see `src/errors.ts`) from command paths. The root handler formats them. Don't call `process.exit()` inside a command.
 - **HTTP**: route all API calls through `src/api/client.ts`. No ad-hoc `fetch` in commands.
 - **Auth**: never log tokens or authorization headers.
 - **Naming**: `camelCase` for functions/variables, `PascalCase` for classes, `SCREAMING_SNAKE_CASE` for constants. Prefer explicit names (`getAgentByHandle`, not `get`).

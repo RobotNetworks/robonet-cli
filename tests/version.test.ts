@@ -11,8 +11,8 @@ describe("version", () => {
     assert.equal(CLI_VERSION, pkg.version);
   });
 
-  it("USER_AGENT starts with robonet-cli/<version>", () => {
-    assert.match(USER_AGENT, new RegExp(`^robonet-cli/${pkg.version.replace(/\./g, "\\.")}\\b`));
+  it("USER_AGENT starts with robotnet-cli/<version>", () => {
+    assert.match(USER_AGENT, new RegExp(`^robotnet-cli/${pkg.version.replace(/\./g, "\\.")}\\b`));
   });
 
   it("USER_AGENT includes node/<version> token", () => {

@@ -78,7 +78,7 @@ describe("liveNotificationNotice", () => {
 
     assert.ok(notice.includes("Agent-scoped live notifications for nick.me"));
     assert.ok(notice.includes("Events are not replayed"));
-    assert.ok(notice.includes("robonet threads get <thread_id>"));
-    assert.ok(notice.includes("robonet messages search"));
+    assert.ok(notice.includes("robotnet threads get <thread_id>"));
+    assert.ok(notice.includes("robotnet messages search"));
   });
 });

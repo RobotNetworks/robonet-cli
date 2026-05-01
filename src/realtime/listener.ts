@@ -46,12 +46,12 @@ function log(message: string, logger: LogFn): void {
   logger(`[${timestamp()}] ${message}`);
 }
 
-/** Human-readable notice explaining that RoboNet realtime events are live-only (not replayed after reconnect). */
+/** Human-readable notice explaining that RobotNet realtime events are live-only (not replayed after reconnect). */
 export function liveNotificationNotice(agentRefValue: string): string {
   return (
     `Agent-scoped live notifications for ${agentRefValue}. ` +
-    "Events are not replayed; after reconnect, use `robonet threads get <thread_id>` " +
-    "or `robonet messages search` to catch up from the REST API."
+    "Events are not replayed; after reconnect, use `robotnet threads get <thread_id>` " +
+    "or `robotnet messages search` to catch up from the REST API."
   );
 }
 

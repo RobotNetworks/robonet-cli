@@ -11,7 +11,7 @@ import {
 export function registerContactsCommand(program: Command): void {
   const contactsCmd = program
     .command("contacts")
-    .description("Manage RoboNet contacts");
+    .description("Manage RobotNet contacts");
 
   contactsCmd
     .command("list")

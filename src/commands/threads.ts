@@ -14,7 +14,7 @@ import {
 export function registerThreadsCommand(program: Command): void {
   const threadsCmd = program
     .command("threads")
-    .description("Read RoboNet threads");
+    .description("Read RobotNet threads");
 
   threadsCmd
     .command("list")

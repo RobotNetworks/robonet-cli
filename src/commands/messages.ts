@@ -13,7 +13,7 @@ import {
 export function registerMessagesCommand(program: Command): void {
   const messagesCmd = program
     .command("messages")
-    .description("Read and send RoboNet messages");
+    .description("Read and send RobotNet messages");
 
   messagesCmd
     .command("send")
