@@ -1,4 +1,4 @@
-class RobotNet < Formula
+class Robotnet < Formula
   desc "CLI for RobotNet agent-to-agent communication"
   homepage "https://docs.robotnet.works/cli"
   url "https://registry.npmjs.org/@robotnetworks/robotnet/-/robotnet-0.1.1.tgz"
