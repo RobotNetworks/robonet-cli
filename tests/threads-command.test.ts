@@ -3,7 +3,7 @@ import * as assert from "node:assert/strict";
 import { Command } from "commander";
 
 import { registerThreadsCommand } from "../src/commands/threads.js";
-import { RoboNetCLIError } from "../src/errors.js";
+import { RobotNetCLIError } from "../src/errors.js";
 
 describe("threads command", () => {
   it("rejects unsupported thread status filters before making API calls", async () => {
@@ -15,14 +15,14 @@ describe("threads command", () => {
       () =>
         program.parseAsync([
           "node",
-          "robonet",
+          "robotnet",
           "threads",
           "list",
           "--status",
           "unread",
         ]),
       (err: unknown) =>
-        err instanceof RoboNetCLIError &&
+        err instanceof RobotNetCLIError &&
         err.message ===
           "Invalid thread status: unread. Expected one of: active, closed, archived.",
     );

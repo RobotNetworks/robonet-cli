@@ -19,12 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Centralized version metadata in `src/version.ts`.
 
-### Removed
-
-- The `robotnet mcp` subcommand and JSON-RPC MCP client. The hosted MCP
-  server has been decommissioned; use the REST API and WebSocket listener
-  instead.
-
 ## [0.1.0] - 2026-04-18
 
 ### Added

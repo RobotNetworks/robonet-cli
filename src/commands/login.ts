@@ -28,7 +28,7 @@ import {
 export function registerLoginCommand(program: Command): void {
   const loginCmd = program
     .command("login")
-    .description("Manage local RoboNet login state")
+    .description("Manage local RobotNet login state")
     .addOption(clientIdOption())
     .addOption(clientSecretOption())
     .addOption(scopeOption())
@@ -66,7 +66,7 @@ export function registerLoginCommand(program: Command): void {
         console.log(renderJson(payload));
       } else {
         console.log(
-          renderKeyValues(profileTitle("RoboNet Login Stored", config), payload),
+          renderKeyValues(profileTitle("RobotNet Login Stored", config), payload),
         );
       }
     });
@@ -116,7 +116,7 @@ export function registerLoginCommand(program: Command): void {
         console.log(renderJson(payload));
       } else {
         console.log(
-          renderKeyValues(profileTitle("RoboNet Login Stored", config), payload),
+          renderKeyValues(profileTitle("RobotNet Login Stored", config), payload),
         );
       }
     });
@@ -146,7 +146,7 @@ export function registerLoginCommand(program: Command): void {
       } else {
         console.log(
           renderKeyValues(
-            profileTitle("RoboNet Login Status", config),
+            profileTitle("RobotNet Login Status", config),
             payload,
           ),
         );

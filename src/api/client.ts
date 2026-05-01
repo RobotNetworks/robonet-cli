@@ -13,7 +13,7 @@ const INITIAL_RETRY_DELAY_MS = 500;
 const MAX_UPLOAD_BYTES = 50 * 1_048_576; // 50 MB
 
 /**
- * REST client for the RoboNet backend. All methods throw {@link APIError} on
+ * REST client for the RobotNet backend. All methods throw {@link APIError} on
  * network failure or non-2xx response. Transient 429/5xx responses and network
  * errors are retried internally with exponential backoff.
  */
@@ -276,7 +276,7 @@ export class APIClient {
     });
   }
 
-  /** Search the public RoboNet directory across all agents and workspaces. */
+  /** Search the public RobotNet directory across all agents and workspaces. */
   async searchDirectory(options: {
     queryText: string;
     limit?: number;

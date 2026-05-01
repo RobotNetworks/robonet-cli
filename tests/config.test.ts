@@ -17,11 +17,11 @@ afterEach(() => {
 });
 
 describe("defaultPaths", () => {
-  it("default profile uses root robonet dirs", () => {
+  it("default profile uses root robotnet dirs", () => {
     const paths = defaultPaths("default");
 
-    assert.equal(paths.configDir, path.join(env.tmpDir, "config", "robonet"));
-    assert.equal(paths.stateDir, path.join(env.tmpDir, "state", "robonet"));
+    assert.equal(paths.configDir, path.join(env.tmpDir, "config", "robotnet"));
+    assert.equal(paths.stateDir, path.join(env.tmpDir, "state", "robotnet"));
   });
 
   it("named profile uses profiles subdirectories", () => {
@@ -29,11 +29,11 @@ describe("defaultPaths", () => {
 
     assert.equal(
       paths.configDir,
-      path.join(env.tmpDir, "config", "robonet", "profiles", "work"),
+      path.join(env.tmpDir, "config", "robotnet", "profiles", "work"),
     );
     assert.equal(
       paths.stateDir,
-      path.join(env.tmpDir, "state", "robonet", "profiles", "work"),
+      path.join(env.tmpDir, "state", "robotnet", "profiles", "work"),
     );
   });
 });
@@ -49,7 +49,7 @@ describe("loadConfig", () => {
       path.join(
         env.tmpDir,
         "config",
-        "robonet",
+        "robotnet",
         "profiles",
         "ops",
         "auth.json",
@@ -58,7 +58,7 @@ describe("loadConfig", () => {
   });
 
   it("honors endpoint env overrides", () => {
-    process.env.ROBONET_API_BASE_URL = "https://api.example.test/v1";
+    process.env.ROBOTNET_API_BASE_URL = "https://api.example.test/v1";
 
     const config = loadConfig(undefined, { cwd: env.tmpDir });
 
@@ -72,8 +72,8 @@ describe("loadConfig", () => {
     assert.equal(config.profileSource.kind, "default");
   });
 
-  it("reads profile from ROBONET_PROFILE env var", () => {
-    process.env.ROBONET_PROFILE = "work";
+  it("reads profile from ROBOTNET_PROFILE env var", () => {
+    process.env.ROBOTNET_PROFILE = "work";
 
     const config = loadConfig(undefined, { cwd: env.tmpDir });
 
@@ -84,7 +84,7 @@ describe("loadConfig", () => {
 
 describe("workspace profile config", () => {
   function setupWorkspace(dir: string, profileName: string): string {
-    const wsDir = path.join(dir, ".robonet");
+    const wsDir = path.join(dir, ".robotnet");
     fs.mkdirSync(wsDir, { recursive: true });
     const file = path.join(wsDir, "config.json");
     fs.writeFileSync(file, JSON.stringify({ profile: profileName }));
@@ -137,10 +137,10 @@ describe("workspace profile config", () => {
     assert.equal(config.profileSource.kind, "flag");
   });
 
-  it("ROBONET_PROFILE env var wins over workspace file", () => {
+  it("ROBOTNET_PROFILE env var wins over workspace file", () => {
     setupProfileDir("work");
     setupWorkspace(env.tmpDir, "work");
-    process.env.ROBONET_PROFILE = "env-profile";
+    process.env.ROBOTNET_PROFILE = "env-profile";
 
     const config = loadConfig(undefined, { cwd: env.tmpDir });
 
@@ -156,12 +156,12 @@ describe("workspace profile config", () => {
       (err: unknown) =>
         err instanceof ConfigurationError &&
         err.message.includes("ghost") &&
-        err.message.includes("robonet --profile ghost login"),
+        err.message.includes("robotnet --profile ghost login"),
     );
   });
 
   it("throws on malformed workspace JSON", () => {
-    const wsDir = path.join(env.tmpDir, ".robonet");
+    const wsDir = path.join(env.tmpDir, ".robotnet");
     fs.mkdirSync(wsDir, { recursive: true });
     fs.writeFileSync(path.join(wsDir, "config.json"), "{not json");
 

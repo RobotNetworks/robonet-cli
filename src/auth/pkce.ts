@@ -12,7 +12,7 @@ import {
 } from "../errors.js";
 
 const DEFAULT_LOOPBACK_REDIRECT_URI = "http://127.0.0.1:8788/callback";
-const DEFAULT_PUBLIC_CLIENT_NAME = "robonet-cli";
+const DEFAULT_PUBLIC_CLIENT_NAME = "robotnet-cli";
 
 /** Result of a successful PKCE login: the API access token plus the long-lived data needed to refresh it. */
 export interface PKCELoginResult {
@@ -62,7 +62,7 @@ export async function performPkceLogin(options: {
     state,
   });
 
-  console.log("Opening browser for RoboNet login and agent selection.");
+  console.log("Opening browser for RobotNet login and agent selection.");
   console.log(authorizationUrl);
   const open = (await import("open")).default;
   await open(authorizationUrl);
@@ -312,7 +312,7 @@ function waitForOAuthCallback(options: {
         statusCode = 400;
       } else {
         responseBody =
-          "Authorization complete. You can close this window and return to RoboNet CLI.";
+          "Authorization complete. You can close this window and return to RobotNet CLI.";
         statusCode = 200;
       }
 

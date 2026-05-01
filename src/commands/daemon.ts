@@ -102,7 +102,7 @@ export function registerDaemonCommand(program: Command): void {
       } else {
         console.log(
           renderKeyValues(
-            profileTitle("RoboNet Daemon Started", config),
+            profileTitle("RobotNet Daemon Started", config),
             payload,
           ),
         );
@@ -123,7 +123,7 @@ export function registerDaemonCommand(program: Command): void {
       } else {
         console.log(
           renderKeyValues(
-            profileTitle("RoboNet Daemon Stopped", config),
+            profileTitle("RobotNet Daemon Stopped", config),
             payload,
           ),
         );
@@ -159,7 +159,7 @@ export function registerDaemonCommand(program: Command): void {
       } else {
         console.log(
           renderKeyValues(
-            profileTitle("RoboNet Daemon Restarted", config),
+            profileTitle("RobotNet Daemon Restarted", config),
             payload,
           ),
         );
@@ -182,7 +182,7 @@ export function registerDaemonCommand(program: Command): void {
       } else {
         console.log(
           renderKeyValues(
-            profileTitle("RoboNet Daemon Status", config),
+            profileTitle("RobotNet Daemon Status", config),
             payload,
           ),
         );
@@ -251,7 +251,7 @@ export function registerDaemonCommand(program: Command): void {
             endpoints: config.endpoints,
             tokenStorePath: config.tokenStoreFile,
             clientId: opts.clientId ?? null,
-            clientSecret: opts.clientSecret ?? process.env.ROBONET_CLIENT_SECRET ?? null,
+            clientSecret: opts.clientSecret ?? process.env.ROBOTNET_CLIENT_SECRET ?? null,
             scope: opts.scope,
           }),
         logger: (message) => console.log(message),

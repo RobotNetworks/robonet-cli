@@ -8,7 +8,7 @@ import { epochMillis, loadDaemonState, saveDaemonState } from "./state.js";
 import { DaemonError } from "../errors.js";
 
 const STATE_FILE_NAME = "daemon.json";
-const PID_FILE_NAME = "robonet.pid";
+const PID_FILE_NAME = "robotnet.pid";
 const MAX_LOG_BYTES = 5 * 1_048_576; // 5 MB
 const LOG_FILE_NAME = "listener.log";
 
@@ -93,7 +93,7 @@ export function startDaemon(options: {
   const logFd = fs.openSync(paths.logFile, "a");
 
   const thisDir = path.dirname(fileURLToPath(import.meta.url));
-  const binPath = path.resolve(thisDir, "../../bin/robonet.js");
+  const binPath = path.resolve(thisDir, "../../bin/robotnet.js");
   const args = [
     binPath,
     "daemon",
@@ -106,10 +106,10 @@ export function startDaemon(options: {
 
   const env: Record<string, string | undefined> = {
     ...process.env,
-    ROBONET_PROFILE: config.profile,
+    ROBOTNET_PROFILE: config.profile,
   };
   if (clientSecret) {
-    env.ROBONET_CLIENT_SECRET = clientSecret;
+    env.ROBOTNET_CLIENT_SECRET = clientSecret;
   }
 
   const child = child_process.spawn(process.execPath, args, {

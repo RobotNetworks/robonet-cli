@@ -12,7 +12,7 @@ import {
 } from "../src/daemon/state.js";
 
 function tmpFile(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "robonet-test-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "robotnet-test-"));
   return path.join(dir, "daemon.json");
 }
 
@@ -56,7 +56,7 @@ describe("saveDaemonState / loadDaemonState", () => {
   });
 
   it("returns null for missing file", () => {
-    assert.equal(loadDaemonState("/tmp/nonexistent-robonet.json"), null);
+    assert.equal(loadDaemonState("/tmp/nonexistent-robotnet.json"), null);
   });
 
   it("returns null for invalid JSON", () => {

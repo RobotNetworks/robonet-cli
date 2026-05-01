@@ -61,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${REF_NAME#v}"
-          TARBALL_URL="https://registry.npmjs.org/@robotnetworks/robonet/-/robonet-${VERSION}.tgz"
+          TARBALL_URL="https://registry.npmjs.org/@robotnetworks/robotnet/-/robotnet-${VERSION}.tgz"
           SHA256=$(curl -sSL "$TARBALL_URL" | shasum -a 256 | cut -d' ' -f1)
           echo "Version: $VERSION"
           echo "Tarball: $TARBALL_URL"
@@ -70,12 +70,12 @@ jobs:
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/RobotNetworks/homebrew-tap.git" tap
           cd tap
 
-          sed -i "s|url \".*\"|url \"${TARBALL_URL}\"|" Formula/robonet.rb
-          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/robonet.rb
+          sed -i "s|url \".*\"|url \"${TARBALL_URL}\"|" Formula/robotnet.rb
+          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/robotnet.rb
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/robonet.rb
+          git add Formula/robotnet.rb
           git diff --cached --quiet && { echo "No formula changes, skipping commit."; exit 0; }
-          git commit -m "robonet ${VERSION}"
+          git commit -m "robotnet ${VERSION}"
           git push
