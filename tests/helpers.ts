@@ -23,6 +23,7 @@ export function isolatedXdg(): {
     ROBOTNET_API_BASE_URL: process.env.ROBOTNET_API_BASE_URL,
     ROBOTNET_AUTH_BASE_URL: process.env.ROBOTNET_AUTH_BASE_URL,
     ROBOTNET_WEBSOCKET_URL: process.env.ROBOTNET_WEBSOCKET_URL,
+    ROBOTNET_NETWORK: process.env.ROBOTNET_NETWORK,
   };
 
   process.env.XDG_CONFIG_HOME = configHome;
@@ -32,6 +33,7 @@ export function isolatedXdg(): {
   delete process.env.ROBOTNET_API_BASE_URL;
   delete process.env.ROBOTNET_AUTH_BASE_URL;
   delete process.env.ROBOTNET_WEBSOCKET_URL;
+  delete process.env.ROBOTNET_NETWORK;
 
   return {
     tmpDir,

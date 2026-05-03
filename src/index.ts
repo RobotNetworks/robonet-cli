@@ -1,17 +1,15 @@
 import { Command } from "commander";
 import { createRequire } from "node:module";
 
-import { registerAgentsCommand, registerSearchCommand } from "./commands/agents.js";
-import { registerAttachmentsCommand } from "./commands/attachments.js";
-import { registerBlocksCommand } from "./commands/blocks.js";
+import { registerAgentCommand } from "./commands/agent.js";
 import { registerConfigCommand } from "./commands/config-cmd.js";
-import { registerContactsCommand } from "./commands/contacts.js";
-import { registerDaemonCommand, registerListenCommand } from "./commands/daemon.js";
 import { registerDoctorCommand } from "./commands/doctor-cmd.js";
+import { registerIdentityCommand } from "./commands/identity.js";
+import { registerListenCommand } from "./commands/listen.js";
 import { registerLoginCommand } from "./commands/login.js";
-import { registerMeCommand } from "./commands/me.js";
-import { registerMessagesCommand } from "./commands/messages.js";
-import { registerThreadsCommand } from "./commands/threads.js";
+import { registerNetworkCommand } from "./commands/network.js";
+import { registerPermissionCommand } from "./commands/permission.js";
+import { registerSessionCommand } from "./commands/session.js";
 import { RobotNetCLIError } from "./errors.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
@@ -20,21 +18,22 @@ const program = new Command();
 program
   .name("robotnet")
   .version(pkg.version)
-  .option("--profile <name>", "Use a named local RobotNet profile");
+  .option("--profile <name>", "Use a named local RobotNet profile")
+  .option(
+    "--network <name>",
+    "Target a named ASP network (defaults to the profile's `default_network`, " +
+      "the workspace `.robotnet/config.json` `network` field, or the built-in `robotnet` network)",
+  );
 
 registerLoginCommand(program);
-registerDaemonCommand(program);
-registerListenCommand(program);
-registerContactsCommand(program);
-registerThreadsCommand(program);
-registerMessagesCommand(program);
-registerAttachmentsCommand(program);
-registerMeCommand(program);
-registerAgentsCommand(program);
-registerSearchCommand(program);
-registerBlocksCommand(program);
 registerDoctorCommand(program);
 registerConfigCommand(program);
+registerIdentityCommand(program);
+registerNetworkCommand(program);
+registerAgentCommand(program);
+registerPermissionCommand(program);
+registerSessionCommand(program);
+registerListenCommand(program);
 
 program.parseAsync(process.argv).catch((err) => {
   if (err instanceof RobotNetCLIError) {

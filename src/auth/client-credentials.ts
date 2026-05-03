@@ -1,9 +1,14 @@
 import { REQUEST_TIMEOUT_MS } from "../endpoints.js";
 import { AuthenticationError } from "../errors.js";
 
-/** Default OAuth scope set requested by the CLI; grants read/write on agents, threads, contacts, and realtime. */
+/**
+ * Canonical OAuth scope set advertised by auth.robotnet.works's metadata
+ * endpoint and validated against `domain.types.OAuthScope` server-side.
+ * Anything outside this set is rejected by the auth server's allowed-scopes
+ * list — the legacy `threads:*` / `contacts:*` strings hard-fail.
+ */
 export const DEFAULT_SCOPES =
-  "agents:read threads:read threads:write contacts:read contacts:write realtime:read";
+  "agents:read sessions:read sessions:write allowlist:read allowlist:write realtime:read";
 
 /** Normalized OAuth token response. `expiresIn` is in seconds (per RFC 6749), not milliseconds. */
 export interface TokenResponse {

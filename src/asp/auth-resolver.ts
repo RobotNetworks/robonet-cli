@@ -1,0 +1,181 @@
+import type { CLIConfig } from "../config.js";
+import { CredentialDecryptionError } from "../credentials/aes-encryptor.js";
+import { openProcessCredentialStore } from "../credentials/lifecycle.js";
+import type { CredentialStore } from "../credentials/store.js";
+import { RobotNetCLIError } from "../errors.js";
+import { AspAdminClient } from "./admin-client.js";
+import {
+  bearerStillValid,
+  renewAgentClientCredentials,
+  renewAgentPkce,
+} from "./agent-login.js";
+import { AdminTokenNotFoundError, CredentialNotFoundError } from "./credentials.js";
+import { AspSessionClient } from "./session-client.js";
+
+/**
+ * Single seam for resolving the bearer tokens an ASP command needs.
+ *
+ * Lookup order:
+ *   1. The `--admin-token` / `--token` override flag (explicit dev escape hatch).
+ *   2. The shared SQLite credential store. For OAuth-issued agent tokens,
+ *      bearers within the grace window of expiry are silently renewed using
+ *      the row's stored renewal material (refresh_token for PKCE,
+ *      client_id+client_secret for client_credentials).
+ *
+ * Legacy file-based credentials are ingested into the store on first open
+ * per process (see `src/credentials/lifecycle.ts`); after that, the store
+ * is the only source of truth.
+ */
+
+export type TokenSource = "flag" | "store";
+
+export interface ResolvedToken {
+  readonly token: string;
+  readonly source: TokenSource;
+}
+
+export async function resolveAdminToken(
+  config: CLIConfig,
+  override?: string,
+): Promise<ResolvedToken> {
+  if (override !== undefined && override.length > 0) {
+    return { token: override, source: "flag" };
+  }
+  const store = await openProcessCredentialStore(config);
+  let stored: ReturnType<CredentialStore["getAdminToken"]>;
+  try {
+    stored = store.getAdminToken(config.network.name);
+  } catch (err) {
+    if (err instanceof CredentialDecryptionError) {
+      handleKeyChangeRecovery(store, "admin token", config.network.name);
+    }
+    throw err;
+  }
+  if (stored !== null) {
+    return { token: stored.token, source: "store" };
+  }
+  throw new AdminTokenNotFoundError(config.network.name);
+}
+
+export async function resolveAdminClient(
+  config: CLIConfig,
+  override?: string,
+): Promise<AspAdminClient> {
+  const { token } = await resolveAdminToken(config, override);
+  return new AspAdminClient(config.network.url, token);
+}
+
+export async function resolveAgentToken(
+  config: CLIConfig,
+  handle: string,
+  override?: string,
+): Promise<ResolvedToken> {
+  if (override !== undefined && override.length > 0) {
+    return { token: override, source: "flag" };
+  }
+  const store = await openProcessCredentialStore(config);
+  let stored: ReturnType<CredentialStore["getAgentCredential"]>;
+  try {
+    stored = store.getAgentCredential(config.network.name, handle);
+  } catch (err) {
+    if (err instanceof CredentialDecryptionError) {
+      handleKeyChangeRecovery(store, `agent credential for ${handle}`, config.network.name);
+    }
+    throw err;
+  }
+  if (stored === null) {
+    throw new CredentialNotFoundError(handle, config.network.name);
+  }
+
+  switch (stored.kind) {
+    case "local_bearer":
+      // Long-lived bearers issued by `agent register` on a local network.
+      // No expiry, no renewal.
+      return { token: stored.bearer, source: "store" };
+
+    case "oauth_pkce": {
+      if (bearerStillValid(stored.bearerExpiresAt)) {
+        return { token: stored.bearer, source: "store" };
+      }
+      if (stored.refreshToken === null || stored.clientId === null) {
+        // Defensive: the credential row should always have both for
+        // oauth_pkce (validate gates inserts), but a hand-edited DB or a
+        // future schema migration could leave them sparse.
+        throw new RobotNetCLIError(
+          `agent ${handle}'s PKCE bearer has expired and the row is missing renewal material. ` +
+            `Re-run \`robotnet login --agent ${handle}\` to enroll afresh.`,
+        );
+      }
+      const refreshed = await renewAgentPkce({
+        config,
+        handle,
+        clientId: stored.clientId,
+        refreshToken: stored.refreshToken,
+        scope: stored.scope,
+      });
+      return { token: refreshed, source: "store" };
+    }
+
+    case "oauth_client_credentials": {
+      if (bearerStillValid(stored.bearerExpiresAt)) {
+        return { token: stored.bearer, source: "store" };
+      }
+      if (stored.clientId === null || stored.clientSecret === null) {
+        // Should never happen — `validateInput` guarantees both are set
+        // for this kind on insert. Defensive check in case the row was
+        // hand-edited or migrated from a different schema.
+        throw new RobotNetCLIError(
+          `agent ${handle}'s client_credentials row is missing the client_id/secret needed to refresh. ` +
+            `Re-run \`robotnet login --agent ${handle} --client-id <id> --client-secret <secret>\`.`,
+        );
+      }
+      const refreshed = await renewAgentClientCredentials({
+        config,
+        handle,
+        clientId: stored.clientId,
+        clientSecret: stored.clientSecret,
+        scope: stored.scope,
+      });
+      return { token: refreshed, source: "store" };
+    }
+
+    default: {
+      const _exhaustive: never = stored.kind;
+      throw new RobotNetCLIError(
+        `unhandled agent credential kind: ${String(_exhaustive)}`,
+      );
+    }
+  }
+}
+
+export async function resolveSessionClient(
+  config: CLIConfig,
+  handle: string,
+  override?: string,
+): Promise<AspSessionClient> {
+  const { token } = await resolveAgentToken(config, handle, override);
+  return new AspSessionClient(config.network.url, token);
+}
+
+/**
+ * Wipe every row whose ciphertext can no longer be decrypted (typical cause:
+ * the OS keychain key was reset) and throw a clean, actionable error.
+ *
+ * Without this, a key reset leaves the user with `CredentialDecryptionError`
+ * thrown from every CLI invocation forever — an obscure failure mode they
+ * can't recover from short of `rm credentials.sqlite`. This way they see
+ * one clear message and a clean store to re-register against.
+ */
+function handleKeyChangeRecovery(
+  store: CredentialStore,
+  whatWeWereReading: string,
+  networkName: string,
+): never {
+  const purged = store.purgeUnreadableRows();
+  throw new RobotNetCLIError(
+    `cannot decrypt the stored ${whatWeWereReading} on network "${networkName}". ` +
+      `The OS keychain key was likely reset since these credentials were stored. ` +
+      `Cleared ${purged.adminTokens} admin token(s) and ${purged.agentCredentials} agent credential(s) ` +
+      `that were no longer readable — re-register agents and re-login to restore access.`,
+  );
+}

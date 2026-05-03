@@ -1,8 +1,8 @@
 import type { Command } from "commander";
 
-import { loadConfig } from "../config.js";
 import { runDoctor } from "../doctor.js";
 import { renderJson } from "../output/json-output.js";
+import { loadConfigFromRoot } from "./asp-shared.js";
 import { jsonOption, profileTitle } from "./shared.js";
 
 export function registerDoctorCommand(program: Command): void {
@@ -11,7 +11,7 @@ export function registerDoctorCommand(program: Command): void {
     .description("Run local RobotNet CLI diagnostics")
     .addOption(jsonOption())
     .action(async (opts, cmd) => {
-      const config = loadConfig(cmd.parent?.opts().profile);
+      const config = loadConfigFromRoot(cmd);
       const checks = await runDoctor(config);
       const ok = checks.every((c) => c.ok);
       const payload = { ok, checks };

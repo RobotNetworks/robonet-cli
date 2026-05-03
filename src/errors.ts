@@ -56,18 +56,3 @@ export class TransientAuthError extends RobotNetCLIError {
   }
 }
 
-/** Thrown when a REST API call to the RobotNet backend fails (network or non-2xx status). */
-export class APIError extends RobotNetCLIError {
-  constructor(message: string) {
-    super(message);
-    this.name = "APIError";
-  }
-}
-
-/** Thrown for daemon lifecycle failures: already-running, spawn failure, or corrupted daemon state. */
-export class DaemonError extends RobotNetCLIError {
-  constructor(message: string) {
-    super(message);
-    this.name = "DaemonError";
-  }
-}

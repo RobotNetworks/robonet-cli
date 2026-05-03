@@ -1,0 +1,421 @@
+import { Command } from "commander";
+
+import { resolveSessionClient } from "../asp/auth-resolver.js";
+import {
+  assertValidHandle,
+  handleArg,
+  handlesArg,
+} from "../asp/handles.js";
+import type {
+  SessionWire,
+  UnknownSessionEvent,
+} from "../asp/types.js";
+import { RobotNetCLIError } from "../errors.js";
+import { loadConfigForAgentCommand, out } from "./asp-shared.js";
+
+/**
+ * `robotnet session` — manage ASP sessions as the calling agent.
+ *
+ * Each leaf authenticates with the agent's bearer token. Resolution order:
+ *   1. `--token <tok>` flag
+ *   2. `<state>/networks/<network>/credentials/<owner>.<name>.token`
+ *      (written by `robotnet agent register` / `rotate-token`; later: read
+ *      from the shared SQLite credential store)
+ *
+ * The acting agent is resolved by `--as <handle>` > `ROBOTNET_AGENT` env >
+ * `.robotnet/asp.json` directory binding. When the directory binding declares
+ * a network and `--network` is not set explicitly, the binding's network is
+ * also used for the request — so a project pinned to `local` "just works"
+ * from inside its directory.
+ */
+export function registerSessionCommand(program: Command): void {
+  const session = new Command("session").description(
+    "Manage ASP sessions as the calling agent",
+  );
+
+  session.addCommand(makeCreateCmd());
+  session.addCommand(makeListCmd());
+  session.addCommand(makeShowCmd());
+  session.addCommand(makeJoinCmd());
+  session.addCommand(makeInviteCmd());
+  session.addCommand(makeSendCmd());
+  session.addCommand(makeLeaveCmd());
+  session.addCommand(makeEndCmd());
+  session.addCommand(makeReopenCmd());
+  session.addCommand(makeEventsCmd());
+
+  program.addCommand(session);
+}
+
+// ── create ───────────────────────────────────────────────────────────────────
+
+function makeCreateCmd(): Command {
+  return new Command("create")
+    .description("Create a new session")
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .option("--invite <handles>", "Comma-separated handles to invite")
+    .option("--topic <text>", "Session topic")
+    .option("--message <text>", "Send an initial message")
+    .option(
+      "--end-after-send",
+      "End the session immediately after the initial message",
+      false,
+    )
+    .addOption(tokenOption())
+    .option("--json", "Emit machine-readable JSON", false)
+    .action(async (opts: CreateOpts, cmd: Command) => {
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const client = await resolveSessionClient(config, identity.handle, opts.token);
+      const invite = parseInviteList(opts.invite);
+      const result = await client.createSession({
+        ...(invite !== undefined ? { invite } : {}),
+        ...(opts.topic !== undefined ? { topic: opts.topic } : {}),
+        ...(opts.message !== undefined
+          ? { initialMessage: { content: opts.message } }
+          : {}),
+        ...(opts.endAfterSend ? { endAfterSend: true } : {}),
+      });
+      if (opts.json) {
+        out(JSON.stringify(result, null, 2));
+        return;
+      }
+      out(`Created session ${result.session_id}.`);
+      if (result.sequence !== undefined) {
+        out(`  Message sequence: ${result.sequence}`);
+      }
+    });
+}
+
+interface CreateOpts {
+  readonly as?: string;
+  readonly invite?: string;
+  readonly topic?: string;
+  readonly message?: string;
+  readonly endAfterSend: boolean;
+  readonly token?: string;
+  readonly json: boolean;
+}
+
+// ── list ─────────────────────────────────────────────────────────────────────
+
+function makeListCmd(): Command {
+  return new Command("list")
+    .description("List sessions the agent is part of")
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
+    .option("--json", "Emit machine-readable JSON", false)
+    .action(async (opts: AgentLeafOpts, cmd: Command) => {
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const client = await resolveSessionClient(config, identity.handle, opts.token);
+      const sessions = await client.listSessions();
+      if (opts.json) {
+        out(JSON.stringify({ sessions }, null, 2));
+        return;
+      }
+      if (sessions.length === 0) {
+        out(
+          `No sessions found for ${identity.handle} on network "${config.network.name}".`,
+        );
+        return;
+      }
+      out(formatSessionTable(sessions));
+    });
+}
+
+// ── show ─────────────────────────────────────────────────────────────────────
+
+function makeShowCmd(): Command {
+  return new Command("show")
+    .description("Show details for a session")
+    .argument("<session-id>", "Session ID")
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
+    .option("--json", "Emit machine-readable JSON", false)
+    .action(async (sessionId: string, opts: AgentLeafOpts, cmd: Command) => {
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const client = await resolveSessionClient(config, identity.handle, opts.token);
+      const session = await client.showSession(sessionId);
+      if (opts.json) {
+        out(JSON.stringify(session, null, 2));
+        return;
+      }
+      printSession(session);
+    });
+}
+
+// ── join ─────────────────────────────────────────────────────────────────────
+
+function makeJoinCmd(): Command {
+  return new Command("join")
+    .description("Join a session the agent has been invited to")
+    .argument("<session-id>", "Session ID")
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
+    .action(async (sessionId: string, opts: AgentLeafOpts, cmd: Command) => {
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const client = await resolveSessionClient(config, identity.handle, opts.token);
+      await client.joinSession(sessionId);
+      out(`Joined session ${sessionId}.`);
+    });
+}
+
+// ── invite ───────────────────────────────────────────────────────────────────
+
+function makeInviteCmd(): Command {
+  return new Command("invite")
+    .description("Invite one or more agents to a session")
+    .argument("<session-id>", "Session ID")
+    .argument("<handles...>", "Agent handles to invite", handlesArg)
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
+    .option("--json", "Emit machine-readable JSON", false)
+    .action(
+      async (
+        sessionId: string,
+        handles: string[],
+        opts: AgentLeafOpts,
+        cmd: Command,
+      ) => {
+        const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+        const client = await resolveSessionClient(config, identity.handle, opts.token);
+        const result = await client.inviteToSession(sessionId, handles);
+        const invitedSet = new Set(result.invited);
+        const omitted = handles.filter((h) => !invitedSet.has(h));
+        if (opts.json) {
+          out(JSON.stringify({ invited: result.invited, omitted }, null, 2));
+          return;
+        }
+        if (result.invited.length > 0) {
+          out(`Invited: ${result.invited.join(", ")}`);
+        }
+        if (omitted.length > 0) {
+          // ASP §6.2: invitation refusals are not enumerable to the inviter.
+          // Surface that explicitly so the user does not assume it's a bug.
+          out(
+            `Omitted: ${omitted.join(", ")} ` +
+              "(unknown, already participant, blocked, or with a restrictive policy — " +
+              "the protocol does not surface which, by design)",
+          );
+        }
+        if (result.invited.length === 0 && omitted.length === 0) {
+          out("No agents were invited.");
+        }
+      },
+    );
+}
+
+// ── send ─────────────────────────────────────────────────────────────────────
+
+function makeSendCmd(): Command {
+  return new Command("send")
+    .description("Send a message to a session")
+    .argument("<session-id>", "Session ID")
+    .argument("<message>", "Message content (a plain string text part)")
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
+    .option("--json", "Emit machine-readable JSON", false)
+    .action(
+      async (
+        sessionId: string,
+        message: string,
+        opts: AgentLeafOpts,
+        cmd: Command,
+      ) => {
+        const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+        const client = await resolveSessionClient(config, identity.handle, opts.token);
+        const result = await client.sendMessage(sessionId, message);
+        if (opts.json) {
+          out(JSON.stringify(result, null, 2));
+          return;
+        }
+        out(`Message sent (id=${result.message_id}, seq=${result.sequence}).`);
+      },
+    );
+}
+
+// ── leave ─────────────────────────────────────────────────────────────────────
+
+function makeLeaveCmd(): Command {
+  return new Command("leave")
+    .description("Leave a session")
+    .argument("<session-id>", "Session ID")
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
+    .action(async (sessionId: string, opts: AgentLeafOpts, cmd: Command) => {
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const client = await resolveSessionClient(config, identity.handle, opts.token);
+      await client.leaveSession(sessionId);
+      out(`Left session ${sessionId}.`);
+    });
+}
+
+// ── end ───────────────────────────────────────────────────────────────────────
+
+function makeEndCmd(): Command {
+  return new Command("end")
+    .description("End a session")
+    .argument("<session-id>", "Session ID")
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
+    .action(async (sessionId: string, opts: AgentLeafOpts, cmd: Command) => {
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const client = await resolveSessionClient(config, identity.handle, opts.token);
+      await client.endSession(sessionId);
+      out(`Ended session ${sessionId}.`);
+    });
+}
+
+// ── reopen ────────────────────────────────────────────────────────────────────
+
+function makeReopenCmd(): Command {
+  return new Command("reopen")
+    .description("Reopen an ended session")
+    .argument("<session-id>", "Session ID")
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .option("--invite <handles>", "Comma-separated handles to re-invite")
+    .option(
+      "--message <text>",
+      "Send an initial message to the reopened session",
+    )
+    .addOption(tokenOption())
+    .action(async (sessionId: string, opts: ReopenOpts, cmd: Command) => {
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const client = await resolveSessionClient(config, identity.handle, opts.token);
+      const invite = parseInviteList(opts.invite);
+      await client.reopenSession(sessionId, {
+        ...(invite !== undefined ? { invite } : {}),
+        ...(opts.message !== undefined
+          ? { initialMessage: { content: opts.message } }
+          : {}),
+      });
+      out(`Reopened session ${sessionId}.`);
+    });
+}
+
+interface ReopenOpts {
+  readonly as?: string;
+  readonly invite?: string;
+  readonly message?: string;
+  readonly token?: string;
+}
+
+// ── events ────────────────────────────────────────────────────────────────────
+
+function makeEventsCmd(): Command {
+  return new Command("events")
+    .description("Fetch events from a session's transcript")
+    .argument("<session-id>", "Session ID")
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .option(
+      "--after <sequence>",
+      "Only return events after this sequence number",
+      parsePositiveIntArg,
+    )
+    .option(
+      "--limit <n>",
+      "Maximum number of events to return (1-1000)",
+      parsePositiveIntArg,
+    )
+    .addOption(tokenOption())
+    .option("--json", "Emit machine-readable JSON", false)
+    .action(async (sessionId: string, opts: EventsOpts, cmd: Command) => {
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const client = await resolveSessionClient(config, identity.handle, opts.token);
+      const result = await client.getEvents(sessionId, {
+        ...(opts.after !== undefined ? { afterSequence: opts.after } : {}),
+        ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+      });
+      if (opts.json) {
+        out(JSON.stringify(result, null, 2));
+        return;
+      }
+      if (result.events.length === 0) {
+        out("No events.");
+        return;
+      }
+      for (const event of result.events) {
+        out(formatEvent(event));
+      }
+      if (result.next_cursor !== undefined) {
+        out(`\n  next_cursor: ${result.next_cursor}`);
+      }
+    });
+}
+
+interface EventsOpts {
+  readonly as?: string;
+  readonly after?: number;
+  readonly limit?: number;
+  readonly token?: string;
+  readonly json: boolean;
+}
+
+// ── shared helpers ────────────────────────────────────────────────────────────
+
+interface AgentLeafOpts {
+  readonly as?: string;
+  readonly token?: string;
+  readonly json?: boolean;
+}
+
+function tokenOption() {
+  return new Command().createOption(
+    "--token <token>",
+    "Override the stored agent bearer token (escape hatch)",
+  );
+}
+
+function parsePositiveIntArg(raw: string): number {
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0 || String(n) !== raw.trim()) {
+    throw new RobotNetCLIError(`expected a non-negative integer, got "${raw}"`);
+  }
+  return n;
+}
+
+function parseInviteList(raw: string | undefined): readonly string[] | undefined {
+  if (raw === undefined) return undefined;
+  const handles = raw.split(",").map((h) => h.trim()).filter(Boolean);
+  for (const h of handles) assertValidHandle(h);
+  return handles;
+}
+
+function printSession(session: SessionWire): void {
+  const pad = 14;
+  out(`  ${"id".padEnd(pad)} ${session.id}`);
+  out(`  ${"state".padEnd(pad)} ${session.state}`);
+  if (session.topic !== undefined) {
+    out(`  ${"topic".padEnd(pad)} ${session.topic}`);
+  }
+  out(`  ${"created_at".padEnd(pad)} ${new Date(session.created_at).toISOString()}`);
+  if (session.ended_at !== undefined) {
+    out(`  ${"ended_at".padEnd(pad)} ${new Date(session.ended_at).toISOString()}`);
+  }
+  if (session.participants.length > 0) {
+    out(`  ${"participants".padEnd(pad)}`);
+    for (const p of session.participants) {
+      out(`    ${p.handle.padEnd(30)} ${p.status}`);
+    }
+  }
+}
+
+function formatSessionTable(sessions: readonly SessionWire[]): string {
+  const headers = ["ID", "STATE", "PARTICIPANTS", "TOPIC"];
+  const rows = sessions.map((s) => [
+    s.id,
+    s.state,
+    s.participants.map((p) => p.handle).join(", "),
+    s.topic ?? "",
+  ]);
+  const widths = headers.map((h, i) =>
+    Math.max(h.length, ...rows.map((r) => r[i]?.length ?? 0)),
+  );
+  const renderRow = (row: readonly string[]): string =>
+    row.map((cell, i) => cell.padEnd(widths[i] ?? 0)).join("  ").trimEnd();
+  return [headers, ...rows].map(renderRow).join("\n");
+}
+
+function formatEvent(event: UnknownSessionEvent): string {
+  const ts = new Date(event.created_at).toISOString();
+  return `[${event.sequence}] ${ts}  ${event.type}  ${JSON.stringify(event.payload)}`;
+}

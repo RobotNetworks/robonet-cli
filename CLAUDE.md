@@ -4,7 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) and other AI coding 
 
 ## Project Overview
 
-`@robotnetworks/robotnet` is the first-party CLI for RobotNet — a communication network for AI agents. The CLI handles login, background listener daemons, and realtime events over WebSocket against the RobotNet API.
+`@robotnetworks/robotnet` is the first-party CLI for RobotNet — a communication network for AI agents.
+
+It runs in two modes against the same `Agent Session Protocol` (ASP) wire surface:
+
+- **Local mode**: the CLI supervises an in-tree ASP operator (`src/operator/`) that runs as a child process. Free, no Cognito, single machine — `robotnet network start|stop|status|logs|reset`. This is the default.
+- **Remote mode**: the CLI talks to a hosted ASP operator (e.g. the `robotnet` builtin network) using OAuth-issued credentials. `robotnet network <subcommand>` is rejected against remote networks — they're managed by their operator, not the CLI.
+
+Both modes share the same `src/asp/*` admin/session clients, listener, and credential store. The operator (`src/operator/`) is the RobotNet-specific implementation of ASP — same wire shape as the open spec, but free to extend with RobotNet-only concepts (agent cards, skills, etc.) that live alongside protocol records in its SQLite store.
 
 Documentation: https://docs.robotnet.works/cli
 
@@ -37,19 +44,31 @@ node bin/robotnet.js --help
 
 ## Architecture
 
+CLI side:
+
 - `src/index.ts` — CLI entry point; wires up commander and registers each subcommand.
-- `src/commands/` — one file per subcommand group (`agents`, `threads`, `login`, …). Each exports a `register*Command(program)` function.
-- `src/api/` — REST API client and request/response models.
-- `src/auth/` — OAuth discovery, PKCE flow, client credentials, token persistence, session resolution.
-- `src/daemon/` — Background listener process lifecycle (spawn, status, stop, state file).
-- `src/realtime/` — WebSocket listener and event dispatch.
+- `src/commands/` — one file per subcommand group (`login`, `network`, `agent`, `session`, `permission`, `identity`, `listen`, `doctor`, `config-cmd`). Each exports a `register*Command(program)` function.
+- `src/asp/` — ASP wire types, admin/session clients, listener, reconnecting listener, agent login flows, identity resolution.
+- `src/auth/` — OAuth discovery, PKCE flow, client credentials, token-store helpers (legacy single-file path retained for migration).
+- `src/credentials/` — SQLite-backed credential store (`credentials.sqlite`): admin tokens, agent credentials, user sessions. AES-256-GCM via OS keychain in production; plaintext encryptor in tests.
+- `src/network/` — Local-operator supervision. `start`/`stop`/`status`/`logs`/`reset` all live here. The `assertLocalNetwork` gate refuses to supervise remote networks. State file at `<runDir>/networks/<name>/network.json`; logs at `<logsDir>/networks/<name>/operator.log`.
 - `src/doctor.ts` — Diagnostic health checks surfaced by `robotnet doctor`.
-- `src/config.ts` — XDG-compliant config resolution (profiles).
+- `src/config.ts` — XDG-compliant config resolution (profiles + named networks).
 - `src/errors.ts` — Typed error hierarchy (`RobotNetCLIError` and subclasses).
 - `src/output/` — Formatters for human and JSON output.
-- `src/retry.ts`, `src/endpoints.ts` — Shared infra for retries and endpoint resolution.
 - `bin/robotnet.js` — Published entrypoint; loads `dist/index.js`.
-- `tests/` — Node test runner tests (`*.test.ts`), run via `tsx`.
+
+Operator side (the local ASP server, spawned as a child process):
+
+- `src/operator/index.ts` — `runOperatorMain` entrypoint. Reads `ROBOTNET_OPERATOR_*` env vars, starts the HTTP server, installs SIGTERM/SIGINT handlers.
+- `src/operator/main.ts` — Direct entrypoint (only side-effect: calls `runOperatorMain`). The compiled `dist/operator/main.js` is what `bin/robotnet-operator.js` loads.
+- `src/operator/server.ts` — HTTP server. Currently a stub: `/healthz` returns metadata, everything else returns 501. The supervision contract (`startOperatorServer` → `OperatorHandle`) does not change as the real routes land.
+- `src/operator/config.ts` — Strongly-typed env-var parsing for the spawned child.
+- `bin/robotnet-operator.js` — Forked-child entrypoint. Never user-facing; not in the npm `bin` map. Located via `import.meta.url` from the supervision layer.
+
+Tests:
+
+- `tests/` — Node test runner tests (`*.test.ts`), run via `tsx`. The supervision tests fork the operator from source via `--import tsx` so no build step is required.
 
 ## Engineering Standards
 

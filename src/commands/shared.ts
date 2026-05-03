@@ -1,34 +1,8 @@
 import { Option } from "commander";
 import * as readline from "node:readline";
 
-import { APIClient } from "../api/client.js";
 import { DEFAULT_SCOPES } from "../auth/client-credentials.js";
-import {
-  resolveApiBearerToken,
-  resolveRuntimeSession,
-} from "../auth/runtime.js";
-import { loadToken } from "../auth/token-store.js";
 import type { CLIConfig } from "../config.js";
-import { RobotNetCLIError } from "../errors.js";
-
-// ── Input parsing ────────────────────────────────────────────────────
-
-export function parsePositiveInt(value: string, fallback: number): number {
-  const n = parseInt(value, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
-const THREAD_STATUSES = ["active", "closed", "archived"] as const;
-
-export function parseThreadStatus(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  if (THREAD_STATUSES.includes(value as (typeof THREAD_STATUSES)[number])) {
-    return value;
-  }
-  throw new RobotNetCLIError(
-    `Invalid thread status: ${value}. Expected one of: ${THREAD_STATUSES.join(", ")}.`,
-  );
-}
 
 // ── Option factories ─────────────────────────────────────────────────
 
@@ -44,25 +18,11 @@ export function scopeOption(): Option {
 export function jsonOption(): Option {
   return new Option("--json", "Output as JSON").default(false);
 }
-export function verboseOption(): Option {
-  return new Option(
-    "-v, --verbose",
-    "Log connection diagnostics (heartbeats, reconnects, session lifecycle)",
-  ).default(false);
-}
 
 // ── Display helpers ──────────────────────────────────────────────────
 
 export function profileTitle(title: string, config: CLIConfig): string {
   return `${title} [profile=${config.profile}]`;
-}
-
-export function skillName(entry: unknown): string | undefined {
-  if (typeof entry === "object" && entry !== null) {
-    const name = (entry as Record<string, unknown>).name;
-    return typeof name === "string" ? name : undefined;
-  }
-  return undefined;
 }
 
 // ── Prompt helpers ───────────────────────────────────────────────────
@@ -127,38 +87,4 @@ export async function resolveClientSecret(
 ): Promise<string> {
   if (provided) return provided;
   return promptSecret("RobotNet client secret");
-}
-
-export async function resolveCredentials(
-  config: CLIConfig,
-  opts: { clientId?: string; clientSecret?: string },
-): Promise<{ clientId: string | null; clientSecret: string | null }> {
-  const stored = loadToken(config.tokenStoreFile);
-  const defaultClientId = stored?.clientId;
-
-  if (!stored) {
-    const clientId = await resolveClientId(opts.clientId, defaultClientId);
-    const clientSecret = await resolveClientSecret(opts.clientSecret);
-    return { clientId, clientSecret };
-  }
-
-  return {
-    clientId: opts.clientId ?? defaultClientId ?? null,
-    clientSecret: opts.clientSecret ?? null,
-  };
-}
-
-// ── Authenticated client builders ────────────────────────────────────
-
-export function buildAuthenticatedApiClient(config: CLIConfig): Promise<APIClient> {
-  return resolveApiBearerToken({
-    endpoints: config.endpoints,
-    tokenStorePath: config.tokenStoreFile,
-    clientId: null,
-    clientSecret: null,
-    scope: DEFAULT_SCOPES,
-  }).then(
-    (token) =>
-      new APIClient(config.endpoints.apiBaseUrl, token.accessToken),
-  );
 }

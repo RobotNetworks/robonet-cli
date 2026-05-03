@@ -1,5 +1,7 @@
 import * as crypto from "node:crypto";
 import * as http from "node:http";
+import type { AddressInfo } from "node:net";
+
 import type { TokenResponse } from "./client-credentials.js";
 import { tokenResponseFromBody, DEFAULT_SCOPES } from "./client-credentials.js";
 import type { OAuthDiscovery } from "./discovery.js";
@@ -11,8 +13,8 @@ import {
   TransientAuthError,
 } from "../errors.js";
 
-const DEFAULT_LOOPBACK_REDIRECT_URI = "http://127.0.0.1:8788/callback";
 const DEFAULT_PUBLIC_CLIENT_NAME = "robotnet-cli";
+const CALLBACK_PATH = "/callback";
 
 /** Result of a successful PKCE login: the API access token plus the long-lived data needed to refresh it. */
 export interface PKCELoginResult {
@@ -23,70 +25,248 @@ export interface PKCELoginResult {
   readonly tokenEndpoint: string;
 }
 
+/** Common options accepted by both user and agent PKCE flows. */
+interface CorePkceOptions {
+  readonly endpoints: EndpointConfig;
+  readonly discovery: OAuthDiscovery;
+  readonly scope?: string;
+  readonly clientName?: string;
+  /**
+   * Extra query parameters to append to the authorization URL. Used by the
+   * agent flow to pass `agent_handle=@x.y` so the auth server scopes the
+   * issued token to that agent rather than the calling user.
+   */
+  readonly extraAuthParams?: Readonly<Record<string, string>>;
+  /**
+   * Human-facing label printed when opening the browser. Distinguishes
+   * "RobotNet login" from "RobotNet agent login (@x.y)" without leaking
+   * implementation details into the URL.
+   */
+  readonly browserPrompt?: string;
+}
+
 /**
  * Drive a full OAuth 2.0 PKCE browser login: dynamic client registration,
- * authorization URL, loopback callback, and code exchange. Throws
- * {@link AuthenticationError} on user cancel, state mismatch, or network failure.
+ * ephemeral loopback callback (random port, matching the auth server's
+ * `^http://127\.0\.0\.1:\d+/callback$` pattern validator), authorization URL,
+ * and code exchange. Throws {@link AuthenticationError} on user cancel,
+ * state mismatch, or network failure.
  */
-export async function performPkceLogin(options: {
-  endpoints: EndpointConfig;
-  discovery: OAuthDiscovery;
-  scope?: string;
-  redirectUri?: string;
-  clientName?: string;
+export async function performPkceLogin(
+  options: CorePkceOptions,
+): Promise<PKCELoginResult> {
+  return await runPkceFlow(options);
+}
+
+/**
+ * Drive an agent-scoped PKCE login. Same flow as {@link performPkceLogin}
+ * but the authorization URL carries `agent_handle=<handle>`, so the issued
+ * tokens belong to that agent rather than to the user.
+ *
+ * The user must be signed in to auth.robotnet.works in their browser
+ * (cookie / Cognito session). If they aren't, the auth server's consent
+ * page handles the human login first and then proceeds with the agent
+ * authorization.
+ */
+export async function performAgentPkceLogin(args: {
+  readonly endpoints: EndpointConfig;
+  readonly discovery: OAuthDiscovery;
+  readonly agentHandle: string;
+  readonly scope?: string;
+  readonly clientName?: string;
 }): Promise<PKCELoginResult> {
+  return await runPkceFlow({
+    endpoints: args.endpoints,
+    discovery: args.discovery,
+    ...(args.scope !== undefined ? { scope: args.scope } : {}),
+    ...(args.clientName !== undefined ? { clientName: args.clientName } : {}),
+    extraAuthParams: { agent_handle: args.agentHandle },
+    browserPrompt: `Opening browser for RobotNet agent authorization (${args.agentHandle}).`,
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Core flow                                                                   */
+/* -------------------------------------------------------------------------- */
+
+async function runPkceFlow(options: CorePkceOptions): Promise<PKCELoginResult> {
   const {
     endpoints,
     discovery,
     scope = DEFAULT_SCOPES,
-    redirectUri = DEFAULT_LOOPBACK_REDIRECT_URI,
     clientName = DEFAULT_PUBLIC_CLIENT_NAME,
+    extraAuthParams = {},
+    browserPrompt = "Opening browser for RobotNet login.",
   } = options;
 
-  const registration = await registerPublicClient({
-    registrationEndpoint: discovery.registrationEndpoint,
-    clientName,
-    redirectUris: [redirectUri],
-    scope,
+  // Two-step dance with the loopback server: bind first to learn the
+  // ephemeral port, build the redirect_uri from it, register the public
+  // client with that exact URI, then start awaiting the callback. The
+  // server's validator only accepts `http://127.0.0.1:<port>/callback`,
+  // so the redirect_uri must be known *before* we hit /authorize.
+  const loopback = await reserveLoopback();
+  const redirectUri = `http://127.0.0.1:${loopback.port}${CALLBACK_PATH}`;
+
+  let result: PKCELoginResult;
+  try {
+    const registration = await registerPublicClient({
+      registrationEndpoint: discovery.registrationEndpoint,
+      clientName,
+      redirectUris: [redirectUri],
+      scope,
+    });
+    const clientId = String(registration.client_id);
+
+    const { verifier, challenge } = generatePkcePair();
+    const state = crypto.randomUUID().replace(/-/g, "");
+    const authorizationUrl = buildAuthorizationUrl({
+      authorizationEndpoint: discovery.authorizationEndpoint,
+      clientId,
+      redirectUri,
+      codeChallenge: challenge,
+      scope,
+      state,
+      extraParams: extraAuthParams,
+    });
+
+    console.log(browserPrompt);
+    console.log(authorizationUrl);
+    const open = (await import("open")).default;
+    await open(authorizationUrl);
+
+    const code = await loopback.awaitCode(state);
+
+    const resource = discovery.apiResource ?? endpoints.apiBaseUrl.replace(/\/+$/, "");
+    const { token, refreshToken } = await requestAuthorizationCodeToken({
+      tokenEndpoint: discovery.tokenEndpoint,
+      clientId,
+      code,
+      codeVerifier: verifier,
+      redirectUri,
+      resource,
+    });
+
+    result = {
+      token,
+      refreshToken,
+      clientId,
+      redirectUri,
+      tokenEndpoint: discovery.tokenEndpoint,
+    };
+  } finally {
+    loopback.close();
+  }
+  return result;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Loopback callback server                                                    */
+/* -------------------------------------------------------------------------- */
+
+interface LoopbackHandle {
+  readonly port: number;
+  awaitCode(expectedState: string, timeoutMs?: number): Promise<string>;
+  close(): void;
+}
+
+/**
+ * Bind an HTTP server on `127.0.0.1:0` (ephemeral port) and return a
+ * handle that can be polled for the OAuth callback. Splitting the bind
+ * from the callback wait means the redirect_uri is known before we
+ * register the public client.
+ */
+async function reserveLoopback(): Promise<LoopbackHandle> {
+  const server = http.createServer();
+
+  await new Promise<void>((resolve, reject) => {
+    const onErr = (err: Error): void => {
+      server.removeListener("listening", onListen);
+      reject(err);
+    };
+    const onListen = (): void => {
+      server.removeListener("error", onErr);
+      resolve();
+    };
+    server.once("error", onErr);
+    server.once("listening", onListen);
+    server.listen(0, "127.0.0.1");
   });
-  const clientId = String(registration.client_id);
 
-  const { verifier, challenge } = generatePkcePair();
-  const state = crypto.randomUUID().replace(/-/g, "");
-  const authorizationUrl = buildAuthorizationUrl({
-    authorizationEndpoint: discovery.authorizationEndpoint,
-    clientId,
-    redirectUri,
-    codeChallenge: challenge,
-    scope,
-    state,
-  });
+  const addr = server.address() as AddressInfo;
+  const port = addr.port;
 
-  console.log("Opening browser for RobotNet login and agent selection.");
-  console.log(authorizationUrl);
-  const open = (await import("open")).default;
-  await open(authorizationUrl);
-
-  const code = await waitForOAuthCallback({ redirectUri, expectedState: state });
-
-  const resource = discovery.apiResource ?? endpoints.apiBaseUrl.replace(/\/+$/, "");
-  const { token, refreshToken } = await requestAuthorizationCodeToken({
-    tokenEndpoint: discovery.tokenEndpoint,
-    clientId,
-    code,
-    codeVerifier: verifier,
-    redirectUri,
-    resource,
+  let onRequest: ((req: http.IncomingMessage, res: http.ServerResponse) => void) | null = null;
+  server.on("request", (req, res) => {
+    onRequest?.(req, res);
   });
 
   return {
-    token,
-    refreshToken,
-    clientId,
-    redirectUri,
-    tokenEndpoint: discovery.tokenEndpoint,
+    port,
+    awaitCode: (expectedState: string, timeoutMs: number = 180_000) =>
+      new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          onRequest = null;
+          reject(
+            new AuthenticationError(
+              "Timed out waiting for the browser authorization callback.",
+            ),
+          );
+        }, timeoutMs);
+
+        onRequest = (req, res) => {
+          const requestUrl = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
+          if (requestUrl.pathname !== CALLBACK_PATH) {
+            res.writeHead(404);
+            res.end();
+            return;
+          }
+          const code = requestUrl.searchParams.get("code") ?? "";
+          const state = requestUrl.searchParams.get("state") ?? "";
+          const error = requestUrl.searchParams.get("error") ?? "";
+
+          let body: string;
+          let status: number;
+          if (error) {
+            body = `Authorization failed: ${error}`;
+            status = 400;
+          } else if (!code) {
+            body = "Authorization failed: callback did not include a code.";
+            status = 400;
+          } else if (state !== expectedState) {
+            body = "Authorization failed: state mismatch.";
+            status = 400;
+          } else {
+            body = "Authorization complete. You can close this window and return to RobotNet CLI.";
+            status = 200;
+          }
+
+          res.writeHead(status, {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Content-Length": String(Buffer.byteLength(body)),
+            Connection: "close",
+          });
+          res.end(body);
+          clearTimeout(timer);
+          onRequest = null;
+
+          if (status === 200) {
+            resolve(code);
+          } else {
+            reject(new AuthenticationError(body));
+          }
+        };
+      }),
+    close: () => {
+      onRequest = null;
+      server.close();
+      server.closeAllConnections();
+    },
   };
 }
+
+/* -------------------------------------------------------------------------- */
+/* OAuth wire calls                                                            */
+/* -------------------------------------------------------------------------- */
 
 async function registerPublicClient(options: {
   registrationEndpoint: string;
@@ -129,6 +309,7 @@ function buildAuthorizationUrl(options: {
   codeChallenge: string;
   scope: string;
   state: string;
+  extraParams: Readonly<Record<string, string>>;
 }): string {
   const params = new URLSearchParams({
     response_type: "code",
@@ -140,6 +321,9 @@ function buildAuthorizationUrl(options: {
   });
   if (options.scope.trim()) {
     params.set("scope", options.scope.trim());
+  }
+  for (const [k, v] of Object.entries(options.extraParams)) {
+    params.set(k, v);
   }
   return `${options.authorizationEndpoint}?${params.toString()}`;
 }
@@ -267,83 +451,4 @@ function generatePkcePair(): { verifier: string; challenge: string } {
   const digest = crypto.createHash("sha256").update(verifier, "ascii").digest();
   const challenge = digest.toString("base64url");
   return { verifier, challenge };
-}
-
-function waitForOAuthCallback(options: {
-  redirectUri: string;
-  expectedState: string;
-  timeoutSeconds?: number;
-}): Promise<string> {
-  const { redirectUri, expectedState, timeoutSeconds = 180 } = options;
-  const parsed = new URL(redirectUri);
-  const callbackPath = parsed.pathname || "/";
-  const port = Number(parsed.port);
-
-  if (parsed.protocol !== "http:" || !parsed.hostname || !port) {
-    throw new AuthenticationError(
-      "PKCE login requires an http loopback redirect URI with an explicit port.",
-    );
-  }
-
-  return new Promise<string>((resolve, reject) => {
-    const server = http.createServer((req, res) => {
-      const requestUrl = new URL(req.url ?? "/", `http://${req.headers.host}`);
-      if (requestUrl.pathname !== callbackPath) {
-        res.writeHead(404);
-        res.end();
-        return;
-      }
-
-      const code = requestUrl.searchParams.get("code") ?? "";
-      const state = requestUrl.searchParams.get("state") ?? "";
-      const error = requestUrl.searchParams.get("error") ?? "";
-
-      let responseBody: string;
-      let statusCode: number;
-
-      if (error) {
-        responseBody = `Authorization failed: ${error}`;
-        statusCode = 400;
-      } else if (!code) {
-        responseBody = "Authorization failed: callback did not include a code.";
-        statusCode = 400;
-      } else if (state !== expectedState) {
-        responseBody = "Authorization failed: state mismatch.";
-        statusCode = 400;
-      } else {
-        responseBody =
-          "Authorization complete. You can close this window and return to RobotNet CLI.";
-        statusCode = 200;
-      }
-
-      res.writeHead(statusCode, {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Content-Length": String(Buffer.byteLength(responseBody)),
-        Connection: "close",
-      });
-      res.end(responseBody);
-
-      server.close();
-      server.closeAllConnections();
-      clearTimeout(timer);
-
-      if (statusCode === 200) {
-        resolve(code);
-      } else {
-        reject(new AuthenticationError(responseBody));
-      }
-    });
-
-    const timer = setTimeout(() => {
-      server.close();
-      server.closeAllConnections();
-      reject(
-        new AuthenticationError(
-          "Timed out waiting for the browser authorization callback.",
-        ),
-      );
-    }, timeoutSeconds * 1000);
-
-    server.listen(port, parsed.hostname ?? "127.0.0.1");
-  });
 }

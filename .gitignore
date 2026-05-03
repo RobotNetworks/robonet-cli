@@ -33,3 +33,6 @@ __pycache__/
 
 # npm pack output
 *.tgz
+
+# Per-directory agent identity binding (driven by `robotnet identity set`)
+.robotnet/

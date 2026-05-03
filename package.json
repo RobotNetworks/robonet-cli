@@ -50,15 +50,19 @@
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
+    "conformance": "node --import tsx tests/conformance/run-conformance.ts",
     "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
+    "@napi-rs/keyring": "^1.3.0",
+    "better-sqlite3": "^12.9.0",
     "commander": "^13.0.0",
     "env-paths": "^3.0.0",
     "open": "^10.0.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.0",
     "tsx": "^4.0.0",

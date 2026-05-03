@@ -19,7 +19,10 @@ export function registerConfigCommand(program: Command): void {
     .description("Show the effective configuration")
     .addOption(jsonOption())
     .action(async (opts, cmd) => {
-      const config = loadConfig(cmd.parent?.parent?.opts().profile);
+      const rootOpts = cmd.parent?.parent?.opts() ?? {};
+      const config = loadConfig(rootOpts.profile, {
+        networkName: rootOpts.network,
+      });
       if (opts.json) {
         console.log(renderJson(configToJson(config)));
         return;
