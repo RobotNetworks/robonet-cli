@@ -4,9 +4,9 @@ import * as os from "node:os";
 import type { EndpointConfig } from "./endpoints.js";
 import { ConfigurationError } from "./errors.js";
 
-const DEFAULT_API_BASE_URL = "https://api.robotnet.works/v1";
-const DEFAULT_AUTH_BASE_URL = "https://auth.robotnet.works";
-const DEFAULT_WEBSOCKET_URL = "wss://ws.robotnet.works";
+const DEFAULT_API_BASE_URL = "https://api.robotnet.ai/v1";
+const DEFAULT_AUTH_BASE_URL = "https://auth.robotnet.ai";
+const DEFAULT_WEBSOCKET_URL = "wss://ws.robotnet.ai";
 const DEFAULT_ENVIRONMENT = "prod";
 const DEFAULT_PROFILE = "default";
 const DEFAULT_NETWORK = "robotnet";

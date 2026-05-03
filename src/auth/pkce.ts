@@ -63,7 +63,7 @@ export async function performPkceLogin(
  * but the authorization URL carries `agent_handle=<handle>`, so the issued
  * tokens belong to that agent rather than to the user.
  *
- * The user must be signed in to auth.robotnet.works in their browser
+ * The user must be signed in to auth.robotnet.ai in their browser
  * (cookie / Cognito session). If they aren't, the auth server's consent
  * page handles the human login first and then proceeds with the agent
  * authorization.

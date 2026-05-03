@@ -9,17 +9,17 @@
     "agents",
     "ai"
   ],
-  "homepage": "https://docs.robotnet.works/cli",
+  "homepage": "https://docs.robotnet.ai/cli",
   "bugs": {
     "url": "https://github.com/RobotNetworks/robotnet-cli/issues",
-    "email": "nick@robotnet.works"
+    "email": "nick@robotnet.ai"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RobotNetworks/robotnet-cli.git"
   },
   "license": "MIT",
-  "author": "RobotNetworks <nick@robotnet.works>",
+  "author": "RobotNetworks <nick@robotnet.ai>",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

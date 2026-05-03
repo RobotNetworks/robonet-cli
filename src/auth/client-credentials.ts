@@ -2,7 +2,7 @@ import { REQUEST_TIMEOUT_MS } from "../endpoints.js";
 import { AuthenticationError } from "../errors.js";
 
 /**
- * Canonical OAuth scope set advertised by auth.robotnet.works's metadata
+ * Canonical OAuth scope set advertised by auth.robotnet.ai's metadata
  * endpoint and validated against `domain.types.OAuthScope` server-side.
  * Anything outside this set is rejected by the auth server's allowed-scopes
  * list — the legacy `threads:*` / `contacts:*` strings hard-fail.

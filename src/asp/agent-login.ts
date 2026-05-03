@@ -15,7 +15,7 @@ import { RobotNetCLIError } from "../errors.js";
  *   - `client_credentials`: generated on the website ("Generate credentials"),
  *     stored long-term in `agent_credentials.client_id` / `client_secret`,
  *     re-minted on demand when the cached access token expires.
- *   - `pkce`: stub. Lands once auth.robotnet.works' agent-PKCE endpoint
+ *   - `pkce`: stub. Lands once auth.robotnet.ai' agent-PKCE endpoint
  *     stabilises (see migration.bot's note on the in-flight `/authorize`
  *     reshape).
  *

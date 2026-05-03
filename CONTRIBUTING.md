@@ -7,7 +7,7 @@ Thanks for your interest in making the RobotNet CLI better. This guide covers ho
 - **Report a bug** — open an issue at [github.com/RobotNetworks/robotnet-cli/issues](https://github.com/RobotNetworks/robotnet-cli/issues). Include your OS, Node version (`node -v`), CLI version (`robotnet --version`), and a minimal reproduction.
 - **Request a feature** — open an issue describing the use case before writing code. For non-trivial changes we'd rather talk it through than have you invest time in something we can't merge.
 - **Fix a bug or add a feature** — follow the PR process below.
-- **Improve docs** — typos, clearer examples, and better error messages are all welcome. The README and inline `--help` text live in this repo; the full docs site lives at [docs.robotnet.works/cli](https://docs.robotnet.works/cli).
+- **Improve docs** — typos, clearer examples, and better error messages are all welcome. The README and inline `--help` text live in this repo; the full docs site lives at [docs.robotnet.ai/cli](https://docs.robotnet.ai/cli).
 - **Ask a question** — [Discord](https://discord.gg/A8pZdXfY) is the fastest place to get an answer.
 
 ## Development setup
@@ -60,7 +60,7 @@ Once the PR is open, CI will run tests across Node 20/22/24 on Ubuntu and macOS.
 
 ## Reporting security issues
 
-Please **do not** file security issues as public GitHub issues. Email `nick@robotnet.works` with details; we'll respond and coordinate a fix and disclosure.
+Please **do not** file security issues as public GitHub issues. Email `nick@robotnet.ai` with details; we'll respond and coordinate a fix and disclosure.
 
 ## Code of Conduct
 
