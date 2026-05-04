@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+
 import type { EndpointConfig } from "./endpoints.js";
 import { ConfigurationError } from "./errors.js";
 
@@ -36,6 +37,7 @@ export type NetworkSource =
   | { readonly kind: "flag" }
   | { readonly kind: "env" }
   | { readonly kind: "workspace"; readonly configFile: string }
+  | { readonly kind: "directory_identity"; readonly configFile: string }
   | { readonly kind: "profile"; readonly configFile: string }
   | { readonly kind: "default" };
 
@@ -99,6 +101,17 @@ export interface LoadConfigOptions {
   readonly cwd?: string;
   /** Override the network selection — wired to the top-level `--network <name>` flag. */
   readonly networkName?: string;
+  /**
+   * Default network contributed by the directory identity file
+   * (`<dir>/.robotnet/asp.json`'s `default_network` field). Provided by the
+   * caller so `loadConfig` does not have to depend on the `asp/` layer; the
+   * caller (typically a command-side helper) reads the file and passes the
+   * value in, along with its absolute path for source attribution.
+   */
+  readonly directoryIdentityDefault?: {
+    readonly network: string;
+    readonly filePath: string;
+  };
 }
 
 function xdgPath(envVar: string, defaultSuffix: string): string {
@@ -275,6 +288,7 @@ function resolveNetwork(
     readonly profileDefault: string | undefined;
     readonly workspaceFile: string | null;
     readonly workspaceNetwork: string | undefined;
+    readonly directoryIdentityDefault: LoadConfigOptions["directoryIdentityDefault"];
   },
 ): NetworkResolution {
   const fail = (name: string, where: string): never => {
@@ -307,6 +321,15 @@ function resolveNetwork(
     };
   }
 
+  if (args.directoryIdentityDefault) {
+    const { network, filePath } = args.directoryIdentityDefault;
+    if (!networks[network]) fail(network, `directory identity file ${filePath}`);
+    return {
+      network: networks[network],
+      source: { kind: "directory_identity", configFile: filePath },
+    };
+  }
+
   if (args.profileDefault) {
     if (!networks[args.profileDefault]) {
       fail(args.profileDefault, `profile config ${args.profileConfigFile}`);
@@ -328,7 +351,9 @@ function resolveNetwork(
  * workspace `.robotnet/config.json` (walked up from `cwd`) > `"default"`.
  *
  * Network resolution: `options.networkName` (typically the `--network` flag) >
- * `ROBOTNET_NETWORK` env var > workspace file `network` field > profile config
+ * `ROBOTNET_NETWORK` env var > workspace `config.json` `network` field >
+ * `options.directoryIdentityDefault` (the directory identity file's
+ * `default_network`, when the caller has read it) > profile config
  * `default_network` field > the built-in `"robotnet"` network.
  */
 export function loadConfig(
@@ -390,6 +415,7 @@ export function loadConfig(
     profileDefault: getNestedString(payload, "default_network"),
     workspaceFile,
     workspaceNetwork,
+    directoryIdentityDefault: options?.directoryIdentityDefault,
   });
 
   return {
@@ -434,6 +460,8 @@ function networkSourceLabel(source: NetworkSource): string {
       return "ROBOTNET_NETWORK env var";
     case "workspace":
       return `workspace file ${source.configFile}`;
+    case "directory_identity":
+      return `directory identity file ${source.configFile}`;
     case "profile":
       return `profile config ${source.configFile}`;
     case "default":
@@ -442,7 +470,11 @@ function networkSourceLabel(source: NetworkSource): string {
 }
 
 function networkSourceJson(source: NetworkSource): Record<string, unknown> {
-  if (source.kind === "workspace" || source.kind === "profile") {
+  if (
+    source.kind === "workspace" ||
+    source.kind === "directory_identity" ||
+    source.kind === "profile"
+  ) {
     return { kind: source.kind, config_file: source.configFile };
   }
   return { kind: source.kind };

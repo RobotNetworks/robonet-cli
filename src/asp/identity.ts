@@ -5,27 +5,47 @@ import { RobotNetCLIError } from "../errors.js";
 import { assertValidHandle } from "./handles.js";
 
 /**
- * Directory-bound default agent identity, shared with the `asp` CLI.
+ * Directory-bound default agent identities, shared with the `asp` CLI.
  *
- * Format:  `<dir>/.robotnet/asp.json`
- *          `{ "version": 1, "handle": "@cli.bot", "network": "default" }`
+ * File path: `<dir>/.robotnet/asp.json`
  *
- * Both `asp identity set` and `robotnet identity set` write this file, and both
- * CLIs read it to pick up "the agent for this directory" without `--as` on
- * every command. Keeping the shape stable is a workspace-wide convention, not
- * coupling — neither CLI imports the other.
+ * Shape:
+ * ```
+ * {
+ *   "version": 1,
+ *   "default_network": "local",
+ *   "identities": {
+ *     "local":    "@me.dev",
+ *     "robotnet": "@me.prod"
+ *   }
+ * }
+ * ```
+ *
+ * Identities are network-keyed: a directory may bind a different handle
+ * per network it interacts with. `default_network` is consumed by the
+ * network-resolution chain (see `resolveDirectoryDefaultNetwork`) so a
+ * directory that only ever talks to one network can be addressed without
+ * `--network` on every command. The `version` field is reserved for
+ * future format evolution; only `1` is accepted today.
+ *
+ * Both the `asp` and `robotnet` CLIs read and write this file shape; the
+ * convention is workspace-wide, not a code dependency.
  */
 
 const IDENTITY_DIR = ".robotnet";
 const IDENTITY_FILE = "asp.json";
+const FORMAT_VERSION = 1;
 
-export interface DirectoryIdentity {
-  readonly handle: string;
-  readonly network: string;
+/** In-memory shape of a parsed directory identity file. */
+export interface DirectoryIdentityFile {
+  /** Network → handle map. May be empty when only `defaultNetwork` is set. */
+  readonly identities: Readonly<Record<string, string>>;
+  /** Optional default network for the directory; consumed by the network-resolution chain. */
+  readonly defaultNetwork: string | undefined;
 }
 
-export interface ResolvedDirectoryIdentity extends DirectoryIdentity {
-  /** Absolute path of the `.robotnet/asp.json` file the identity was loaded from. */
+/** A {@link DirectoryIdentityFile} together with the absolute path it was loaded from. */
+export interface ResolvedDirectoryIdentityFile extends DirectoryIdentityFile {
   readonly filePath: string;
 }
 
@@ -52,18 +72,18 @@ export function directoryIdentityPath(dir: string): string {
 
 /**
  * Walk up the directory tree from `fromDir` (default `process.cwd()`) looking
- * for the first `.robotnet/asp.json` with a valid identity. Returns
- * `undefined` if none is found by the filesystem root.
+ * for the first `.robotnet/asp.json` with valid contents. Returns `undefined`
+ * when no file is found before reaching the filesystem root.
  */
-export async function findDirectoryIdentity(
+export async function findDirectoryIdentityFile(
   fromDir?: string,
-): Promise<ResolvedDirectoryIdentity | undefined> {
+): Promise<ResolvedDirectoryIdentityFile | undefined> {
   let dir = fromDir ?? process.cwd();
   for (;;) {
     const candidate = directoryIdentityPath(dir);
-    const config = await tryReadIdentity(candidate);
-    if (config !== undefined) {
-      return { ...config, filePath: candidate };
+    const file = await tryReadIdentityFile(candidate);
+    if (file !== undefined) {
+      return { ...file, filePath: candidate };
     }
     const parent = dirname(dir);
     if (parent === dir) return undefined;
@@ -71,27 +91,45 @@ export async function findDirectoryIdentity(
   }
 }
 
-/** Write `.robotnet/asp.json` in `dir`, creating the `.robotnet/` directory if needed. */
-export async function writeDirectoryIdentity(
+/** Look up the handle bound to a specific network in a parsed file, if any. */
+export function lookupDirectoryHandle(
+  file: DirectoryIdentityFile,
+  network: string,
+): string | undefined {
+  return file.identities[network];
+}
+
+/**
+ * Add or overwrite a single `(network, handle)` entry in `<dir>/.robotnet/asp.json`,
+ * preserving any other entries already present. Creates the file (and the
+ * `.robotnet/` directory) if missing. When the file is being created — or has
+ * no `default_network` set — the new network is also seeded as the default
+ * so a subsequent `robotnet listen` from the same directory targets it
+ * without needing an extra flag.
+ *
+ * Returns the absolute file path.
+ */
+export async function writeDirectoryIdentityEntry(
   dir: string,
-  identity: DirectoryIdentity,
+  args: { readonly handle: string; readonly network: string },
 ): Promise<string> {
-  assertValidHandle(identity.handle);
-  const configDir = join(dir, IDENTITY_DIR);
-  await mkdir(configDir, { recursive: true });
-  const filePath = join(configDir, IDENTITY_FILE);
-  const payload = {
-    version: 1,
-    handle: identity.handle,
-    network: identity.network,
+  assertValidHandle(args.handle);
+  const filePath = directoryIdentityPath(dir);
+  const existing = await tryReadIdentityFile(filePath);
+
+  const identities: Record<string, string> = {
+    ...(existing?.identities ?? {}),
+    [args.network]: args.handle,
   };
-  await writeFile(filePath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+  const defaultNetwork = existing?.defaultNetwork ?? args.network;
+
+  await writeIdentityFile(filePath, { identities, defaultNetwork });
   return filePath;
 }
 
 /**
- * Remove `.robotnet/asp.json` from `dir`. Returns `true` if removed, `false`
- * if the file did not exist.
+ * Remove `<dir>/.robotnet/asp.json` entirely. Returns `true` if removed,
+ * `false` if the file did not exist.
  */
 export async function clearDirectoryIdentity(dir: string): Promise<boolean> {
   const filePath = directoryIdentityPath(dir);
@@ -108,17 +146,18 @@ export async function clearDirectoryIdentity(dir: string): Promise<boolean> {
  * Resolve which agent a command should act as.
  *
  * Precedence:
- *   1. `--as <handle>` flag                   → `source: "flag"`
- *   2. `ROBOTNET_AGENT` env var               → `source: "env"`
- *   3. `.robotnet/asp.json` directory file    → `source: "directory"`
+ *   1. `--as <handle>` flag                                                   → `source: "flag"`
+ *   2. `ROBOTNET_AGENT` env var                                               → `source: "env"`
+ *   3. The directory file's `identities` map looked up by `resolvedNetwork`   → `source: "directory"`
  *
- * Returns `undefined` when no source supplied a handle — callers should
- * surface a friendly "specify --as or run `robotnet identity set`" message.
+ * Returns `undefined` when no source supplied a handle for the resolved
+ * network — callers should surface a friendly "specify --as or run
+ * `robotnet identity set`" message.
  *
- * Network resolution is independent: pass the network the command already
- * resolved (typically `config.network.name`). When the directory identity
- * names a different network, that fact is returned alongside the handle so
- * callers can decide whether to honor it or warn.
+ * Pass the network the command already resolved via the network-precedence
+ * chain (typically `config.network.name`). The directory lookup is scoped
+ * to that network: a directory bound to `@me.dev` on `local` does not
+ * contribute when the command is targeting `robotnet`.
  */
 export async function resolveAgentIdentity(args: {
   readonly explicitHandle?: string;
@@ -134,32 +173,48 @@ export async function resolveAgentIdentity(args: {
     };
   }
 
-  const directory = await findDirectoryIdentity(args.fromDir);
-
   const envHandle = process.env["ROBOTNET_AGENT"];
   if (envHandle !== undefined && envHandle.length > 0) {
     assertValidHandle(envHandle);
     return {
       handle: envHandle,
-      network: directory?.network ?? args.resolvedNetwork,
+      network: args.resolvedNetwork,
       source: "env",
     };
   }
 
-  if (directory !== undefined) {
-    return {
-      handle: directory.handle,
-      network: directory.network,
-      source: "directory",
-    };
+  const file = await findDirectoryIdentityFile(args.fromDir);
+  if (file !== undefined) {
+    const handle = lookupDirectoryHandle(file, args.resolvedNetwork);
+    if (handle !== undefined) {
+      return {
+        handle,
+        network: args.resolvedNetwork,
+        source: "directory",
+      };
+    }
   }
 
   return undefined;
 }
 
-async function tryReadIdentity(
+/**
+ * Read just the directory file's `default_network` field by walking up from
+ * `fromDir`. Used by the network-resolution chain so a directory binding
+ * can contribute a default network when no flag, env var, or workspace
+ * `config.json` pin is present. Returns `undefined` when no file is found
+ * or the file has no `default_network`.
+ */
+export async function findDirectoryDefaultNetwork(
+  fromDir?: string,
+): Promise<string | undefined> {
+  const file = await findDirectoryIdentityFile(fromDir);
+  return file?.defaultNetwork;
+}
+
+async function tryReadIdentityFile(
   filePath: string,
-): Promise<DirectoryIdentity | undefined> {
+): Promise<DirectoryIdentityFile | undefined> {
   let raw: string;
   try {
     raw = await readFile(filePath, "utf8");
@@ -174,19 +229,63 @@ async function tryReadIdentity(
       `${filePath} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  if (!isDirectoryIdentity(parsed)) {
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new IdentityFileError(`${filePath} must contain a JSON object`);
+  }
+  const obj = parsed as Record<string, unknown>;
+
+  if (obj["version"] !== FORMAT_VERSION) {
     throw new IdentityFileError(
-      `${filePath} is missing required fields (\`handle\` and \`network\`)`,
+      `${filePath} has unsupported \`version\` ${JSON.stringify(obj["version"])} (expected ${FORMAT_VERSION})`,
     );
   }
-  return parsed;
+
+  const rawIdentities = obj["identities"];
+  if (
+    typeof rawIdentities !== "object" ||
+    rawIdentities === null ||
+    Array.isArray(rawIdentities)
+  ) {
+    throw new IdentityFileError(
+      `${filePath} requires an \`identities\` object mapping network → handle`,
+    );
+  }
+  const identities: Record<string, string> = {};
+  for (const [network, handle] of Object.entries(rawIdentities)) {
+    if (typeof handle !== "string" || handle.length === 0) {
+      throw new IdentityFileError(
+        `${filePath} entry for network "${network}" must be a non-empty string handle`,
+      );
+    }
+    identities[network] = handle;
+  }
+
+  const rawDefault = obj["default_network"];
+  let defaultNetwork: string | undefined;
+  if (rawDefault === undefined || rawDefault === null) {
+    defaultNetwork = undefined;
+  } else if (typeof rawDefault === "string" && rawDefault.length > 0) {
+    defaultNetwork = rawDefault;
+  } else {
+    throw new IdentityFileError(
+      `${filePath} \`default_network\` must be a non-empty string when present`,
+    );
+  }
+
+  return { identities, defaultNetwork };
 }
 
-function isDirectoryIdentity(v: unknown): v is DirectoryIdentity {
-  return (
-    typeof v === "object" &&
-    v !== null &&
-    typeof (v as Record<string, unknown>)["handle"] === "string" &&
-    typeof (v as Record<string, unknown>)["network"] === "string"
-  );
+async function writeIdentityFile(
+  filePath: string,
+  file: DirectoryIdentityFile,
+): Promise<void> {
+  await mkdir(dirname(filePath), { recursive: true });
+  const payload: Record<string, unknown> = {
+    version: FORMAT_VERSION,
+    identities: file.identities,
+  };
+  if (file.defaultNetwork !== undefined) {
+    payload["default_network"] = file.defaultNetwork;
+  }
+  await writeFile(filePath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 }

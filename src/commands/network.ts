@@ -43,7 +43,7 @@ export function registerNetworkCommand(program: Command): void {
     .description("Start the local ASP operator. Idempotent: re-running adopts an already-healthy operator.")
     .addOption(jsonOption())
     .action(async (opts: JsonOpts, cmd: Command) => {
-      const config = loadConfigFromRoot(cmd);
+      const config = await loadConfigFromRoot(cmd);
       const result = await startNetwork(config);
       const payload: Record<string, unknown> = {
         adopted: result.adopted,
@@ -68,7 +68,7 @@ export function registerNetworkCommand(program: Command): void {
     .description("Stop the local ASP operator (SIGTERM, then SIGKILL after a grace period).")
     .addOption(jsonOption())
     .action(async (opts: JsonOpts, cmd: Command) => {
-      const config = loadConfigFromRoot(cmd);
+      const config = await loadConfigFromRoot(cmd);
       const result = await stopNetwork(config);
       const payload = {
         stopped_pid: result.stoppedPid,
@@ -89,7 +89,7 @@ export function registerNetworkCommand(program: Command): void {
     .description("Show whether the local operator is running, plus a live /healthz snapshot.")
     .addOption(jsonOption())
     .action(async (opts: JsonOpts, cmd: Command) => {
-      const config = loadConfigFromRoot(cmd);
+      const config = await loadConfigFromRoot(cmd);
       const result = await statusNetwork(config);
       if (result === null) {
         const payload = { running: false, network: config.network.name };
@@ -134,7 +134,7 @@ export function registerNetworkCommand(program: Command): void {
       ),
     )
     .action(async (opts: LogsOpts, cmd: Command) => {
-      const config = loadConfigFromRoot(cmd);
+      const config = await loadConfigFromRoot(cmd);
       const paths = networkPaths(config, config.network.name);
       if (!existsSync(paths.logFile)) {
         throw new RobotNetCLIError(
@@ -158,7 +158,7 @@ export function registerNetworkCommand(program: Command): void {
     )
     .option("-y, --yes", "Skip the confirmation prompt", false)
     .action(async (opts: ResetOpts, cmd: Command) => {
-      const config = loadConfigFromRoot(cmd);
+      const config = await loadConfigFromRoot(cmd);
       if (!opts.yes) {
         throw new RobotNetCLIError(
           "Refusing to reset without `--yes`. This deletes ALL operator state " +

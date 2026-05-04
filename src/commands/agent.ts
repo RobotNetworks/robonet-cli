@@ -50,7 +50,7 @@ function makeRegisterCmd(): Command {
         opts: AgentLeafOpts & { policy?: InboundPolicy },
         cmd: Command,
       ) => {
-        const config = loadConfigFromRoot(cmd);
+        const config = await loadConfigFromRoot(cmd);
         const client = await resolveAdminClient(config, opts.adminToken);
         const agent = await client.registerAgent(
           handle,
@@ -77,7 +77,7 @@ function makeShowCmd(): Command {
     .addOption(adminTokenOption())
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (handle: string, opts: AgentLeafOpts, cmd: Command) => {
-      const config = loadConfigFromRoot(cmd);
+      const config = await loadConfigFromRoot(cmd);
       const client = await resolveAdminClient(config, opts.adminToken);
       const agent = await client.showAgent(handle);
       renderAgent(agent, opts.json);
@@ -90,7 +90,7 @@ function makeRmCmd(): Command {
     .argument("<handle>", "Agent handle", handleArg)
     .addOption(adminTokenOption())
     .action(async (handle: string, opts: AgentLeafOpts, cmd: Command) => {
-      const config = loadConfigFromRoot(cmd);
+      const config = await loadConfigFromRoot(cmd);
       const client = await resolveAdminClient(config, opts.adminToken);
       await client.removeAgent(handle);
       // Drop the local credential so a stale token doesn't survive removal.
@@ -107,7 +107,7 @@ function makeRotateTokenCmd(): Command {
     .addOption(adminTokenOption())
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (handle: string, opts: AgentLeafOpts, cmd: Command) => {
-      const config = loadConfigFromRoot(cmd);
+      const config = await loadConfigFromRoot(cmd);
       const client = await resolveAdminClient(config, opts.adminToken);
       const agent = await client.rotateToken(handle);
       // Update the local credential to match the freshly-rotated token.
@@ -136,7 +136,7 @@ function makeSetPolicyCmd(): Command {
         opts: AgentLeafOpts,
         cmd: Command,
       ) => {
-        const config = loadConfigFromRoot(cmd);
+        const config = await loadConfigFromRoot(cmd);
         const client = await resolveAdminClient(config, opts.adminToken);
         const agent = await client.setPolicy(handle, policy);
         renderAgent(agent, opts.json, `Policy updated for ${handle}.`);

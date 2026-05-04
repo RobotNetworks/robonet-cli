@@ -5,7 +5,11 @@ import { AddressInfo } from "node:net";
 
 import { WebSocket, WebSocketServer } from "ws";
 
-import { startReconnectingAspListener } from "../src/asp/reconnecting-listener.js";
+import {
+  startReconnectingAspListener,
+  type TerminalFailure,
+} from "../src/asp/reconnecting-listener.js";
+import { RobotNetCLIError, TransientAuthError } from "../src/errors.js";
 
 interface TestServer {
   readonly wsUrl: string;
@@ -234,5 +238,108 @@ describe("startReconnectingAspListener", () => {
 
     listener.close();
     await harness.close();
+  });
+
+  it("fires onTerminalFailure(permanent_resolve_error) when resolve() throws a RobotNetCLIError", async () => {
+    let calls = 0;
+    const failures: TerminalFailure[] = [];
+
+    const listener = startReconnectingAspListener({
+      resolve: async () => {
+        calls += 1;
+        throw new RobotNetCLIError("no stored token for @x.y on network local");
+      },
+      onTerminalFailure: (f) => failures.push(f),
+      initialDelayMs: 5,
+      maxDelayMs: 5,
+      jitterRatio: 0,
+    });
+
+    await waitFor(() => failures.length === 1);
+    // Permanent errors must NOT trigger a retry, so resolve fires exactly once.
+    assert.equal(calls, 1);
+    assert.equal(failures[0]!.reason, "permanent_resolve_error");
+    assert.match(failures[0]!.error.message, /no stored token/);
+
+    listener.close();
+  });
+
+  it("treats TransientAuthError from resolve() as reconnect-eligible (does not fire onTerminalFailure)", async () => {
+    const harness = await startTestServer();
+    let calls = 0;
+    const failures: TerminalFailure[] = [];
+
+    const listener = startReconnectingAspListener({
+      resolve: async () => {
+        calls += 1;
+        if (calls < 3) {
+          throw new TransientAuthError("auth server returned 503");
+        }
+        return { wsUrl: harness.wsUrl, token: "tok" };
+      },
+      onTerminalFailure: (f) => failures.push(f),
+      initialDelayMs: 5,
+      maxDelayMs: 5,
+      jitterRatio: 0,
+    });
+
+    await waitFor(() => harness.connections() === 1);
+    assert.equal(calls, 3);
+    assert.equal(failures.length, 0);
+
+    listener.close();
+    await harness.close();
+  });
+
+  it("fires onTerminalFailure(max_attempts_exhausted) when WebSocket drops exhaust the cap", async () => {
+    const harness = await startTestServer();
+    const failures: TerminalFailure[] = [];
+
+    const listener = startReconnectingAspListener({
+      resolve: async () => ({ wsUrl: harness.wsUrl, token: "tok" }),
+      onTerminalFailure: (f) => failures.push(f),
+      initialDelayMs: 5,
+      maxDelayMs: 5,
+      resetAfterStableMs: 60_000,
+      jitterRatio: 0,
+      maxAttempts: 2,
+    });
+
+    await waitFor(() => harness.connections() === 1);
+    harness.dropAll();
+    await waitFor(() => harness.connections() === 2);
+    harness.dropAll();
+    await waitFor(() => failures.length === 1);
+
+    assert.equal(failures[0]!.reason, "max_attempts_exhausted");
+    assert.equal(failures[0]!.attempts, 2);
+
+    // After firing terminal, no further reconnects happen.
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(harness.connections(), 2);
+
+    listener.close();
+    await harness.close();
+  });
+
+  it("onTerminalFailure fires at most once even if multiple permanent failures could trigger it", async () => {
+    const failures: TerminalFailure[] = [];
+
+    const listener = startReconnectingAspListener({
+      resolve: async () => {
+        throw new RobotNetCLIError("permanent");
+      },
+      onTerminalFailure: (f) => failures.push(f),
+      initialDelayMs: 5,
+      maxDelayMs: 5,
+      jitterRatio: 0,
+    });
+
+    await waitFor(() => failures.length === 1);
+    // Wait long enough that another doConnect cycle would have run.
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(failures.length, 1);
+
+    listener.close();
   });
 });

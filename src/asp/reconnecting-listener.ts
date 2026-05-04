@@ -1,5 +1,29 @@
+import { RobotNetCLIError, TransientAuthError } from "../errors.js";
 import { startAspListener, type AspListenerOptions } from "./listener.js";
 import type { SessionEvent, UnknownSessionEvent } from "./types.js";
+
+/**
+ * Why the listener gave up. Lets the caller render a meaningful exit summary
+ * to its supervisor without re-classifying the error itself.
+ *
+ * - `permanent_resolve_error`: the connection resolver (auth + credential
+ *   lookup) threw something that won't be fixed by retrying — typically a
+ *   missing agent credential or a fatal auth-server response. The user has
+ *   to take action (re-login, register the agent, fix config) before any
+ *   future retry can succeed.
+ * - `max_attempts_exhausted`: the configured `maxAttempts` cap was hit on
+ *   transient WebSocket-level failures. The underlying issue may resolve
+ *   on its own (network blip, server restart) but we've stopped trying.
+ */
+export type TerminalFailureReason =
+  | "permanent_resolve_error"
+  | "max_attempts_exhausted";
+
+export interface TerminalFailure {
+  readonly reason: TerminalFailureReason;
+  readonly error: Error;
+  readonly attempts: number;
+}
 
 /**
  * Resolve a fresh `(wsUrl, token)` pair for each connection attempt.
@@ -25,6 +49,15 @@ export interface ReconnectingListenerOptions {
 
   /** Fired before each reconnect attempt with `(attempt, delayMs)`. Attempt is 1-indexed. */
   readonly onReconnectScheduled?: (attempt: number, delayMs: number) => void;
+
+  /**
+   * Fired exactly once when the listener stops trying — either because
+   * `resolve()` threw a permanent error or because `maxAttempts` was hit.
+   * After this fires, no further reconnects are scheduled and the listener
+   * will not auto-recover. Callers wire this up to render a final summary
+   * and (typically) exit the process.
+   */
+  readonly onTerminalFailure?: (failure: TerminalFailure) => void;
 
   readonly initialDelayMs?: number;
   readonly maxDelayMs?: number;
@@ -54,10 +87,13 @@ export interface ReconnectingListener {
  * an expired `oauth_client_credentials` bearer transparently, so the
  * listener picks up fresh credentials without the user re-running login.
  *
- * No automatic distinction between recoverable and permanent failures
- * (e.g. 401 because the agent was deleted) — backoff just keeps going.
- * Operators see the repeated `onReconnectScheduled` notifications and
- * can Ctrl-C if they recognise the pattern.
+ * Errors thrown from `resolve()` are classified before deciding whether to
+ * retry: anything tagged {@link TransientAuthError} backs off and tries
+ * again, and any other {@link RobotNetCLIError} subclass is treated as
+ * permanent (missing credential, fatal auth failure, malformed config).
+ * Permanent errors fire {@link onTerminalFailure} and stop the loop;
+ * supervisors then know to surface the error rather than wait for an
+ * eventual recovery that will not come.
  */
 export function startReconnectingAspListener(
   opts: ReconnectingListenerOptions,
@@ -87,6 +123,21 @@ export function startReconnectingAspListener(
     }
   };
 
+  const fireTerminal = (
+    reason: TerminalFailureReason,
+    error: Error,
+  ): void => {
+    if (closed) return;
+    closed = true;
+    clearReconnect();
+    clearStable();
+    if (active !== null) {
+      active.close();
+      active = null;
+    }
+    opts.onTerminalFailure?.({ reason, error, attempts: attempt });
+  };
+
   const computeDelay = (a: number): number => {
     if (a === 0) return 0;
     const base = Math.min(initialDelayMs * Math.pow(2, a - 1), maxDelayMs);
@@ -112,10 +163,23 @@ export function startReconnectingAspListener(
     let resolved: { readonly wsUrl: string; readonly token: string };
     try {
       resolved = await opts.resolve();
-    } catch (err) {
-      opts.onError?.(err instanceof Error ? err : new Error(String(err)));
+    } catch (rawErr) {
+      const err = rawErr instanceof Error ? rawErr : new Error(String(rawErr));
+      opts.onError?.(err);
+      // Permanent failures (missing credential, fatal auth) won't be fixed
+      // by waiting — bail out so the supervisor sees a terminal signal
+      // instead of an infinite retry loop. TransientAuthError (5xx, 429,
+      // request timeout from the auth server) and plain network/fetch
+      // errors are still treated as transient.
+      if (isPermanentResolveError(err)) {
+        fireTerminal("permanent_resolve_error", err);
+        return;
+      }
       attempt += 1;
-      if (attempt >= maxAttempts) return;
+      if (attempt >= maxAttempts) {
+        fireTerminal("max_attempts_exhausted", err);
+        return;
+      }
       tryConnect();
       return;
     }
@@ -145,7 +209,15 @@ export function startReconnectingAspListener(
         opts.onClose?.(code, reason);
         if (closed) return;
         attempt += 1;
-        if (attempt >= maxAttempts) return;
+        if (attempt >= maxAttempts) {
+          fireTerminal(
+            "max_attempts_exhausted",
+            new Error(
+              `connection closed (${code}${reason.length > 0 ? `: ${reason}` : ""})`,
+            ),
+          );
+          return;
+        }
         tryConnect();
       },
     });
@@ -164,6 +236,22 @@ export function startReconnectingAspListener(
       }
     },
   };
+}
+
+/**
+ * Classify an error from the resolve callback. Any typed `RobotNetCLIError`
+ * that isn't explicitly transient is treated as permanent — the listener
+ * will stop retrying and surface it via {@link onTerminalFailure}. Plain
+ * network/fetch errors (anything not in the CLI error hierarchy) fall
+ * through to transient so a flaky network or brief auth-server blip doesn't
+ * kill the listener; they get the usual backoff treatment.
+ *
+ * The rule lives here (not in `errors.ts`) because the classification is
+ * the reconnecting-listener's retry policy, not a property of the errors.
+ */
+function isPermanentResolveError(err: Error): boolean {
+  if (err instanceof TransientAuthError) return false;
+  return err instanceof RobotNetCLIError;
 }
 
 /** Re-export the event-payload type aliases callers will need. */

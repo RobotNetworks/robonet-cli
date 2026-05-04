@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking
+
+- `.robotnet/asp.json` is now a network-keyed identity map. The shape is `{ "version": 1, "default_network": "<name>"?, "identities": { "<network>": "<handle>", ... } }`. The previous single-identity shape (`{ "version": 1, "handle": "@x.y", "network": "..." }`) is no longer read; existing files must be re-created via `robotnet identity set`. Both this CLI and the `asp` CLI write the new shape; cross-CLI portability requires the workspace `asp` CLI to be updated alongside.
+- Identity resolution is now scoped to the resolved network. `resolveAgentIdentity` looks up the directory file's `identities` map by `resolvedNetwork`, not by the file's own network. A directory bound to `@me.dev` on `local` does **not** contribute to a command targeting `robotnet`. The previous "directory binding inherits its own network into the env-derived identity" quirk is gone — `ROBOTNET_AGENT` always binds to whatever network was resolved through the network-precedence chain.
+- Network resolution for agent commands no longer short-circuits the env var via the directory file. Precedence is uniformly: `--network` flag > `ROBOTNET_NETWORK` env > workspace `.robotnet/config.json` `network` field > directory `.robotnet/asp.json` `default_network` field > profile `default_network` > built-in `robotnet`. A new `directory_identity` source kind appears in `config show` and the `network_source` JSON envelope.
+
+### Added
+
+- `robotnet status` — new top-level command that probes every configured network in parallel and reports `(reachable, identity)` per network. `--json` for machine consumers; default human output is one `[robotnet] <name>: <handle | "reachable, no identity">` line per **live** network (dead networks are skipped) so the output is safe to pipe directly into a session-start hook.
+- `robotnet identity show --all` dumps the full identities map and `default_network` (JSON or human form) for the directory file.
+- `startReconnectingAspListener` exposes a new `onTerminalFailure({ reason, error, attempts })` callback. `reason` is `"permanent_resolve_error"` or `"max_attempts_exhausted"`. The callback fires at most once and the listener stops itself before invoking it.
+
+### Changed
+
+- `robotnet identity set <handle>` is now additive: it writes the entry for the resolved network and preserves any other entries already in the file. The first set on an empty file also seeds `default_network`.
+- `robotnet identity show` (without `--all`) now reports the entry for the resolved network (the one the next agent command would target). When the file exists but has no entry for that network, exits **1** with a stderr hint listing the bound networks; `--json` still emits `null`. With no file at all, same exit-1 behavior plus the older "no identity file in this directory…" hint.
+- `robotnet listen` now classifies resolve-callback errors as either permanent or transient. A permanent failure (any `RobotNetCLIError` subclass other than `TransientAuthError` — typically a missing agent credential or a fatal auth failure) **stops the reconnect loop immediately** rather than spinning forever, exits **1**, and writes one `[robotnet] terminating: <reason>` summary line to **stdout** before exiting. Transient failures (`TransientAuthError`, plain network/fetch errors, WebSocket drops) keep the existing exponential-backoff behavior.
+- `robotnet listen` also writes a terminating-summary line on `--max-attempts` exhaustion and on the pre-flight identity/network throw (`no agent specified…`), so supervisors that only see stdout — notably Claude Code's Monitor tool — get the exit reason in the event stream instead of having to inspect stderr or the exit code in isolation.
+- `robotnet listen` no longer prefixes resolve-callback errors with `WebSocket error:` — the prefix was misleading (the error came from auth/credential resolution, not the WebSocket).
+- `robotnet config show` now goes through the same resolution path as agent commands (including the directory file's `default_network`), so its `network_source` reflects what subsequent commands will actually use.
+
 ## [0.2.0] - 2026-05-03
 
 ### Added

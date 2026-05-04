@@ -11,7 +11,7 @@ export function registerDoctorCommand(program: Command): void {
     .description("Run local RobotNet CLI diagnostics")
     .addOption(jsonOption())
     .action(async (opts, cmd) => {
-      const config = loadConfigFromRoot(cmd);
+      const config = await loadConfigFromRoot(cmd);
       const checks = await runDoctor(config);
       const ok = checks.every((c) => c.ok);
       const payload = { ok, checks };

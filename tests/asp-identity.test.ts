@@ -8,9 +8,11 @@ import {
   IdentityFileError,
   clearDirectoryIdentity,
   directoryIdentityPath,
-  findDirectoryIdentity,
+  findDirectoryDefaultNetwork,
+  findDirectoryIdentityFile,
+  lookupDirectoryHandle,
   resolveAgentIdentity,
-  writeDirectoryIdentity,
+  writeDirectoryIdentityEntry,
 } from "../src/asp/identity.js";
 import { InvalidHandleError } from "../src/asp/handles.js";
 
@@ -32,83 +34,191 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe("writeDirectoryIdentity", () => {
-  it("creates .robotnet/asp.json with the asp-compatible shape", async () => {
-    const filePath = await writeDirectoryIdentity(tmpDir, {
+function writeRawIdentityFile(dir: string, payload: unknown): string {
+  const dotDir = path.join(dir, ".robotnet");
+  fs.mkdirSync(dotDir, { recursive: true });
+  const filePath = path.join(dotDir, "asp.json");
+  fs.writeFileSync(
+    filePath,
+    typeof payload === "string" ? payload : JSON.stringify(payload),
+    "utf8",
+  );
+  return filePath;
+}
+
+describe("writeDirectoryIdentityEntry", () => {
+  it("creates .robotnet/asp.json with the on-disk shape and seeds default_network", async () => {
+    const filePath = await writeDirectoryIdentityEntry(tmpDir, {
       handle: "@cli.bot",
       network: "local",
     });
 
     assert.equal(filePath, directoryIdentityPath(tmpDir));
-    const raw = fs.readFileSync(filePath, "utf8");
-    const parsed = JSON.parse(raw);
-    assert.deepEqual(parsed, { version: 1, handle: "@cli.bot", network: "local" });
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    assert.deepEqual(parsed, {
+      version: 1,
+      identities: { local: "@cli.bot" },
+      default_network: "local",
+    });
+  });
+
+  it("preserves other networks' entries when adding a second one and does NOT overwrite default_network", async () => {
+    await writeDirectoryIdentityEntry(tmpDir, {
+      handle: "@me.dev",
+      network: "local",
+    });
+    await writeDirectoryIdentityEntry(tmpDir, {
+      handle: "@me.prod",
+      network: "robotnet",
+    });
+
+    const parsed = JSON.parse(
+      fs.readFileSync(directoryIdentityPath(tmpDir), "utf8"),
+    );
+    assert.deepEqual(parsed, {
+      version: 1,
+      identities: { local: "@me.dev", robotnet: "@me.prod" },
+      default_network: "local",
+    });
+  });
+
+  it("overwrites the same network's existing entry", async () => {
+    await writeDirectoryIdentityEntry(tmpDir, {
+      handle: "@old.bot",
+      network: "local",
+    });
+    await writeDirectoryIdentityEntry(tmpDir, {
+      handle: "@new.bot",
+      network: "local",
+    });
+
+    const file = await findDirectoryIdentityFile(tmpDir);
+    assert.ok(file);
+    assert.deepEqual(file!.identities, { local: "@new.bot" });
   });
 
   it("rejects an invalid handle without writing the file", async () => {
     await assert.rejects(
-      writeDirectoryIdentity(tmpDir, { handle: "BAD", network: "local" }),
+      writeDirectoryIdentityEntry(tmpDir, { handle: "BAD", network: "local" }),
       InvalidHandleError,
     );
     assert.equal(fs.existsSync(directoryIdentityPath(tmpDir)), false);
   });
 });
 
-describe("findDirectoryIdentity", () => {
+describe("findDirectoryIdentityFile", () => {
   it("returns undefined when no file exists anywhere up the tree", async () => {
-    // Use a tmpdir-rooted scan to avoid picking up the workspace's .robotnet/asp.json.
     const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "robotnet-iso-"));
     try {
-      const out = await findDirectoryIdentity(isolated);
+      const out = await findDirectoryIdentityFile(isolated);
       assert.equal(out, undefined);
     } finally {
       fs.rmSync(isolated, { recursive: true, force: true });
     }
   });
 
-  it("walks up to find the identity from a nested subdirectory", async () => {
-    await writeDirectoryIdentity(tmpDir, { handle: "@cli.bot", network: "local" });
+  it("walks up to find the file from a nested subdirectory", async () => {
+    await writeDirectoryIdentityEntry(tmpDir, {
+      handle: "@cli.bot",
+      network: "local",
+    });
     const nested = path.join(tmpDir, "a", "b", "c");
     fs.mkdirSync(nested, { recursive: true });
 
-    const found = await findDirectoryIdentity(nested);
+    const found = await findDirectoryIdentityFile(nested);
     assert.ok(found);
-    assert.equal(found!.handle, "@cli.bot");
-    assert.equal(found!.network, "local");
     assert.equal(found!.filePath, directoryIdentityPath(tmpDir));
+    assert.deepEqual(found!.identities, { local: "@cli.bot" });
+    assert.equal(found!.defaultNetwork, "local");
   });
 
-  it("throws IdentityFileError on a malformed JSON file", async () => {
-    const dotDir = path.join(tmpDir, ".robotnet");
-    fs.mkdirSync(dotDir);
-    fs.writeFileSync(path.join(dotDir, "asp.json"), "{not json");
-
+  it("throws IdentityFileError on malformed JSON", async () => {
+    writeRawIdentityFile(tmpDir, "{not json");
     await assert.rejects(
-      findDirectoryIdentity(tmpDir),
+      findDirectoryIdentityFile(tmpDir),
       (err: unknown) =>
         err instanceof IdentityFileError && err.message.includes("not valid JSON"),
     );
   });
 
-  it("throws IdentityFileError when required fields are missing", async () => {
-    const dotDir = path.join(tmpDir, ".robotnet");
-    fs.mkdirSync(dotDir);
-    fs.writeFileSync(
-      path.join(dotDir, "asp.json"),
-      JSON.stringify({ version: 1, handle: "@cli.bot" }),
-    );
-
+  it("throws IdentityFileError when version is unsupported", async () => {
+    writeRawIdentityFile(tmpDir, { version: 99, identities: {} });
     await assert.rejects(
-      findDirectoryIdentity(tmpDir),
+      findDirectoryIdentityFile(tmpDir),
       (err: unknown) =>
-        err instanceof IdentityFileError && err.message.includes("missing required"),
+        err instanceof IdentityFileError && err.message.includes("unsupported"),
     );
+  });
+
+  it("throws IdentityFileError when identities is missing or wrong shape", async () => {
+    writeRawIdentityFile(tmpDir, { version: 1, default_network: "local" });
+    await assert.rejects(
+      findDirectoryIdentityFile(tmpDir),
+      (err: unknown) =>
+        err instanceof IdentityFileError && err.message.includes("identities"),
+    );
+  });
+
+  it("throws IdentityFileError when an identity entry isn't a string handle", async () => {
+    writeRawIdentityFile(tmpDir, { version: 1, identities: { local: 42 } });
+    await assert.rejects(
+      findDirectoryIdentityFile(tmpDir),
+      (err: unknown) =>
+        err instanceof IdentityFileError &&
+        err.message.includes('entry for network "local"'),
+    );
+  });
+
+  it("accepts a file with no default_network", async () => {
+    writeRawIdentityFile(tmpDir, {
+      version: 1,
+      identities: { local: "@me.dev" },
+    });
+    const found = await findDirectoryIdentityFile(tmpDir);
+    assert.ok(found);
+    assert.equal(found!.defaultNetwork, undefined);
+    assert.deepEqual(found!.identities, { local: "@me.dev" });
+  });
+});
+
+describe("lookupDirectoryHandle", () => {
+  it("returns the handle for a known network and undefined otherwise", async () => {
+    await writeDirectoryIdentityEntry(tmpDir, {
+      handle: "@me.dev",
+      network: "local",
+    });
+    const file = await findDirectoryIdentityFile(tmpDir);
+    assert.ok(file);
+    assert.equal(lookupDirectoryHandle(file!, "local"), "@me.dev");
+    assert.equal(lookupDirectoryHandle(file!, "robotnet"), undefined);
+  });
+});
+
+describe("findDirectoryDefaultNetwork", () => {
+  it("returns the default_network when present", async () => {
+    await writeDirectoryIdentityEntry(tmpDir, {
+      handle: "@me.dev",
+      network: "local",
+    });
+    assert.equal(await findDirectoryDefaultNetwork(tmpDir), "local");
+  });
+
+  it("returns undefined when no file is found", async () => {
+    const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "robotnet-iso-"));
+    try {
+      assert.equal(await findDirectoryDefaultNetwork(isolated), undefined);
+    } finally {
+      fs.rmSync(isolated, { recursive: true, force: true });
+    }
   });
 });
 
 describe("clearDirectoryIdentity", () => {
   it("removes the file and reports true", async () => {
-    await writeDirectoryIdentity(tmpDir, { handle: "@cli.bot", network: "local" });
+    await writeDirectoryIdentityEntry(tmpDir, {
+      handle: "@cli.bot",
+      network: "local",
+    });
     assert.equal(await clearDirectoryIdentity(tmpDir), true);
     assert.equal(fs.existsSync(directoryIdentityPath(tmpDir)), false);
   });
@@ -118,10 +228,10 @@ describe("clearDirectoryIdentity", () => {
   });
 });
 
-describe("resolveAgentIdentity precedence", () => {
+describe("resolveAgentIdentity precedence (--as > env > directory[network])", () => {
   it("--as flag wins over env and directory file", async () => {
     process.env.ROBOTNET_AGENT = "@from-env.bot";
-    await writeDirectoryIdentity(tmpDir, {
+    await writeDirectoryIdentityEntry(tmpDir, {
       handle: "@from-dir.bot",
       network: "local",
     });
@@ -137,9 +247,9 @@ describe("resolveAgentIdentity precedence", () => {
     assert.equal(r!.source, "flag");
   });
 
-  it("ROBOTNET_AGENT env wins over directory file but inherits the directory's network", async () => {
+  it("ROBOTNET_AGENT env wins over directory file and binds to the resolved network (not the directory's)", async () => {
     process.env.ROBOTNET_AGENT = "@from-env.bot";
-    await writeDirectoryIdentity(tmpDir, {
+    await writeDirectoryIdentityEntry(tmpDir, {
       handle: "@from-dir.bot",
       network: "local",
     });
@@ -150,29 +260,32 @@ describe("resolveAgentIdentity precedence", () => {
     });
     assert.ok(r);
     assert.equal(r!.handle, "@from-env.bot");
-    // The directory binding still gets to pick the network — workspaces typically
-    // pin both together, and the env var only overrides "who am I".
-    assert.equal(r!.network, "local");
+    assert.equal(r!.network, "robotnet");
     assert.equal(r!.source, "env");
   });
 
-  it("directory file is used when nothing else is set", async () => {
-    await writeDirectoryIdentity(tmpDir, {
-      handle: "@cli.bot",
+  it("directory file is used only when its identities map has an entry for the resolved network", async () => {
+    await writeDirectoryIdentityEntry(tmpDir, {
+      handle: "@local.bot",
       network: "local",
     });
 
-    const r = await resolveAgentIdentity({
+    const matched = await resolveAgentIdentity({
+      resolvedNetwork: "local",
+      fromDir: tmpDir,
+    });
+    assert.ok(matched);
+    assert.equal(matched!.handle, "@local.bot");
+    assert.equal(matched!.source, "directory");
+
+    const unmatched = await resolveAgentIdentity({
       resolvedNetwork: "robotnet",
       fromDir: tmpDir,
     });
-    assert.ok(r);
-    assert.equal(r!.handle, "@cli.bot");
-    assert.equal(r!.network, "local");
-    assert.equal(r!.source, "directory");
+    assert.equal(unmatched, undefined);
   });
 
-  it("returns undefined when nothing supplies a handle", async () => {
+  it("returns undefined when nothing supplies a handle for the resolved network", async () => {
     const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "robotnet-iso-"));
     try {
       const r = await resolveAgentIdentity({

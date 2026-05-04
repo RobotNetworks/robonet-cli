@@ -179,17 +179,20 @@ describe("runDoctor — credential_store", () => {
 });
 
 describe("runDoctor — directory_identity", () => {
-  it("reports the resolved identity when .robotnet/asp.json exists in cwd", async () => {
+  it("reports the bound identities and default_network when .robotnet/asp.json exists in cwd", async () => {
     globalThis.fetch = async () =>
       new Response("ok", { status: 200 });
 
     const config = loadConfig(undefined, { networkName: "local" });
-    // Write an asp.json in env.tmpDir, then chdir there for the duration of the test.
     const dotDir = path.join(env.tmpDir, ".robotnet");
     fs.mkdirSync(dotDir, { recursive: true });
     fs.writeFileSync(
       path.join(dotDir, "asp.json"),
-      JSON.stringify({ version: 1, handle: "@cli.bot", network: "local" }),
+      JSON.stringify({
+        version: 1,
+        default_network: "local",
+        identities: { local: "@cli.bot", robotnet: "@me.prod" },
+      }),
     );
     const cwd = process.cwd();
     process.chdir(env.tmpDir);
@@ -197,8 +200,9 @@ describe("runDoctor — directory_identity", () => {
       const checks = await runDoctor(config);
       const byName = indexByName(checks);
       assert.equal(byName.directory_identity.ok, true);
-      assert.match(byName.directory_identity.detail, /@cli\.bot/);
-      assert.match(byName.directory_identity.detail, /network "local"/);
+      assert.match(byName.directory_identity.detail, /default=local/);
+      assert.match(byName.directory_identity.detail, /local=@cli\.bot/);
+      assert.match(byName.directory_identity.detail, /robotnet=@me\.prod/);
     } finally {
       process.chdir(cwd);
     }

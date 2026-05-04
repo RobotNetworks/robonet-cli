@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import { Entry } from "@napi-rs/keyring";
 
 import { discoverOAuth } from "./auth/discovery.js";
-import { findDirectoryIdentity } from "./asp/identity.js";
+import { findDirectoryIdentityFile } from "./asp/identity.js";
 import type { CLIConfig } from "./config.js";
 import { UnsafePlaintextEncryptor } from "./credentials/crypto.js";
 import { credentialsStorePath } from "./credentials/paths.js";
@@ -149,18 +149,24 @@ function keychainCheck(config: CLIConfig): DoctorCheck {
 
 async function directoryIdentityCheck(): Promise<DoctorCheck> {
   try {
-    const id = await findDirectoryIdentity();
-    if (!id) {
+    const file = await findDirectoryIdentityFile();
+    if (!file) {
       return {
         name: "directory_identity",
         ok: true,
         detail: "no .robotnet/asp.json in cwd or any ancestor",
       };
     }
+    const entries = Object.entries(file.identities)
+      .map(([network, handle]) => `${network}=${handle}`)
+      .join(", ");
+    const defaultPart =
+      file.defaultNetwork !== undefined ? ` default=${file.defaultNetwork}` : "";
+    const identitiesPart = entries.length > 0 ? ` identities=[${entries}]` : "";
     return {
       name: "directory_identity",
       ok: true,
-      detail: `${id.filePath} → ${id.handle} on network "${id.network}"`,
+      detail: `${file.filePath}${defaultPart}${identitiesPart}`,
     };
   } catch (err) {
     return {

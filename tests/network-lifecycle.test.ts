@@ -18,7 +18,7 @@ import {
 } from "../src/network/lifecycle.js";
 import { networkPaths } from "../src/network/paths.js";
 import { readNetworkState } from "../src/network/state.js";
-import { isolatedXdg } from "./helpers.ts";
+import { isolatedXdg } from "./helpers.js";
 
 /* -------------------------------------------------------------------------- */
 /* Test harness                                                                */

@@ -1,12 +1,9 @@
 import type { Command } from "commander";
 
-import {
-  loadConfig,
-  configToJson,
-  configToHumanPayload,
-} from "../config.js";
+import { configToJson, configToHumanPayload } from "../config.js";
 import { renderKeyValues } from "../output/formatters.js";
 import { renderJson } from "../output/json-output.js";
+import { loadConfigFromRoot } from "./asp-shared.js";
 import { jsonOption, profileTitle } from "./shared.js";
 
 export function registerConfigCommand(program: Command): void {
@@ -19,10 +16,7 @@ export function registerConfigCommand(program: Command): void {
     .description("Show the effective configuration")
     .addOption(jsonOption())
     .action(async (opts, cmd) => {
-      const rootOpts = cmd.parent?.parent?.opts() ?? {};
-      const config = loadConfig(rootOpts.profile, {
-        networkName: rootOpts.network,
-      });
+      const config = await loadConfigFromRoot(cmd);
       if (opts.json) {
         console.log(renderJson(configToJson(config)));
         return;

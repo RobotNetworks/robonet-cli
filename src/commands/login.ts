@@ -63,7 +63,7 @@ function makeLoginCmd(): Command {
     .option("--resource <url>", "Override the discovered websocket resource")
     .addOption(jsonOption())
     .action(async (opts: LoginOpts, cmd: Command) => {
-      const config = loadConfigFromRoot(cmd);
+      const config = await loadConfigFromRoot(cmd);
 
       // Validation: --client-id is meaningless without --agent.
       if (opts.clientId !== undefined && opts.agent === undefined) {
@@ -145,7 +145,7 @@ function makeLoginCmd(): Command {
     .addOption(jsonOption())
     .action(async (_opts: ShowOpts, cmd: Command) => {
       const opts = cmd.optsWithGlobals() as ShowOpts;
-      const config = loadConfigFromRoot(cmd);
+      const config = await loadConfigFromRoot(cmd);
 
       if (opts.agent !== undefined) {
         const store = await openProcessCredentialStore(config);
@@ -221,7 +221,7 @@ function makeLogoutCmd(): Command {
     )
     .option("--all", "Remove user session AND all agent credentials in this profile", false)
     .action(async (opts: LogoutOpts, cmd: Command) => {
-      const config = loadConfigFromRoot(cmd);
+      const config = await loadConfigFromRoot(cmd);
 
       if (opts.agent !== undefined && opts.all) {
         throw new RobotNetCLIError("--agent and --all are mutually exclusive");

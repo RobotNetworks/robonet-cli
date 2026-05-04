@@ -44,7 +44,7 @@ function makeAddCmd(): Command {
         opts: PermissionOpts,
         cmd: Command,
       ) => {
-        const config = loadConfigFromRoot(cmd);
+        const config = await loadConfigFromRoot(cmd);
         const client = await resolveAdminClient(config, opts.adminToken);
         const agent = await client.addToAllowlist(handle, entries);
         if (opts.json) {
@@ -74,7 +74,7 @@ function makeRemoveCmd(): Command {
         opts: PermissionOpts,
         cmd: Command,
       ) => {
-        const config = loadConfigFromRoot(cmd);
+        const config = await loadConfigFromRoot(cmd);
         const client = await resolveAdminClient(config, opts.adminToken);
         const agent = await client.removeFromAllowlist(handle, entry);
         if (opts.json) {
@@ -94,7 +94,7 @@ function makeShowCmd(): Command {
     .addOption(adminTokenOption())
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (handle: string, opts: PermissionOpts, cmd: Command) => {
-      const config = loadConfigFromRoot(cmd);
+      const config = await loadConfigFromRoot(cmd);
       const client = await resolveAdminClient(config, opts.adminToken);
       const agent = await client.showAgent(handle);
       if (opts.json) {

@@ -10,6 +10,7 @@ import { registerLoginCommand } from "./commands/login.js";
 import { registerNetworkCommand } from "./commands/network.js";
 import { registerPermissionCommand } from "./commands/permission.js";
 import { registerSessionCommand } from "./commands/session.js";
+import { registerStatusCommand } from "./commands/status.js";
 import { RobotNetCLIError } from "./errors.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
@@ -27,6 +28,7 @@ program
 
 registerLoginCommand(program);
 registerDoctorCommand(program);
+registerStatusCommand(program);
 registerConfigCommand(program);
 registerIdentityCommand(program);
 registerNetworkCommand(program);
