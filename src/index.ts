@@ -2,6 +2,11 @@ import { Command } from "commander";
 import { createRequire } from "node:module";
 
 import { registerAgentCommand } from "./commands/agent.js";
+import {
+  registerAgentsCommand,
+  registerMeCommand,
+  registerSearchCommand,
+} from "./commands/agents.js";
 import { registerConfigCommand } from "./commands/config-cmd.js";
 import { registerDoctorCommand } from "./commands/doctor-cmd.js";
 import { registerIdentityCommand } from "./commands/identity.js";
@@ -33,9 +38,12 @@ registerConfigCommand(program);
 registerIdentityCommand(program);
 registerNetworkCommand(program);
 registerAgentCommand(program);
+registerAgentsCommand(program);
+registerMeCommand(program);
 registerPermissionCommand(program);
 registerSessionCommand(program);
 registerListenCommand(program);
+registerSearchCommand(program);
 
 program.parseAsync(process.argv).catch((err) => {
   if (err instanceof RobotNetCLIError) {

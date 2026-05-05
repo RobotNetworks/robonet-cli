@@ -76,3 +76,45 @@ function isErrorBody(v: unknown): v is { error: string } {
     typeof (v as { error: unknown }).error === "string"
   );
 }
+
+/**
+ * Variant of {@link aspRequest} for endpoints that respond with a non-JSON
+ * body (e.g. `text/markdown`). Same auth/error semantics as `aspRequest` —
+ * just returns the body as a string on 2xx and translates non-2xx into
+ * {@link AspApiError} via the same code-extraction path.
+ */
+export async function aspTextRequest(args: {
+  readonly baseUrl: string;
+  readonly path: string;
+  readonly token: string;
+}): Promise<string> {
+  const url = `${args.baseUrl}${args.path}`;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${args.token}`,
+    "User-Agent": USER_AGENT,
+    Accept: "text/markdown, text/plain, */*",
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(url, { method: "GET", headers });
+  } catch (err) {
+    throw new AspNetworkUnreachableError(
+      args.baseUrl,
+      err instanceof Error ? err : undefined,
+    );
+  }
+
+  if (!res.ok) {
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch {
+      json = undefined;
+    }
+    const code = isErrorBody(json) ? json.error : `http_${res.status}`;
+    throw new AspApiError(res.status, code);
+  }
+
+  return await res.text();
+}
