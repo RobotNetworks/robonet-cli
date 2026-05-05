@@ -1,15 +1,16 @@
 import { Command } from "commander";
 
-import { fetchAccountAgents } from "../auth/account-agents.js";
 import { discoverOAuth } from "../auth/discovery.js";
 import { performPkceLogin } from "../auth/pkce.js";
-import { enrollAgentClientCredentials, enrollAgentPkce } from "../asp/agent-login.js";
+import {
+  enrollAgentClientCredentials,
+  enrollAgentPkce,
+  enrollAgentPkceViaPicker,
+} from "../asp/agent-login.js";
 import { assertValidHandle, handleArg } from "../asp/handles.js";
 import type { CLIConfig } from "../config.js";
 import { openProcessCredentialStore } from "../credentials/lifecycle.js";
-import type { CredentialStore } from "../credentials/store.js";
 import { loadConfigFromRoot } from "./asp-shared.js";
-import { pickAgent } from "./agent-picker.js";
 import { RobotNetCLIError } from "../errors.js";
 import { renderKeyValues } from "../output/formatters.js";
 import { renderJson } from "../output/json-output.js";
@@ -72,6 +73,14 @@ function makeLoginCmd(): Command {
             "Client_credentials is always agent-scoped.",
         );
       }
+      // Validation: --client-id with picker mode would need a handle that
+      // doesn't exist yet. The web picker isn't reachable from the
+      // client-credentials grant anyway. Reject early.
+      if (opts.clientId !== undefined && opts.agent === true) {
+        throw new RobotNetCLIError(
+          "--client-id requires --agent <handle>. The web picker only applies to PKCE.",
+        );
+      }
 
       if (opts.agent === undefined) {
         // No --agent flag at all → user PKCE.
@@ -79,12 +88,11 @@ function makeLoginCmd(): Command {
         return;
       }
 
-      // Resolve the handle from the flag value: explicit string, or open
-      // the picker when --agent was passed without a value (commander
-      // surfaces that as `true`).
-      const handle = await resolveAgentHandle(config, opts);
-
       if (opts.clientId !== undefined) {
+        // commander gives us `string` for `--agent <handle>` after the
+        // earlier guard ruled out the bare `--agent` shape.
+        const handle = opts.agent as string;
+        assertValidHandle(handle);
         const clientSecret = await resolveClientSecret(opts.clientSecret);
         const minted = await enrollAgentClientCredentials({
           config,
@@ -93,47 +101,39 @@ function makeLoginCmd(): Command {
           clientSecret,
           ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
         });
-        const payload: Record<string, unknown> = {
-          signed_in_as: "agent",
+        printAgentLoginResult(opts, config, {
           kind: "oauth_client_credentials",
           handle,
-          network: config.network.name,
-          expires_at: minted.bearerExpiresAt,
+          expiresAt: minted.bearerExpiresAt,
           scope: minted.scope,
-        };
-        if (opts.json) {
-          console.log(renderJson(payload));
-        } else {
-          console.log(
-            renderKeyValues(profileTitle("RobotNet Agent Login", config), payload),
-          );
-        }
+        });
         return;
       }
 
-      // Agent PKCE — opens the browser for the user to authorize this
-      // CLI to act as the agent. Same loopback-callback shape as user
-      // PKCE, with `agent_handle` on the authorization URL.
-      const minted = await enrollAgentPkce({
-        config,
-        handle,
-        ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
-      });
-      const payload: Record<string, unknown> = {
-        signed_in_as: "agent",
+      // Agent PKCE. Two shapes:
+      //   - explicit handle (`--agent @x.y`): confirm-mode in the web.
+      //   - bare `--agent`: web picker, handle resolved from token response.
+      const enrolled =
+        typeof opts.agent === "string"
+          ? await (async () => {
+              assertValidHandle(opts.agent as string);
+              return await enrollAgentPkce({
+                config,
+                handle: opts.agent as string,
+                ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
+              });
+            })()
+          : await enrollAgentPkceViaPicker({
+              config,
+              ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
+            });
+
+      printAgentLoginResult(opts, config, {
         kind: "oauth_pkce",
-        handle,
-        network: config.network.name,
-        expires_at: minted.bearerExpiresAt,
-        scope: minted.scope,
-      };
-      if (opts.json) {
-        console.log(renderJson(payload));
-      } else {
-        console.log(
-          renderKeyValues(profileTitle("RobotNet Agent Login", config), payload),
-        );
-      }
+        handle: enrolled.handle,
+        expiresAt: enrolled.bearerExpiresAt,
+        scope: enrolled.scope,
+      });
     });
 
   // login show
@@ -312,58 +312,35 @@ async function runUserLogin(config: CLIConfig, opts: LoginOpts): Promise<void> {
 }
 
 /**
- * Resolve the `--agent` flag's value into a concrete handle.
- *
- * - `--agent @x.y`: validate and return `@x.y`.
- * - `--agent` (no value, commander surfaces this as `true`): ensure the
- *   user has an active session, fetch their account's agents, and run
- *   the interactive picker. If no user session exists, drive user PKCE
- *   first so `login --agent` is a single end-to-end flow.
+ * Render the success output for an agent-mode login (PKCE or
+ * client_credentials), preserving the shape `login` has emitted since
+ * v0.3 so plugins parsing `--json` don't drift.
  */
-async function resolveAgentHandle(
-  config: CLIConfig,
+function printAgentLoginResult(
   opts: LoginOpts,
-): Promise<string> {
-  if (typeof opts.agent === "string") {
-    assertValidHandle(opts.agent);
-    return opts.agent;
-  }
-  // opts.agent === true — the user passed `--agent` with no value.
-  const store = await openProcessCredentialStore(config);
-  const accessToken = await ensureUserAccessToken(store, config, opts);
-  const agents = await fetchAccountAgents({ config, accessToken });
-  return await pickAgent(agents);
-}
-
-/**
- * Return a usable user access token, running user PKCE first if no
- * session exists or the cached one is past expiry. We prefer surfacing
- * a fresh login over forcing the user to type a separate command.
- */
-async function ensureUserAccessToken(
-  store: CredentialStore,
   config: CLIConfig,
-  opts: LoginOpts,
-): Promise<string> {
-  const existing = store.getUserSession();
-  const stillValid =
-    existing !== null &&
-    (existing.accessTokenExpiresAt === null ||
-      existing.accessTokenExpiresAt > Date.now() + 30_000);
-  if (stillValid) {
-    return (existing as NonNullable<typeof existing>).accessToken;
-  }
-  process.stderr.write(
-    "No active user session — running user login first, then opening the agent picker.\n",
-  );
-  await runUserLogin(config, opts);
-  const fresh = store.getUserSession();
-  if (fresh === null) {
-    throw new RobotNetCLIError(
-      "internal: user session unexpectedly missing after login",
+  args: {
+    kind: "oauth_pkce" | "oauth_client_credentials";
+    handle: string;
+    expiresAt: number | null;
+    scope: string | null;
+  },
+): void {
+  const payload: Record<string, unknown> = {
+    signed_in_as: "agent",
+    kind: args.kind,
+    handle: args.handle,
+    network: config.network.name,
+    expires_at: args.expiresAt,
+    scope: args.scope,
+  };
+  if (opts.json) {
+    console.log(renderJson(payload));
+  } else {
+    console.log(
+      renderKeyValues(profileTitle("RobotNet Agent Login", config), payload),
     );
   }
-  return fresh.accessToken;
 }
 
 // ── option types ────────────────────────────────────────────────────────────

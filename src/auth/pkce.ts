@@ -3,7 +3,11 @@ import * as http from "node:http";
 import type { AddressInfo } from "node:net";
 
 import type { TokenResponse } from "./client-credentials.js";
-import { tokenResponseFromBody, DEFAULT_SCOPES } from "./client-credentials.js";
+import {
+  tokenResponseFromBody,
+  DEFAULT_AGENT_SCOPES,
+  DEFAULT_USER_SCOPES,
+} from "./client-credentials.js";
 import type { OAuthDiscovery } from "./discovery.js";
 import type { EndpointConfig } from "../endpoints.js";
 import { REQUEST_TIMEOUT_MS } from "../endpoints.js";
@@ -16,14 +20,31 @@ import {
 const DEFAULT_PUBLIC_CLIENT_NAME = "robotnet-cli";
 const CALLBACK_PATH = "/callback";
 
-/** Result of a successful PKCE login: the API access token plus the long-lived data needed to refresh it. */
+/** Result of a successful PKCE login: the API access token plus the long-lived
+ *  data needed to refresh it. ``agentHandle`` is populated for agent-scoped
+ *  flows (echoed by the auth server's RFC-6749-compliant token-endpoint
+ *  extension) and ``null`` for user-scoped flows. */
 export interface PKCELoginResult {
   readonly token: TokenResponse;
   readonly refreshToken: string;
   readonly clientId: string;
   readonly redirectUri: string;
   readonly tokenEndpoint: string;
+  readonly agentHandle: string | null;
 }
+
+/**
+ * Where the agent PKCE flow points the browser.
+ *
+ * - ``handle``  — CLI specified an explicit agent (`robotnet login --agent @x.y`).
+ *                 The web shows a one-button "Authorize @x.y" confirmation.
+ * - ``picker``  — CLI asked us to pick (`robotnet login --agent` no value).
+ *                 The web shows the agent picker; the chosen handle comes
+ *                 back via ``PKCELoginResult.agentHandle``.
+ */
+export type AgentLoginTarget =
+  | { kind: "handle"; handle: string }
+  | { kind: "picker" };
 
 /** Common options accepted by both user and agent PKCE flows. */
 interface CorePkceOptions {
@@ -46,42 +67,60 @@ interface CorePkceOptions {
 }
 
 /**
- * Drive a full OAuth 2.0 PKCE browser login: dynamic client registration,
- * ephemeral loopback callback (random port, matching the auth server's
- * `^http://127\.0\.0\.1:\d+/callback$` pattern validator), authorization URL,
- * and code exchange. Throws {@link AuthenticationError} on user cancel,
- * state mismatch, or network failure.
+ * Drive a full OAuth 2.0 PKCE browser login for the calling user (no agent
+ * binding). Defaults to the user-bucket scope set; pass ``options.scope``
+ * to override.
+ *
+ * Implementation: dynamic client registration, ephemeral loopback callback
+ * (random port, matching the auth server's `^http://127\.0\.0\.1:\d+/callback$`
+ * pattern validator), authorization URL, and code exchange. Throws
+ * {@link AuthenticationError} on user cancel, state mismatch, or network
+ * failure.
  */
 export async function performPkceLogin(
   options: CorePkceOptions,
 ): Promise<PKCELoginResult> {
-  return await runPkceFlow(options);
+  return await runPkceFlow({ ...options, scope: options.scope ?? DEFAULT_USER_SCOPES });
 }
 
 /**
- * Drive an agent-scoped PKCE login. Same flow as {@link performPkceLogin}
- * but the authorization URL carries `agent_handle=<handle>`, so the issued
- * tokens belong to that agent rather than to the user.
+ * Drive an agent-scoped PKCE login. Same loopback-callback flow as
+ * {@link performPkceLogin}, but the authorization URL signals one of two
+ * things to the web consent page:
+ *
+ *   - ``target.kind === "handle"``: includes ``agent_handle=<handle>`` so
+ *     the consent page renders a single-button confirmation.
+ *   - ``target.kind === "picker"``: includes ``intent=select_agent`` so
+ *     the consent page renders the agent picker. The user's choice comes
+ *     back as ``agent_handle`` on the token-endpoint response, and is
+ *     surfaced on ``PKCELoginResult.agentHandle``.
  *
  * The user must be signed in to auth.robotnet.ai in their browser
- * (cookie / Cognito session). If they aren't, the auth server's consent
- * page handles the human login first and then proceeds with the agent
- * authorization.
+ * (cookie / Cognito session). If they aren't, the consent page handles
+ * the human login first and then proceeds with the agent authorization.
  */
 export async function performAgentPkceLogin(args: {
   readonly endpoints: EndpointConfig;
   readonly discovery: OAuthDiscovery;
-  readonly agentHandle: string;
+  readonly target: AgentLoginTarget;
   readonly scope?: string;
   readonly clientName?: string;
 }): Promise<PKCELoginResult> {
+  const extraParams: Record<string, string> =
+    args.target.kind === "handle"
+      ? { agent_handle: args.target.handle }
+      : { intent: "select_agent" };
+  const prompt =
+    args.target.kind === "handle"
+      ? `Opening browser for RobotNet agent authorization (${args.target.handle}).`
+      : "Opening browser to pick an agent for RobotNet.";
   return await runPkceFlow({
     endpoints: args.endpoints,
     discovery: args.discovery,
-    ...(args.scope !== undefined ? { scope: args.scope } : {}),
+    scope: args.scope ?? DEFAULT_AGENT_SCOPES,
     ...(args.clientName !== undefined ? { clientName: args.clientName } : {}),
-    extraAuthParams: { agent_handle: args.agentHandle },
-    browserPrompt: `Opening browser for RobotNet agent authorization (${args.agentHandle}).`,
+    extraAuthParams: extraParams,
+    browserPrompt: prompt,
   });
 }
 
@@ -93,7 +132,10 @@ async function runPkceFlow(options: CorePkceOptions): Promise<PKCELoginResult> {
   const {
     endpoints,
     discovery,
-    scope = DEFAULT_SCOPES,
+    // Each public entrypoint (`performPkceLogin`, `performAgentPkceLogin`)
+    // sets its own scope default; we never silently fall back here so a
+    // missing scope is loud rather than mis-bucketed.
+    scope = DEFAULT_USER_SCOPES,
     clientName = DEFAULT_PUBLIC_CLIENT_NAME,
     extraAuthParams = {},
     browserPrompt = "Opening browser for RobotNet login.",
@@ -137,7 +179,7 @@ async function runPkceFlow(options: CorePkceOptions): Promise<PKCELoginResult> {
     const code = await loopback.awaitCode(state);
 
     const resource = discovery.apiResource ?? endpoints.apiBaseUrl.replace(/\/+$/, "");
-    const { token, refreshToken } = await requestAuthorizationCodeToken({
+    const { token, refreshToken, agentHandle } = await requestAuthorizationCodeToken({
       tokenEndpoint: discovery.tokenEndpoint,
       clientId,
       code,
@@ -152,6 +194,7 @@ async function runPkceFlow(options: CorePkceOptions): Promise<PKCELoginResult> {
       clientId,
       redirectUri,
       tokenEndpoint: discovery.tokenEndpoint,
+      agentHandle,
     };
   } finally {
     loopback.close();
@@ -335,7 +378,7 @@ async function requestAuthorizationCodeToken(options: {
   codeVerifier: string;
   redirectUri: string;
   resource: string;
-}): Promise<{ token: TokenResponse; refreshToken: string }> {
+}): Promise<{ token: TokenResponse; refreshToken: string; agentHandle: string | null }> {
   const form = new URLSearchParams({
     grant_type: "authorization_code",
     client_id: options.clientId,
@@ -366,9 +409,19 @@ async function requestAuthorizationCodeToken(options: {
     );
   }
 
+  // RobotNet auth-server extension (RFC 6749 §5.1 permits): agent-scoped
+  // tokens carry the canonical handle so the CLI can key its credential
+  // row without decoding the JWT. Absent on user-scoped responses.
+  const rawAgentHandle = body.agent_handle;
+  const agentHandle =
+    typeof rawAgentHandle === "string" && rawAgentHandle.length > 0
+      ? rawAgentHandle
+      : null;
+
   return {
     token: tokenResponseFromBody(body, options.resource),
     refreshToken,
+    agentHandle,
   };
 }
 

@@ -144,6 +144,11 @@ export async function renewAgentClientCredentials(args: {
  * print it or feed it into a subsequent operation.
  */
 export interface EnrolledAgentPkce {
+  /** Canonical handle the credential was stored under. For
+   *  ``enrollAgentPkce`` this matches the input handle; for
+   *  ``enrollAgentPkceViaPicker`` it's the agent the user picked in the
+   *  browser. */
+  readonly handle: string;
   readonly bearer: string;
   readonly bearerExpiresAt: number | null;
   readonly scope: string | null;
@@ -161,16 +166,64 @@ export async function enrollAgentPkce(args: {
   const result = await performAgentPkceLogin({
     endpoints: args.config.endpoints,
     discovery,
-    agentHandle: args.handle,
+    target: { kind: "handle", handle: args.handle },
     ...(args.scope !== undefined ? { scope: args.scope } : {}),
   });
+  // Defense in depth: the auth server should echo the handle the CLI
+  // requested. If it doesn't, refuse to write the credential row — we'd
+  // otherwise be filing the bearer under a key that doesn't match what
+  // the token actually authorizes.
+  if (result.agentHandle !== null && result.agentHandle !== args.handle) {
+    throw new RobotNetCLIError(
+      `Auth server returned agent_handle=${result.agentHandle} for login of ${args.handle}; refusing to store under mismatched key.`,
+    );
+  }
+  return await persistAgentPkce({
+    config: args.config,
+    handle: args.handle,
+    result,
+  });
+}
+
+export async function enrollAgentPkceViaPicker(args: {
+  readonly config: CLIConfig;
+  readonly scope?: string;
+}): Promise<EnrolledAgentPkce> {
+  const discovery = await discoverOAuth(args.config.endpoints);
+  const result = await performAgentPkceLogin({
+    endpoints: args.config.endpoints,
+    discovery,
+    target: { kind: "picker" },
+    ...(args.scope !== undefined ? { scope: args.scope } : {}),
+  });
+  if (!result.agentHandle) {
+    // The web ran the picker but the token endpoint didn't surface a
+    // handle. Without it we have no key to store under. Treat as a hard
+    // server-side bug rather than guessing.
+    throw new RobotNetCLIError(
+      "Picker login completed but the auth server didn't return an agent_handle. Aborting.",
+    );
+  }
+  return await persistAgentPkce({
+    config: args.config,
+    handle: result.agentHandle,
+    result,
+  });
+}
+
+async function persistAgentPkce(args: {
+  readonly config: CLIConfig;
+  readonly handle: string;
+  readonly result: Awaited<ReturnType<typeof performAgentPkceLogin>>;
+}): Promise<EnrolledAgentPkce> {
+  const { config, handle, result } = args;
   const bearerExpiresAt =
     result.token.expiresIn !== null ? Date.now() + result.token.expiresIn * 1000 : null;
 
-  const store = await openProcessCredentialStore(args.config);
+  const store = await openProcessCredentialStore(config);
   store.putAgentCredential({
-    networkName: args.config.network.name,
-    handle: args.handle,
+    networkName: config.network.name,
+    handle,
     kind: "oauth_pkce",
     bearer: result.token.accessToken,
     bearerExpiresAt,
@@ -183,6 +236,7 @@ export async function enrollAgentPkce(args: {
   });
 
   return {
+    handle,
     bearer: result.token.accessToken,
     bearerExpiresAt,
     scope: result.token.scope,

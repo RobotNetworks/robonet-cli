@@ -2,13 +2,21 @@ import { REQUEST_TIMEOUT_MS } from "../endpoints.js";
 import { AuthenticationError } from "../errors.js";
 
 /**
- * Canonical OAuth scope set advertised by auth.robotnet.ai's metadata
- * endpoint and validated against `domain.types.OAuthScope` server-side.
- * Anything outside this set is rejected by the auth server's allowed-scopes
- * list — the legacy `threads:*` / `contacts:*` strings hard-fail.
+ * Default agent-scoped OAuth scope set. Used by every flow that mints an
+ * agent-scoped bearer (client_credentials, agent PKCE). Stays in sync with
+ * the server's `OAuthAgentScope` literal; legacy `threads:*` / `contacts:*`
+ * strings hard-fail server-side.
  */
-export const DEFAULT_SCOPES =
+export const DEFAULT_AGENT_SCOPES =
   "agents:read sessions:read sessions:write allowlist:read allowlist:write realtime:read";
+
+/**
+ * Default user-scoped OAuth scope set. Used by `robotnet login` when no
+ * `--agent` is specified — the resulting bearer can read the calling
+ * account's own profile, agents, and organization memberships.
+ */
+export const DEFAULT_USER_SCOPES =
+  "account:read account:agents:read account:organizations:read";
 
 /** Normalized OAuth token response. `expiresIn` is in seconds (per RFC 6749), not milliseconds. */
 export interface TokenResponse {
@@ -44,7 +52,7 @@ export async function requestClientCredentialsToken(options: {
   resource: string;
   scope?: string;
 }): Promise<TokenResponse> {
-  const { tokenEndpoint, clientId, clientSecret, resource, scope = DEFAULT_SCOPES } = options;
+  const { tokenEndpoint, clientId, clientSecret, resource, scope = DEFAULT_AGENT_SCOPES } = options;
 
   const form = new URLSearchParams({
     grant_type: "client_credentials",

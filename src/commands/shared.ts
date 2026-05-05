@@ -1,7 +1,6 @@
 import { Option } from "commander";
 import * as readline from "node:readline";
 
-import { DEFAULT_SCOPES } from "../auth/client-credentials.js";
 import type { CLIConfig } from "../config.js";
 
 // ── Option factories ─────────────────────────────────────────────────
@@ -13,7 +12,11 @@ export function clientSecretOption(): Option {
   return new Option("--client-secret <secret>", "RobotNet client secret");
 }
 export function scopeOption(): Option {
-  return new Option("--scope <scope>", "OAuth scopes").default(DEFAULT_SCOPES);
+  // No `.default(...)`: the right scope set depends on whether the
+  // command runs in user or agent mode. Leaving this undefined lets each
+  // entrypoint (`performPkceLogin`, `performAgentPkceLogin`, etc.) fall
+  // through to its own bucket-appropriate default.
+  return new Option("--scope <scope>", "OAuth scopes");
 }
 export function jsonOption(): Option {
   return new Option("--json", "Output as JSON").default(false);
