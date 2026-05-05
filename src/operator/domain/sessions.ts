@@ -409,6 +409,43 @@ export class SessionService {
     return sessionToWire(session, this.#repo.participants.listForSession(sessionId));
   }
 
+  /**
+   * All sessions in which `caller` participates, most-recently-updated first.
+   * Each entry carries the same wire shape as {@link getSessionView}. Hidden
+   * by design: zero-result is not "not found" — an agent with no sessions
+   * legitimately gets `[]`.
+   */
+  listSessionsFor(caller: Handle): readonly SessionView[] {
+    const sessions = this.#repo.sessions.listForHandle(caller);
+    return sessions.map((s) =>
+      sessionToWire(s, this.#repo.participants.listForSession(s.id)),
+    );
+  }
+
+  /**
+   * Substring message search across sessions the caller could have seen.
+   * Eligibility delegated to {@link MessagesRepo.searchForCaller}. Returns
+   * messages in their wire shape, most-recent first.
+   */
+  searchMessages(args: {
+    readonly caller: Handle;
+    readonly query: string;
+    readonly limit: number;
+    readonly sessionId?: SessionId;
+    readonly counterpartHandle?: Handle;
+  }): readonly Readonly<Record<string, unknown>>[] {
+    const records = this.#repo.messages.searchForCaller({
+      callerHandle: args.caller,
+      query: args.query,
+      limit: args.limit,
+      ...(args.sessionId !== undefined ? { sessionId: args.sessionId } : {}),
+      ...(args.counterpartHandle !== undefined
+        ? { counterpartHandle: args.counterpartHandle }
+        : {}),
+    });
+    return records.map(wireMessage);
+  }
+
   /** Catch-up history for a session — eligibility-filtered per the participant's status transitions. */
   getEventsFor(
     caller: Handle,

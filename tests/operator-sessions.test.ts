@@ -260,6 +260,71 @@ describe("operator sessions — create + invite", () => {
   });
 });
 
+describe("operator sessions — list (GET /sessions)", () => {
+  it("returns sessions where the caller is a participant, filters out others", async () => {
+    await adminRegister(h, "@alice.bot");
+    await adminRegister(h, "@bob.bot", {
+      policy: "allowlist",
+      allowlistEntries: ["@alice.bot"],
+    });
+    await adminRegister(h, "@carol.bot", {
+      policy: "allowlist",
+      allowlistEntries: ["@alice.bot"],
+    });
+
+    // alice creates two sessions: one with bob, one with carol.
+    const ab = await fetch(`${h.baseUrl}/sessions`, {
+      method: "POST",
+      headers: agentHeaders(h, "@alice.bot"),
+      body: JSON.stringify({ invite: ["@bob.bot"], topic: "ab" }),
+    });
+    assert.equal(ab.status, 200);
+    const ac = await fetch(`${h.baseUrl}/sessions`, {
+      method: "POST",
+      headers: agentHeaders(h, "@alice.bot"),
+      body: JSON.stringify({ invite: ["@carol.bot"], topic: "ac" }),
+    });
+    assert.equal(ac.status, 200);
+
+    // alice sees both.
+    const aliceList = await fetch(`${h.baseUrl}/sessions`, {
+      headers: agentHeaders(h, "@alice.bot"),
+    });
+    assert.equal(aliceList.status, 200);
+    const aliceBody = (await aliceList.json()) as {
+      sessions: Array<{ topic?: string }>;
+    };
+    const aliceTopics = aliceBody.sessions.map((s) => s.topic).sort();
+    assert.deepEqual(aliceTopics, ["ab", "ac"]);
+
+    // bob sees only the one he was invited to.
+    const bobList = await fetch(`${h.baseUrl}/sessions`, {
+      headers: agentHeaders(h, "@bob.bot"),
+    });
+    assert.equal(bobList.status, 200);
+    const bobBody = (await bobList.json()) as { sessions: Array<{ topic?: string }> };
+    assert.deepEqual(
+      bobBody.sessions.map((s) => s.topic),
+      ["ab"],
+    );
+  });
+
+  it("returns an empty array when the caller has no sessions", async () => {
+    await adminRegister(h, "@solo.bot");
+    const res = await fetch(`${h.baseUrl}/sessions`, {
+      headers: agentHeaders(h, "@solo.bot"),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { sessions: unknown[] };
+    assert.deepEqual(body.sessions, []);
+  });
+
+  it("rejects unauthenticated callers with 401", async () => {
+    const res = await fetch(`${h.baseUrl}/sessions`);
+    assert.equal(res.status, 401);
+  });
+});
+
 describe("operator sessions — join + send_message", () => {
   it("invitee joins and then receives session.message events", async () => {
     await adminRegister(h, "@alice.bot");
@@ -735,6 +800,166 @@ describe("operator sessions — presence transitions", () => {
     } finally {
       await alice.close();
     }
+  });
+});
+
+describe("operator sessions — message search (GET /search/messages)", () => {
+  it("returns matching messages from sessions the caller is currently joined to", async () => {
+    await adminRegister(h, "@alice.bot");
+    await adminRegister(h, "@bob.bot", {
+      policy: "allowlist",
+      allowlistEntries: ["@alice.bot"],
+    });
+
+    const create = await fetch(`${h.baseUrl}/sessions`, {
+      method: "POST",
+      headers: agentHeaders(h, "@alice.bot"),
+      body: JSON.stringify({ invite: ["@bob.bot"], topic: "search-test" }),
+    });
+    assert.equal(create.status, 200);
+    const { session_id: sid } = (await create.json()) as { session_id: string };
+
+    // bob joins so he can see the session, then alice sends two messages.
+    const join = await fetch(`${h.baseUrl}/sessions/${sid}/join`, {
+      method: "POST",
+      headers: agentHeaders(h, "@bob.bot"),
+    });
+    assert.equal(join.status, 200);
+
+    for (const text of ["hello world", "goodbye moon"]) {
+      const send = await fetch(`${h.baseUrl}/sessions/${sid}/messages`, {
+        method: "POST",
+        headers: agentHeaders(h, "@alice.bot"),
+        body: JSON.stringify({ content: text }),
+      });
+      assert.equal(send.status, 200);
+    }
+
+    // Substring "hello" returns one message for the sender (alice).
+    const aliceRes = await fetch(
+      `${h.baseUrl}/search/messages?q=hello`,
+      { headers: agentHeaders(h, "@alice.bot") },
+    );
+    assert.equal(aliceRes.status, 200);
+    const aliceBody = (await aliceRes.json()) as {
+      messages: Array<{ content: unknown }>;
+    };
+    assert.equal(aliceBody.messages.length, 1);
+    assert.equal(aliceBody.messages[0]!.content, "hello world");
+
+    // Same query as bob (joined) returns the same one.
+    const bobRes = await fetch(
+      `${h.baseUrl}/search/messages?q=hello`,
+      { headers: agentHeaders(h, "@bob.bot") },
+    );
+    assert.equal(bobRes.status, 200);
+    const bobBody = (await bobRes.json()) as { messages: Array<unknown> };
+    assert.equal(bobBody.messages.length, 1);
+  });
+
+  it("excludes messages from sessions where the caller is only invited", async () => {
+    await adminRegister(h, "@alice.bot");
+    await adminRegister(h, "@bob.bot", {
+      policy: "allowlist",
+      allowlistEntries: ["@alice.bot"],
+    });
+
+    const create = await fetch(`${h.baseUrl}/sessions`, {
+      method: "POST",
+      headers: agentHeaders(h, "@alice.bot"),
+      body: JSON.stringify({ invite: ["@bob.bot"] }),
+    });
+    assert.equal(create.status, 200);
+    const { session_id: sid } = (await create.json()) as { session_id: string };
+
+    // alice sends a message; bob is invited but hasn't joined.
+    await fetch(`${h.baseUrl}/sessions/${sid}/messages`, {
+      method: "POST",
+      headers: agentHeaders(h, "@alice.bot"),
+      body: JSON.stringify({ content: "secret" }),
+    });
+
+    const res = await fetch(
+      `${h.baseUrl}/search/messages?q=secret`,
+      { headers: agentHeaders(h, "@bob.bot") },
+    );
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { messages: unknown[] };
+    assert.deepEqual(body.messages, []);
+  });
+
+  it("rejects q shorter than 2 chars or missing with 400", async () => {
+    await adminRegister(h, "@alice.bot");
+
+    const missing = await fetch(`${h.baseUrl}/search/messages`, {
+      headers: agentHeaders(h, "@alice.bot"),
+    });
+    assert.equal(missing.status, 400);
+
+    const tooShort = await fetch(`${h.baseUrl}/search/messages?q=a`, {
+      headers: agentHeaders(h, "@alice.bot"),
+    });
+    assert.equal(tooShort.status, 400);
+  });
+
+  it("filters by --session and --counterpart", async () => {
+    await adminRegister(h, "@alice.bot");
+    await adminRegister(h, "@bob.bot", {
+      policy: "allowlist",
+      allowlistEntries: ["@alice.bot"],
+    });
+    await adminRegister(h, "@carol.bot", {
+      policy: "allowlist",
+      allowlistEntries: ["@alice.bot"],
+    });
+
+    // alice ↔ bob session
+    const ab = await fetch(`${h.baseUrl}/sessions`, {
+      method: "POST",
+      headers: agentHeaders(h, "@alice.bot"),
+      body: JSON.stringify({ invite: ["@bob.bot"] }),
+    });
+    const { session_id: abSid } = (await ab.json()) as { session_id: string };
+    await fetch(`${h.baseUrl}/sessions/${abSid}/messages`, {
+      method: "POST",
+      headers: agentHeaders(h, "@alice.bot"),
+      body: JSON.stringify({ content: "ping bob" }),
+    });
+
+    // alice ↔ carol session
+    const ac = await fetch(`${h.baseUrl}/sessions`, {
+      method: "POST",
+      headers: agentHeaders(h, "@alice.bot"),
+      body: JSON.stringify({ invite: ["@carol.bot"] }),
+    });
+    const { session_id: acSid } = (await ac.json()) as { session_id: string };
+    await fetch(`${h.baseUrl}/sessions/${acSid}/messages`, {
+      method: "POST",
+      headers: agentHeaders(h, "@alice.bot"),
+      body: JSON.stringify({ content: "ping carol" }),
+    });
+
+    // session_id filter narrows to bob session.
+    const sessOnly = await fetch(
+      `${h.baseUrl}/search/messages?q=ping&session_id=${encodeURIComponent(abSid)}`,
+      { headers: agentHeaders(h, "@alice.bot") },
+    );
+    const sessBody = (await sessOnly.json()) as {
+      messages: Array<{ content: string }>;
+    };
+    assert.equal(sessBody.messages.length, 1);
+    assert.equal(sessBody.messages[0]!.content, "ping bob");
+
+    // counterpart filter narrows to sessions involving carol.
+    const counter = await fetch(
+      `${h.baseUrl}/search/messages?q=ping&counterpart=${encodeURIComponent("@carol.bot")}`,
+      { headers: agentHeaders(h, "@alice.bot") },
+    );
+    const counterBody = (await counter.json()) as {
+      messages: Array<{ content: string }>;
+    };
+    assert.equal(counterBody.messages.length, 1);
+    assert.equal(counterBody.messages[0]!.content, "ping carol");
   });
 });
 

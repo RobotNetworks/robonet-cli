@@ -222,6 +222,25 @@ export class SessionsRepo {
     return row === undefined ? null : rawToSession(row);
   }
 
+  /**
+   * Sessions where `handle` is a participant (any status), most-recently-
+   * updated first. Used by `GET /sessions` to surface an agent's full
+   * session list. Distinct on session id so multi-status rows don't double
+   * up.
+   */
+  listForHandle(handle: Handle): readonly SessionRecord[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT DISTINCT s.*
+           FROM sessions s
+           INNER JOIN participants p ON p.session_id = s.id
+          WHERE p.handle = ?
+          ORDER BY s.updated_at_ms DESC, s.id DESC`,
+      )
+      .all(handle) as RawSessionRow[];
+    return rows.map(rawToSession);
+  }
+
   setState(id: SessionId, state: SessionState): boolean {
     const now = Date.now();
     return (
@@ -390,6 +409,65 @@ export class MessagesRepo {
       .prepare("SELECT * FROM messages WHERE id = ?")
       .get(id) as RawMessageRow | undefined;
     return row === undefined ? null : rawToMessage(row);
+  }
+
+  /**
+   * Substring search over messages the caller could have seen.
+   *
+   * Eligibility: the caller must currently be a `joined` participant on the
+   * session, and the message must have been sent at or after they joined.
+   * That mirrors the eligibility envelope that history replay applies — a
+   * caller who has `left` no longer sees new searches; an `invited` caller
+   * has nothing to find yet.
+   *
+   * Optional filters:
+   * - `sessionId` narrows to a single session.
+   * - `counterpartHandle` narrows to sessions that also have the given peer
+   *   as a participant (any status), supporting "what did I say to X".
+   *
+   * The query parameter is treated as a literal substring — `%`, `_`, and
+   * `\\` are escaped before the LIKE wrap so callers searching for those
+   * characters get what they typed. Results ordered most-recent first.
+   */
+  searchForCaller(args: {
+    readonly callerHandle: Handle;
+    readonly query: string;
+    readonly limit: number;
+    readonly sessionId?: SessionId;
+    readonly counterpartHandle?: Handle;
+  }): readonly MessageRecord[] {
+    const escaped = args.query.replace(/[\\%_]/g, (c) => `\\${c}`);
+    const like = `%${escaped}%`;
+
+    const filters: string[] = [];
+    const params: unknown[] = [args.callerHandle, like];
+    if (args.sessionId !== undefined) {
+      filters.push("AND m.session_id = ?");
+      params.push(args.sessionId);
+    }
+    if (args.counterpartHandle !== undefined) {
+      filters.push(
+        "AND EXISTS (SELECT 1 FROM participants pp WHERE pp.session_id = m.session_id AND pp.handle = ?)",
+      );
+      params.push(args.counterpartHandle);
+    }
+    params.push(args.limit);
+
+    const sql = `
+      SELECT m.*
+        FROM messages m
+        INNER JOIN participants p ON p.session_id = m.session_id
+       WHERE p.handle = ?
+         AND p.status = 'joined'
+         AND p.joined_at_ms IS NOT NULL
+         AND m.created_at_ms >= p.joined_at_ms
+         AND m.content_json LIKE ? ESCAPE '\\'
+         ${filters.join("\n         ")}
+       ORDER BY m.created_at_ms DESC, m.id DESC
+       LIMIT ?
+    `;
+    const rows = this.#db.prepare(sql).all(...params) as RawMessageRow[];
+    return rows.map(rawToMessage);
   }
 }
 

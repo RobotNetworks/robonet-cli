@@ -21,6 +21,12 @@ interface SessionRoutesContext {
  * bodies into typed service inputs and serialize results back.
  */
 export function registerSessionRoutes(router: Router, ctx: SessionRoutesContext): void {
+  router.add("GET", "/sessions", (rc) => {
+    const agent = requireAgent(rc.req, ctx.repo.agents);
+    const sessions = ctx.service.listSessionsFor(agent.handle);
+    sendJson(rc.res, 200, { sessions });
+  });
+
   router.add("POST", "/sessions", async (rc) => {
     const agent = requireAgent(rc.req, ctx.repo.agents);
     const body = await parseJsonBody(rc.req);

@@ -12,6 +12,7 @@ import { registerDoctorCommand } from "./commands/doctor-cmd.js";
 import { registerIdentityCommand } from "./commands/identity.js";
 import { registerListenCommand } from "./commands/listen.js";
 import { registerLoginCommand } from "./commands/login.js";
+import { registerMessagesCommand } from "./commands/messages.js";
 import { registerNetworkCommand } from "./commands/network.js";
 import { registerPermissionCommand } from "./commands/permission.js";
 import { registerSessionCommand } from "./commands/session.js";
@@ -42,6 +43,7 @@ registerAgentsCommand(program);
 registerMeCommand(program);
 registerPermissionCommand(program);
 registerSessionCommand(program);
+registerMessagesCommand(program);
 registerListenCommand(program);
 registerSearchCommand(program);
 
