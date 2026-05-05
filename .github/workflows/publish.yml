@@ -79,3 +79,34 @@ jobs:
           git diff --cached --quiet && { echo "No formula changes, skipping commit."; exit 0; }
           git commit -m "robotnet ${VERSION}"
           git push
+
+  brew-smoke-test:
+    needs: bump-homebrew
+    if: ${{ !contains(github.ref_name, '-') }}   # skip prereleases (matches bump-homebrew)
+    runs-on: macos-latest
+    steps:
+      - name: Install the freshly-bumped formula
+        env:
+          # Don't get rate-limited or caught by Homebrew's analytics ping in CI.
+          HOMEBREW_NO_ANALYTICS: "1"
+          HOMEBREW_NO_AUTO_UPDATE: "0"   # we DO want auto-update so the new tap commit is visible
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          # `brew update` pulls the tap commit `bump-homebrew` just pushed.
+          # `brew install --verbose` surfaces `npm rebuild` output if the
+          # native build step regresses (the failure mode this whole job
+          # exists to catch).
+          brew update
+          brew install --verbose robotnetworks/tap/robotnet
+
+      - name: Verify the install runs the formula's test block
+        env:
+          HOMEBREW_NO_ANALYTICS: "1"
+        run: |
+          # The formula's `test do` block asserts `--version` matches AND
+          # runs `robotnet doctor` to exercise the better-sqlite3 binding.
+          # If a future Node release ships a NODE_MODULE_VERSION the
+          # formula's rebuild step can't compile against, this job fails
+          # loudly before the next user hits "Could not locate the
+          # bindings file." in the wild.
+          brew test robotnetworks/tap/robotnet
