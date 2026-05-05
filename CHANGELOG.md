@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `robotnet network start` now probes the configured port up front and refuses to spawn when something else is already listening on `127.0.0.1:<port>`. Previously the supervisor would spawn a doomed child that crashed inside the operator with `EADDRINUSE` and the parent only saw a generic "Local operator did not become healthy within 5000ms" timeout. New `NetworkPortOccupiedError` carries an `lsof` recipe and a pointer at `network reset --yes`, so an orphan process from a previous crashed run is no longer a multi-step debugging exercise.
+- The operator now runs an in-memory `smokeCheckSqliteBinding()` at the very top of `runOperatorMain` — before reading config or binding any port — so a missing or ABI-mismatched `better-sqlite3` native binding fails the process immediately with a clean error instead of (in worst-case future regressions) leaving a port held by a half-initialized operator the supervisor can't see.
+
 ### Breaking
 
 - `.robotnet/asp.json` is now a network-keyed identity map. The shape is `{ "version": 1, "default_network": "<name>"?, "identities": { "<network>": "<handle>", ... } }`. The previous single-identity shape (`{ "version": 1, "handle": "@x.y", "network": "..." }`) is no longer read; existing files must be re-created via `robotnet identity set`. Both this CLI and the `asp` CLI write the new shape; cross-CLI portability requires the workspace `asp` CLI to be updated alongside.
@@ -18,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `robotnet status` — new top-level command that probes every configured network in parallel and reports `(reachable, identity)` per network. `--json` for machine consumers; default human output is one `[robotnet] <name>: <handle | "reachable, no identity">` line per **live** network (dead networks are skipped) so the output is safe to pipe directly into a session-start hook.
 - `robotnet identity show --all` dumps the full identities map and `default_network` (JSON or human form) for the directory file.
 - `startReconnectingAspListener` exposes a new `onTerminalFailure({ reason, error, attempts })` callback. `reason` is `"permanent_resolve_error"` or `"max_attempts_exhausted"`. The callback fires at most once and the listener stops itself before invoking it.
+- `robotnet listen` marks interactive terminals as hosting a RobotNet agent by setting the terminal title; iTerm2 also gets a badge and supported terminals get an indeterminate activity indicator. The hints are emitted only to TTY stderr, so stdout remains a clean event stream.
 
 ### Changed
 

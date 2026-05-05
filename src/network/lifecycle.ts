@@ -10,12 +10,13 @@ import { CLI_VERSION } from "../version.js";
 import {
   NetworkAlreadyRunningError,
   NetworkNotRunningError,
+  NetworkPortOccupiedError,
   NetworkStartTimeoutError,
 } from "./errors.js";
 import { waitForHealth, type HealthSnapshot } from "./health.js";
 import { assertLocalNetwork, networkPort } from "./local-network.js";
 import { networkPaths } from "./paths.js";
-import { isProcessAlive, sendSignal, waitForExit } from "./process.js";
+import { isPortInUse, isProcessAlive, sendSignal, waitForExit } from "./process.js";
 import {
   STATE_FILE_VERSION,
   deleteNetworkState,
@@ -111,6 +112,17 @@ export async function startNetwork(
     }
     // Stale state file with a dead PID — clean up and proceed.
     deleteNetworkState(paths.stateFile);
+  }
+
+  // The state file is now either absent or just-cleaned-up. If something
+  // else is still holding the port (typically an orphan operator from a
+  // previous run whose state file got wiped while the process kept
+  // running), spawning a fresh child would hit EADDRINUSE inside the
+  // forked process and the parent would only see a "did not become
+  // healthy within Nms" timeout. Probe up front so the user gets an
+  // actionable error pointing at the orphan.
+  if (await isPortInUse(host, port)) {
+    throw new NetworkPortOccupiedError(networkName, host, port);
   }
 
   const adminToken = mintAdminToken();

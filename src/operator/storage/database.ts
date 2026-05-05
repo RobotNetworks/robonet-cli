@@ -13,6 +13,26 @@ export class OperatorDatabaseError extends Error {
 }
 
 /**
+ * Open an in-memory SQLite database, run a trivial query, and close it.
+ *
+ * Used as a startup-time smoke check by the operator entrypoint: if
+ * `better-sqlite3`'s native binding is missing or built for the wrong
+ * Node ABI, this throws synchronously before any port is bound. That
+ * matters because the operator's failure mode is supposed to be
+ * fail-fast — a bound port without a working SQLite store leaves the
+ * supervisor stuck on a `/healthz` poll that will never succeed and
+ * (worse) the parent's only signal is "did not become healthy."
+ */
+export function smokeCheckSqliteBinding(): void {
+  const db = new Database(":memory:");
+  try {
+    db.prepare("SELECT 1").get();
+  } finally {
+    db.close();
+  }
+}
+
+/**
  * Open (and migrate) the operator's SQLite file at `path`.
  *
  * Settings: WAL journaling so concurrent readers don't block the writer,

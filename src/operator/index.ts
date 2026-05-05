@@ -8,7 +8,10 @@
  */
 import { OperatorConfigError, operatorConfigFromEnv } from "./config.js";
 import { startOperatorServer, type OperatorHandle } from "./server.js";
-import { openOperatorDatabase } from "./storage/database.js";
+import {
+  openOperatorDatabase,
+  smokeCheckSqliteBinding,
+} from "./storage/database.js";
 import { OperatorRepository } from "./storage/repository.js";
 
 export { type OperatorHandle } from "./server.js";
@@ -21,11 +24,19 @@ export { type OperatorHandle } from "./server.js";
  * signal handlers (SIGTERM / SIGINT). Errors during startup terminate the
  * process with a non-zero exit code so the parent supervisor sees them
  * via the spawned child's exit event.
+ *
+ * Startup ordering matters: validate the SQLite binding *before* binding
+ * any port. A subtle source of pain is leaving a port held by an operator
+ * that crashed mid-startup — the supervisor then sees "did not become
+ * healthy" without knowing why. The smoke check below ensures the
+ * native binding loads (or the process dies before listening) so that
+ * failure mode can never silently leak a port.
  */
 export async function runOperatorMain(): Promise<void> {
   let handle: OperatorHandle;
   let db: ReturnType<typeof openOperatorDatabase> | null = null;
   try {
+    smokeCheckSqliteBinding();
     const config = operatorConfigFromEnv();
     db = openOperatorDatabase(config.databasePath);
     const repo = new OperatorRepository(db);

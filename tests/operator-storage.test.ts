@@ -9,6 +9,7 @@ import type Database from "better-sqlite3";
 import {
   openOperatorDatabase,
   readSchemaVersion,
+  smokeCheckSqliteBinding,
 } from "../src/operator/storage/database.js";
 import { OperatorRepository } from "../src/operator/storage/repository.js";
 import { CURRENT_SCHEMA_VERSION } from "../src/operator/storage/schema.js";
@@ -40,6 +41,16 @@ beforeEach(() => {
 });
 afterEach(() => {
   h.cleanup();
+});
+
+describe("smokeCheckSqliteBinding", () => {
+  it("returns without throwing when the better-sqlite3 native binding loads", () => {
+    // Synchronous return = the native binding loaded and a trivial query
+    // executed. This is what the operator entrypoint runs before binding
+    // any port; if it ever started throwing in CI we'd want to know
+    // immediately rather than catching it via integration tests.
+    smokeCheckSqliteBinding();
+  });
 });
 
 describe("operator database — schema + migrations", () => {

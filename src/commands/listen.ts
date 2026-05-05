@@ -7,6 +7,7 @@ import {
   type TerminalFailure,
 } from "../asp/reconnecting-listener.js";
 import { RobotNetCLIError } from "../errors.js";
+import { startAgentTerminalIndicator } from "../output/terminal-indicator.js";
 import { loadConfigForAgentCommand, out } from "./asp-shared.js";
 
 /**
@@ -62,6 +63,10 @@ export function registerListenCommand(program: Command): void {
         process.stderr.write(
           `Listening for events on ${config.network.name} as ${identity.handle}…\n`,
         );
+        const indicator = startAgentTerminalIndicator({
+          handle: identity.handle,
+          networkName: config.network.name,
+        });
 
         const listener = startReconnectingAspListener({
           resolve: async () => {
@@ -92,6 +97,7 @@ export function registerListenCommand(program: Command): void {
             );
           },
           onTerminalFailure: (failure) => {
+            indicator.close();
             writeTerminating(formatTerminalFailure(failure));
             // Exit immediately rather than letting the event loop drain:
             // any pending I/O would otherwise delay the supervisor's
@@ -102,6 +108,7 @@ export function registerListenCommand(program: Command): void {
         });
 
         process.on("SIGINT", () => {
+          indicator.close();
           listener.close();
           process.exit(0);
         });

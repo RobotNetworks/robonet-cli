@@ -225,4 +225,34 @@ describe("network lifecycle", () => {
       /not a local network/i,
     );
   });
+
+  it("start refuses to spawn when the configured port is already held by an untracked process", async () => {
+    const { config } = harness;
+    const url = new URL(config.network.url);
+    const port = Number.parseInt(url.port, 10);
+    // Stand up a dummy listener on the operator's configured port to
+    // simulate an orphan operator (or any other unrelated process)
+    // still bound after the supervisor lost track of it.
+    const orphan = net.createServer();
+    await new Promise<void>((resolve) =>
+      orphan.listen(port, "127.0.0.1", resolve),
+    );
+    try {
+      await assert.rejects(
+        startNetwork(config, TEST_START_OPTS),
+        (err: unknown) =>
+          err instanceof Error &&
+          err.name === "NetworkPortOccupiedError" &&
+          err.message.includes(`127.0.0.1:${port}`) &&
+          err.message.includes("network reset --yes"),
+      );
+      // The supervisor must NOT have written a state file or spawned a
+      // child that races with our orphan — otherwise reset/cleanup
+      // semantics get muddy.
+      const paths = networkPaths(config, config.network.name);
+      assert.equal(fs.existsSync(paths.stateFile), false);
+    } finally {
+      await new Promise<void>((resolve) => orphan.close(() => resolve()));
+    }
+  });
 });

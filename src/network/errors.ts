@@ -52,3 +52,24 @@ export class CorruptNetworkStateError extends RobotNetCLIError {
     this.name = "CorruptNetworkStateError";
   }
 }
+
+/**
+ * The configured port is already bound by some process the supervisor
+ * does not own. Surfaced before spawn so the user gets an actionable
+ * diagnosis ("kill the orphan, or reset") instead of a misleading
+ * "operator did not become healthy within Nms" timeout from the post-
+ * spawn `/healthz` probe.
+ */
+export class NetworkPortOccupiedError extends RobotNetCLIError {
+  constructor(networkName: string, host: string, port: number) {
+    super(
+      `Cannot start operator for network "${networkName}": ${host}:${port} is already in use ` +
+        `by a process not tracked by the supervisor. ` +
+        `Find the holder with \`lsof -nP -iTCP:${port} -sTCP:LISTEN\` (or \`ss -ltnp\` on Linux), ` +
+        `kill it, then re-try \`robotnet --network ${networkName} network start\`. ` +
+        `If you'd rather wipe everything, \`robotnet --network ${networkName} network reset --yes\` ` +
+        `also clears state but does not kill orphan processes.`,
+    );
+    this.name = "NetworkPortOccupiedError";
+  }
+}
