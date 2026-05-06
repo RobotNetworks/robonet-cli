@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
-import { renderKeyValues } from "../src/output/formatters.js";
+import { pluralize, renderKeyValues } from "../src/output/formatters.js";
 import { renderJson } from "../src/output/json-output.js";
 
 describe("renderKeyValues", () => {
@@ -17,6 +17,26 @@ describe("renderKeyValues", () => {
   it("handles null values", () => {
     const result = renderKeyValues("Test", { a: null });
     assert.equal(result, "Test\n- a: null");
+  });
+});
+
+describe("pluralize", () => {
+  it("returns singular for 1", () => {
+    assert.equal(pluralize(1, "entry", "entries"), "entry");
+  });
+
+  it("returns plural for 0", () => {
+    assert.equal(pluralize(0, "entry", "entries"), "entries");
+  });
+
+  it("returns plural for 2+", () => {
+    assert.equal(pluralize(2, "entry", "entries"), "entries");
+    assert.equal(pluralize(99, "entry", "entries"), "entries");
+  });
+
+  it("defaults to singular + s when no plural is given", () => {
+    assert.equal(pluralize(1, "agent"), "agent");
+    assert.equal(pluralize(3, "agent"), "agents");
   });
 });
 

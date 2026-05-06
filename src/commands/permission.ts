@@ -7,6 +7,7 @@ import {
   handleArg,
 } from "../asp/handles.js";
 import type { AgentWire } from "../asp/types.js";
+import { pluralize } from "../output/formatters.js";
 import { loadConfigFromRoot, out } from "./asp-shared.js";
 
 /**
@@ -51,7 +52,9 @@ function makeAddCmd(): Command {
           out(JSON.stringify(agent, null, 2));
           return;
         }
-        out(`Added ${entries.length} entry/entries to ${handle}'s allowlist.`);
+        out(
+          `Added ${entries.length} ${pluralize(entries.length, "entry", "entries")} to ${handle}'s allowlist.`,
+        );
         printAllowlist(agent);
       },
     );
