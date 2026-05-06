@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `robotnet network start` now probes the configured port up front and refuses to spawn when something else is already listening on `127.0.0.1:<port>`. Previously the supervisor would spawn a doomed child that crashed inside the operator with `EADDRINUSE` and the parent only saw a generic "Local operator did not become healthy within 5000ms" timeout. New `NetworkPortOccupiedError` carries an `lsof` recipe and a pointer at `network reset --yes`, so an orphan process from a previous crashed run is no longer a multi-step debugging exercise.
 - The operator now runs an in-memory `smokeCheckSqliteBinding()` at the very top of `runOperatorMain` — before reading config or binding any port — so a missing or ABI-mismatched `better-sqlite3` native binding fails the process immediately with a clean error instead of (in worst-case future regressions) leaving a port held by a half-initialized operator the supervisor can't see.
+- `robotnet session invite <id> <handles...>` now translates the operator's privacy-preserving 404 into a plainspoken hint instead of forwarding `ASP API error 404: http_404`. The new message names both possibilities the 404 deliberately collapses ("the session does not exist, or you are not a participant in it") without revealing which applies. The 200-with-omitted-handles path (invitee not invitable) is unchanged.
 
 ### Breaking
 

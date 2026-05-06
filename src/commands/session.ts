@@ -1,6 +1,7 @@
 import { Command } from "commander";
 
 import { resolveSessionClient } from "../asp/auth-resolver.js";
+import { AspApiError } from "../asp/errors.js";
 import {
   assertValidHandle,
   handleArg,
@@ -178,7 +179,10 @@ function makeInviteCmd(): Command {
       ) => {
         const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
         const client = await resolveSessionClient(config, identity.handle, opts.token);
-        const result = await client.inviteToSession(sessionId, handles);
+        const result = await inviteWith404Hint(
+          () => client.inviteToSession(sessionId, handles),
+          sessionId,
+        );
         const invitedSet = new Set(result.invited);
         const omitted = handles.filter((h) => !invitedSet.has(h));
         if (opts.json) {
@@ -202,6 +206,38 @@ function makeInviteCmd(): Command {
         }
       },
     );
+}
+
+/**
+ * Translate a 404 from the invite endpoint into a plainspoken hint.
+ *
+ * Per ASP §6.2 / the operator's privacy invariant, a 404 here is deliberately
+ * ambiguous between "session does not exist" and "caller is not a participant
+ * in it" — the operator returns the same response for both so an outsider
+ * can't probe for session existence. The raw `http_404` line gives the user
+ * none of that context; this hint preserves the privacy property while
+ * naming both possibilities.
+ *
+ * Note: invitee-not-invitable is *not* a 404 case — that path returns 200
+ * with the unreachable invitee silently absent from `invited` (handled by
+ * the omitted-list rendering above).
+ */
+async function inviteWith404Hint<T>(
+  call: () => Promise<T>,
+  sessionId: string,
+): Promise<T> {
+  try {
+    return await call();
+  } catch (err) {
+    if (err instanceof AspApiError && err.status === 404) {
+      throw new RobotNetCLIError(
+        `No invite was sent for session ${sessionId}. ` +
+          "Either the session does not exist, or you are not a participant in it. " +
+          "(The network returns the same response for both to preserve privacy.)",
+      );
+    }
+    throw err;
+  }
 }
 
 // ── send ─────────────────────────────────────────────────────────────────────
