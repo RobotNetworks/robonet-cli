@@ -1,8 +1,9 @@
+import { requestRefreshTokenExchange } from "../auth/pkce.js";
 import type { CLIConfig } from "../config.js";
 import { CredentialDecryptionError } from "../credentials/aes-encryptor.js";
 import { openProcessCredentialStore } from "../credentials/lifecycle.js";
 import type { CredentialStore } from "../credentials/store.js";
-import { RobotNetCLIError } from "../errors.js";
+import { FatalAuthError, RobotNetCLIError } from "../errors.js";
 import { AspAdminClient } from "./admin-client.js";
 import {
   bearerStillValid,
@@ -155,6 +156,105 @@ export async function resolveSessionClient(
 ): Promise<AspSessionClient> {
   const { token } = await resolveAgentToken(config, handle, override);
   return new AspSessionClient(config.network.url, token);
+}
+
+/**
+ * Resolve the human user's session bearer for account-scoped routes
+ * (`robotnet account ...`).
+ *
+ * Read order:
+ *   1. The shared user_session row in the credential store. If absent →
+ *      "not logged in" — the user must run `robotnet login` first.
+ *   2. If the cached access token is within the grace window of expiry,
+ *      exchange the stored refresh token at the original token endpoint
+ *      and persist the rotated credential. Refresh failures from the auth
+ *      server (4xx) wipe the user_session and surface a clean
+ *      "session invalid — re-login" message; transient failures (408/429/5xx)
+ *      bubble unchanged so the caller can retry.
+ *
+ * Distinct from {@link resolveAgentToken}: agent credentials live in
+ * `agent_credentials` keyed by (network, handle); the user session is a
+ * profile-wide singleton that only authorizes account-scoped routes.
+ * Callers must NOT use the user bearer to authenticate ASP `/sessions`
+ * traffic — that's agent-bearer territory and the operator rejects mixed
+ * flavors.
+ */
+export async function resolveUserToken(config: CLIConfig): Promise<ResolvedToken> {
+  const store = await openProcessCredentialStore(config);
+  let session: ReturnType<CredentialStore["getUserSession"]>;
+  try {
+    session = store.getUserSession();
+  } catch (err) {
+    if (err instanceof CredentialDecryptionError) {
+      handleKeyChangeRecovery(store, "user session", config.network.name);
+    }
+    throw err;
+  }
+  if (session === null) {
+    throw new RobotNetCLIError(
+      "Not logged in — run `robotnet login` to authenticate as the calling account.",
+    );
+  }
+
+  if (bearerStillValid(session.accessTokenExpiresAt)) {
+    return { token: session.accessToken, source: "store" };
+  }
+
+  if (
+    session.refreshToken === null ||
+    session.authMode !== "pkce" ||
+    session.clientId === null
+  ) {
+    // Either the refresh material is missing (legacy session, or a
+    // client_credentials user session — which doesn't carry a refresh
+    // token by design) or the issuing client_id wasn't persisted. Either
+    // way, we can't silently renew.
+    throw new RobotNetCLIError(
+      "User session expired and cannot be refreshed — run `robotnet login` to re-authenticate.",
+    );
+  }
+
+  let exchanged: Awaited<ReturnType<typeof requestRefreshTokenExchange>>;
+  try {
+    exchanged = await requestRefreshTokenExchange({
+      tokenEndpoint: session.tokenEndpoint,
+      clientId: session.clientId,
+      refreshToken: session.refreshToken,
+      resource: session.resource ?? "",
+      scope: session.scope ?? "",
+    });
+  } catch (err) {
+    if (err instanceof FatalAuthError) {
+      // Refresh-token family was rejected by the auth server. The stored
+      // session is dead — wipe it so the next invocation gives a clean
+      // "not logged in" instead of looping on a doomed credential.
+      store.deleteUserSession();
+      throw new RobotNetCLIError(
+        "User session refresh was rejected by the auth server — run `robotnet login` to re-authenticate.",
+      );
+    }
+    throw err;
+  }
+
+  const accessTokenExpiresAt =
+    exchanged.token.expiresIn !== null
+      ? Date.now() + exchanged.token.expiresIn * 1000
+      : null;
+  store.putUserSession({
+    accessToken: exchanged.token.accessToken,
+    idToken: session.idToken,
+    refreshToken: exchanged.refreshToken,
+    accessTokenExpiresAt,
+    idTokenExpiresAt: session.idTokenExpiresAt,
+    scope: exchanged.token.scope ?? session.scope,
+    clientId: session.clientId,
+    tokenEndpoint: session.tokenEndpoint,
+    resource: session.resource,
+    redirectUri: session.redirectUri,
+    authMode: session.authMode,
+  });
+
+  return { token: exchanged.token.accessToken, source: "store" };
 }
 
 /**

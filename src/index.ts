@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { createRequire } from "node:module";
 
+import { registerAccountCommand } from "./commands/account.js";
 import { registerAgentCommand } from "./commands/agent.js";
 import {
   registerAgentsCommand,
@@ -38,6 +39,7 @@ registerStatusCommand(program);
 registerConfigCommand(program);
 registerIdentityCommand(program);
 registerNetworkCommand(program);
+registerAccountCommand(program);
 registerAgentCommand(program);
 registerAgentsCommand(program);
 registerMeCommand(program);
