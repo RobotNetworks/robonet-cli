@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The operator now runs an in-memory `smokeCheckSqliteBinding()` at the very top of `runOperatorMain` — before reading config or binding any port — so a missing or ABI-mismatched `better-sqlite3` native binding fails the process immediately with a clean error instead of (in worst-case future regressions) leaving a port held by a half-initialized operator the supervisor can't see.
 - `robotnet session invite <id> <handles...>` now translates the operator's privacy-preserving 404 into a plainspoken hint instead of forwarding `ASP API error 404: http_404`. The new message names both possibilities the 404 deliberately collapses ("the session does not exist, or you are not a participant in it") without revealing which applies. The 200-with-omitted-handles path (invitee not invitable) is unchanged.
 - `robotnet permission add <handle> <entries...>` now selects the correct singular/plural noun based on count instead of printing the literal `entry/entries` slash form. New `pluralize(count, singular, plural?)` helper in `src/output/formatters.ts` so future call sites can do the same in one line.
+- `robotnet network logs --tail <count>` now works as an alias for `--lines <count>`, matching the conventional flag name from `tail(1)` / `kubectl logs --tail`. The existing `-n <count>` short form is unchanged.
 
 ### Breaking
 

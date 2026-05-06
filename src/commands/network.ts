@@ -133,6 +133,12 @@ export function registerNetworkCommand(program: Command): void {
         "50",
       ),
     )
+    .addOption(
+      new Option(
+        "--tail <count>",
+        "Alias for --lines (matches `tail -n` / `kubectl logs --tail`).",
+      ),
+    )
     .action(async (opts: LogsOpts, cmd: Command) => {
       const config = await loadConfigFromRoot(cmd);
       const paths = networkPaths(config, config.network.name);
@@ -141,7 +147,7 @@ export function registerNetworkCommand(program: Command): void {
           `No log file at ${paths.logFile}. Has the operator ever been started?`,
         );
       }
-      const lines = parseLines(opts.lines);
+      const lines = parseLines(opts.tail ?? opts.lines);
       const ctrl = new AbortController();
       process.once("SIGINT", () => ctrl.abort());
       await tailLog(paths.logFile, {
@@ -210,6 +216,7 @@ interface JsonOpts {
 interface LogsOpts {
   readonly follow: boolean;
   readonly lines: string;
+  readonly tail?: string;
 }
 
 interface ResetOpts {
