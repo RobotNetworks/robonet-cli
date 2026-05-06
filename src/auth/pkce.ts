@@ -21,9 +21,19 @@ const DEFAULT_PUBLIC_CLIENT_NAME = "robotnet-cli";
 const CALLBACK_PATH = "/callback";
 
 /** Result of a successful PKCE login: the API access token plus the long-lived
- *  data needed to refresh it. ``agentHandle`` is populated for agent-scoped
- *  flows (echoed by the auth server's RFC-6749-compliant token-endpoint
- *  extension) and ``null`` for user-scoped flows. */
+ *  data needed to refresh it.
+ *
+ *  ``agentHandle`` is populated for agent-scoped flows (echoed by the auth
+ *  server's RFC-6749-compliant token-endpoint extension) and ``null`` for
+ *  user-scoped flows. The wire form is canonical (``owner.agent``, no
+ *  leading ``@``); callers prepend the prefix to match the rest of the CLI
+ *  surface.
+ *
+ *  ``network`` is the auth server's self-declared network slug. The CLI
+ *  uses it to verify it actually reached the network it dialed (defense
+ *  in depth against a profile that wires OAuth endpoints from one network
+ *  but stores credentials under another). ``null`` when the auth server
+ *  hasn't been configured with a network slug — older deployments. */
 export interface PKCELoginResult {
   readonly token: TokenResponse;
   readonly refreshToken: string;
@@ -31,6 +41,7 @@ export interface PKCELoginResult {
   readonly redirectUri: string;
   readonly tokenEndpoint: string;
   readonly agentHandle: string | null;
+  readonly network: string | null;
 }
 
 /**
@@ -179,7 +190,7 @@ async function runPkceFlow(options: CorePkceOptions): Promise<PKCELoginResult> {
     const code = await loopback.awaitCode(state);
 
     const resource = discovery.apiResource ?? endpoints.apiBaseUrl.replace(/\/+$/, "");
-    const { token, refreshToken, agentHandle } = await requestAuthorizationCodeToken({
+    const { token, refreshToken, agentHandle, network } = await requestAuthorizationCodeToken({
       tokenEndpoint: discovery.tokenEndpoint,
       clientId,
       code,
@@ -195,6 +206,7 @@ async function runPkceFlow(options: CorePkceOptions): Promise<PKCELoginResult> {
       redirectUri,
       tokenEndpoint: discovery.tokenEndpoint,
       agentHandle,
+      network,
     };
   } finally {
     loopback.close();
@@ -378,7 +390,12 @@ async function requestAuthorizationCodeToken(options: {
   codeVerifier: string;
   redirectUri: string;
   resource: string;
-}): Promise<{ token: TokenResponse; refreshToken: string; agentHandle: string | null }> {
+}): Promise<{
+  token: TokenResponse;
+  refreshToken: string;
+  agentHandle: string | null;
+  network: string | null;
+}> {
   const form = new URLSearchParams({
     grant_type: "authorization_code",
     client_id: options.clientId,
@@ -411,17 +428,28 @@ async function requestAuthorizationCodeToken(options: {
 
   // RobotNet auth-server extension (RFC 6749 §5.1 permits): agent-scoped
   // tokens carry the canonical handle so the CLI can key its credential
-  // row without decoding the JWT. Absent on user-scoped responses.
+  // row without decoding the JWT. Absent on user-scoped responses. Wire
+  // form is canonical (``owner.agent``); the CLI prepends ``@`` when it
+  // stores the handle so it matches every other agent row.
   const rawAgentHandle = body.agent_handle;
   const agentHandle =
     typeof rawAgentHandle === "string" && rawAgentHandle.length > 0
       ? rawAgentHandle
       : null;
 
+  // Operator's self-declared network slug — defense in depth for the
+  // CLI to confirm it talked to the network it dialed. May be absent on
+  // older deployments that haven't set OAUTH_NETWORK_NAME; the caller
+  // falls back to local config in that case.
+  const rawNetwork = body.network;
+  const network =
+    typeof rawNetwork === "string" && rawNetwork.length > 0 ? rawNetwork : null;
+
   return {
     token: tokenResponseFromBody(body, options.resource),
     refreshToken,
     agentHandle,
+    network,
   };
 }
 

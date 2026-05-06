@@ -66,6 +66,8 @@ function makeLoginCmd(): Command {
     .action(async (opts: LoginOpts, cmd: Command) => {
       const config = await loadConfigFromRoot(cmd);
 
+      assertNetworkSupportsOAuthLogin(config, opts.agent);
+
       // Validation: --client-id is meaningless without --agent.
       if (opts.clientId !== undefined && opts.agent === undefined) {
         throw new RobotNetCLIError(
@@ -271,6 +273,48 @@ function makeLogoutCmd(): Command {
 /* -------------------------------------------------------------------------- */
 /* Login helpers                                                               */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * Refuse `login` against networks that don't speak OAuth.
+ *
+ * `agent-token` networks (e.g. a local `robotnet network start` instance)
+ * have no PKCE flow at all; running `login` against one would silently
+ * dial whichever auth server the profile's `endpoints` happen to point
+ * at and persist a credential under the wrong network key. The
+ * canonical failure: cwd resolves the network to `local` but endpoints
+ * still default to `https://auth.robotnet.ai`, so the human signs in
+ * to the public auth server, gets a real token, and the row lands keyed
+ * on `("local", "<handle>")` — invisible to anything querying by
+ * `("public", "<handle>")` afterwards.
+ *
+ * Exported so the guard can be tested in isolation from the commander
+ * action wrapper.
+ */
+export function assertNetworkSupportsOAuthLogin(
+  config: CLIConfig,
+  agent: string | true | undefined,
+): void {
+  if (config.network.authMode === "oauth") return;
+
+  const oauthNetworks = Object.values(config.networks)
+    .filter((n) => n.authMode === "oauth")
+    .map((n) => n.name);
+  const agentSuffix =
+    typeof agent === "string"
+      ? ` --agent ${agent}`
+      : agent === true
+        ? " --agent"
+        : "";
+  const suggestion =
+    oauthNetworks.length === 1
+      ? ` Try: robotnet --network ${oauthNetworks[0]} login${agentSuffix}`
+      : oauthNetworks.length > 1
+        ? ` Available OAuth networks: ${oauthNetworks.join(", ")}.`
+        : "";
+  throw new RobotNetCLIError(
+    `\`login\` requires an OAuth network, but the resolved network "${config.network.name}" uses ${config.network.authMode} auth.${suggestion}`,
+  );
+}
 
 async function runUserLogin(config: CLIConfig, opts: LoginOpts): Promise<void> {
   const discovery = await discoverOAuth(config.endpoints);

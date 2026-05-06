@@ -7,6 +7,7 @@ import {
 import type { CLIConfig } from "../config.js";
 import { openProcessCredentialStore } from "../credentials/lifecycle.js";
 import { RobotNetCLIError } from "../errors.js";
+import { assertValidHandle } from "./handles.js";
 
 /**
  * Agent enrollment and renewal flows.
@@ -170,13 +171,16 @@ export async function enrollAgentPkce(args: {
     ...(args.scope !== undefined ? { scope: args.scope } : {}),
   });
   // Defense in depth: the auth server should echo the handle the CLI
-  // requested. If it doesn't, refuse to write the credential row — we'd
-  // otherwise be filing the bearer under a key that doesn't match what
-  // the token actually authorizes.
-  if (result.agentHandle !== null && result.agentHandle !== args.handle) {
-    throw new RobotNetCLIError(
-      `Auth server returned agent_handle=${result.agentHandle} for login of ${args.handle}; refusing to store under mismatched key.`,
-    );
+  // requested. Compare canonical (``@``-prefixed) forms — the wire form
+  // is bare (``owner.agent``) while every CLI-side handle carries the
+  // ``@`` prefix, so a strict raw-string compare always mismatches.
+  if (result.agentHandle !== null) {
+    const echoed = canonicalizeHandle(result.agentHandle);
+    if (echoed !== args.handle) {
+      throw new RobotNetCLIError(
+        `Auth server returned agent_handle=${result.agentHandle} for login of ${args.handle}; refusing to store under mismatched key.`,
+      );
+    }
   }
   return await persistAgentPkce({
     config: args.config,
@@ -206,7 +210,7 @@ export async function enrollAgentPkceViaPicker(args: {
   }
   return await persistAgentPkce({
     config: args.config,
-    handle: result.agentHandle,
+    handle: canonicalizeHandle(result.agentHandle),
     result,
   });
 }
@@ -217,6 +221,21 @@ async function persistAgentPkce(args: {
   readonly result: Awaited<ReturnType<typeof performAgentPkceLogin>>;
 }): Promise<EnrolledAgentPkce> {
   const { config, handle, result } = args;
+
+  // Cross-check the auth server's self-declared network against the
+  // network we resolved locally. A mismatch means the profile wired
+  // OAuth endpoints from one network into another's storage key — the
+  // exact failure mode that produced the original `local|nick.soa`
+  // ghost row. Older auth servers that don't stamp this field skip the
+  // check and we trust local config.
+  if (result.network !== null && result.network !== config.network.name) {
+    throw new RobotNetCLIError(
+      `Auth server identifies as network "${result.network}" but you ran login on network "${config.network.name}". ` +
+        `Re-run with \`robotnet --network ${result.network} login --agent ${handle}\`, ` +
+        `or fix the endpoints/network mapping in your profile so they agree.`,
+    );
+  }
+
   const bearerExpiresAt =
     result.token.expiresIn !== null ? Date.now() + result.token.expiresIn * 1000 : null;
 
@@ -245,6 +264,31 @@ async function persistAgentPkce(args: {
     tokenEndpoint: result.tokenEndpoint,
   };
 }
+
+/** Convert the auth server's bare wire form (``owner.agent``) to the CLI's
+ *  canonical ``@owner.agent`` form. Idempotent — safe to call on a value
+ *  that already has the ``@`` prefix. Throws the same shape as
+ *  {@link assertValidHandle} for malformed input so callers don't have to
+ *  validate twice. */
+function canonicalizeHandle(handle: string): string {
+  const candidate = handle.startsWith("@") ? handle : `@${handle}`;
+  assertValidHandle(candidate);
+  return candidate;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Test-only exports                                                           */
+/* -------------------------------------------------------------------------- */
+
+/** Test seam: drives the PKCE persistence path against a synthetic
+ *  ``PKCELoginResult`` so tests can exercise normalization and the
+ *  network cross-check without mocking the full browser-redirect flow.
+ *  Not part of the public API — do not call from non-test code. */
+export const _persistAgentPkceForTests = persistAgentPkce;
+
+/** Test seam: exposes the handle canonicalizer so the per-shape behavior
+ *  can be verified directly. Not part of the public API. */
+export const _canonicalizeHandleForTests = canonicalizeHandle;
 
 /**
  * Re-mint an `oauth_pkce` agent's bearer using the stored refresh token

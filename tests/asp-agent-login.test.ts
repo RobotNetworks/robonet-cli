@@ -5,10 +5,13 @@ import * as path from "node:path";
 import * as os from "node:os";
 
 import {
+  _canonicalizeHandleForTests,
+  _persistAgentPkceForTests,
   bearerStillValid,
   enrollAgentClientCredentials,
   renewAgentClientCredentials,
 } from "../src/asp/agent-login.js";
+import type { PKCELoginResult } from "../src/auth/pkce.js";
 import type { CLIConfig, NetworkConfig } from "../src/config.js";
 import { UnsafePlaintextEncryptor } from "../src/credentials/crypto.js";
 import {
@@ -169,6 +172,109 @@ describe("enrollAgentClientCredentials", () => {
       (err: unknown) =>
         err instanceof Error && err.message.includes("Token request failed (401)"),
     );
+  });
+});
+
+describe("_canonicalizeHandleForTests", () => {
+  it("prepends @ when missing", () => {
+    assert.equal(_canonicalizeHandleForTests("nick.soa"), "@nick.soa");
+  });
+
+  it("leaves already-canonical handles alone", () => {
+    assert.equal(_canonicalizeHandleForTests("@nick.soa"), "@nick.soa");
+  });
+
+  it("rejects malformed input rather than silently passing through", () => {
+    assert.throws(() => _canonicalizeHandleForTests("@no-dot"));
+    assert.throws(() => _canonicalizeHandleForTests("UPPER.case"));
+  });
+});
+
+function fakePkceResult(overrides: Partial<PKCELoginResult> = {}): PKCELoginResult {
+  return {
+    token: {
+      accessToken: "minted-bearer",
+      expiresIn: 3600,
+      scope: "agents:read sessions:read sessions:write",
+      tokenType: "Bearer",
+      resource: "https://api.example/v1",
+    },
+    refreshToken: "rt-fake",
+    clientId: "oac_fake",
+    redirectUri: "http://127.0.0.1:50000/callback",
+    tokenEndpoint: "https://auth.example/token",
+    agentHandle: "nick.soa",
+    network: null,
+    ...overrides,
+  };
+}
+
+describe("persistAgentPkce", () => {
+  it("stores the handle in canonical @-prefixed form", async () => {
+    const config = makeConfig();
+    const enrolled = await _persistAgentPkceForTests({
+      config,
+      handle: "@nick.soa",
+      result: fakePkceResult(),
+    });
+    assert.equal(enrolled.handle, "@nick.soa");
+
+    // The bug we're guarding against: the row used to land as
+    // ``nick.soa`` (no @), so listener lookups for ``@nick.soa`` missed.
+    const store = await openProcessCredentialStore(config);
+    const row = store.getAgentCredential("public", "@nick.soa");
+    assert.ok(row, "row must be keyed by canonical @-form");
+    assert.equal(row!.handle, "@nick.soa");
+    assert.equal(row!.kind, "oauth_pkce");
+    assert.equal(row!.networkName, "public");
+  });
+
+  it("refuses to store when auth-server network disagrees with local config", async () => {
+    const config = makeConfig({
+      name: "public",
+      url: "https://api.example/v1",
+      authMode: "oauth",
+    });
+    await assert.rejects(
+      _persistAgentPkceForTests({
+        config,
+        handle: "@nick.soa",
+        // Auth server identifies as a different network than the one
+        // the CLI thinks it's logging into → this is exactly the case
+        // where the credential would land under the wrong key.
+        result: fakePkceResult({ network: "staging" }),
+      }),
+      (err: unknown) =>
+        err instanceof Error &&
+        err.message.includes('identifies as network "staging"') &&
+        err.message.includes('on network "public"'),
+    );
+
+    // Nothing should have been written.
+    const store = await openProcessCredentialStore(config);
+    assert.equal(store.getAgentCredential("public", "@nick.soa"), null);
+  });
+
+  it("falls back to local config when auth-server omits the network field", async () => {
+    const config = makeConfig();
+    await _persistAgentPkceForTests({
+      config,
+      handle: "@nick.soa",
+      result: fakePkceResult({ network: null }),
+    });
+    const store = await openProcessCredentialStore(config);
+    assert.ok(store.getAgentCredential("public", "@nick.soa"));
+  });
+
+  it("accepts when auth-server network matches local config", async () => {
+    const config = makeConfig();
+    await _persistAgentPkceForTests({
+      config,
+      handle: "@nick.soa",
+      result: fakePkceResult({ network: "public" }),
+    });
+    const store = await openProcessCredentialStore(config);
+    assert.ok(store.getAgentCredential("public", "@nick.soa"));
   });
 });
 
