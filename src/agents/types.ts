@@ -135,3 +135,16 @@ export interface AgentSelfUpdate {
   readonly card_body?: string | null;
   readonly skills?: readonly AgentSkill[] | null;
 }
+
+/** One row in the block list returned by `GET /blocks`. */
+export interface BlockedAgent {
+  readonly blocked_agent_id: string;
+  readonly blocked_handle: Handle;
+  readonly created_at: number;
+}
+
+/** Response shape for `GET /blocks` (acting agent's own block list). */
+export interface BlockListResponse {
+  readonly blocks: readonly BlockedAgent[];
+  readonly next_cursor: string | null;
+}

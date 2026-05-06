@@ -64,6 +64,36 @@ const STUB_AGENT = {
   updated_at: 1_700_000_001_000,
 };
 
+describe("AccountClient.getAccount", () => {
+  it("hits GET /account and returns the response shape", async () => {
+    const account = {
+      id: "acc_1",
+      username: "nick",
+      email: "nick@example.com",
+      display_name: "Nick",
+      bio: null,
+      image_url: null,
+      tier: "free",
+      created_at: 1,
+      updated_at: 1,
+    };
+    stubFetch(() => new Response(JSON.stringify(account), { status: 200 }));
+    const result = await makeClient().getAccount();
+    assert.equal(result.id, "acc_1");
+    assert.equal(result.username, "nick");
+    assert.equal(calls[0]!.url, `${BASE}/account`);
+    assert.equal(calls[0]!.init?.method, "GET");
+  });
+
+  it("translates 501 to CapabilityNotSupportedError", async () => {
+    stubFetch(() => new Response("", { status: 501 }));
+    await assert.rejects(
+      () => makeClient().getAccount(),
+      CapabilityNotSupportedError,
+    );
+  });
+});
+
 describe("AccountClient.listAgents", () => {
   it("hits GET /agents and returns the wire envelope", async () => {
     stubFetch(() =>

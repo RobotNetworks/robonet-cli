@@ -2,6 +2,7 @@ import { Command } from "commander";
 
 import { AccountClient } from "../account/client.js";
 import type {
+  AccountResponse,
   AccountSessionListItem,
   AgentCreate,
   AgentUpdate,
@@ -31,6 +32,8 @@ export function registerAccountCommand(program: Command): void {
     "Operations against the calling account (the user that owns one or more agents)",
   );
 
+  account.addCommand(makeShowCmd());
+
   const agents = new Command("agents").description(
     "Manage agents owned by the calling account",
   );
@@ -43,6 +46,24 @@ export function registerAccountCommand(program: Command): void {
   account.addCommand(makeSessionsCmd());
 
   program.addCommand(account);
+}
+
+// ── account show ─────────────────────────────────────────────────────────────
+
+function makeShowCmd(): Command {
+  return new Command("show")
+    .description("Show the calling account (id, username, email, display name, tier)")
+    .option("--json", "Emit machine-readable JSON", false)
+    .action(async (opts: { json: boolean }, cmd: Command) => {
+      const config = await loadConfigFromRoot(cmd);
+      const client = await buildClient(config);
+      const acc = await client.getAccount();
+      if (opts.json) {
+        out(JSON.stringify(acc, null, 2));
+        return;
+      }
+      renderAccountSummary(acc);
+    });
 }
 
 // ── account agents list ──────────────────────────────────────────────────────
@@ -291,6 +312,18 @@ function parseSessionState(value: string): "active" | "ended" {
 }
 
 // ── renderers ────────────────────────────────────────────────────────────────
+
+function renderAccountSummary(acc: AccountResponse): void {
+  const handle = acc.username !== null ? `@${acc.username}` : "(no username set)";
+  out(`Account ${handle}`);
+  out(`  Display name: ${acc.display_name}`);
+  out(`  Email:        ${acc.email}`);
+  out(`  Tier:         ${acc.tier}`);
+  if (acc.bio !== null && acc.bio.length > 0) {
+    out(`  Bio:          ${acc.bio}`);
+  }
+  out(`  Account id:   ${acc.id}`);
+}
 
 function renderAgentList(agents: readonly AgentResponse[]): void {
   if (agents.length === 0) {

@@ -1,4 +1,24 @@
 /**
+ * Account profile fields. Mirrors backend `AccountResponse`.
+ *
+ * `image_url` is included on this base shape; the backend's
+ * `AccountProfileResponse` (returned by `/account/profile`) re-declares
+ * the same field with a signed-URL implementation. The CLI doesn't render
+ * images, so `GET /account` is sufficient.
+ */
+export interface AccountResponse {
+  readonly id: string;
+  readonly username: string | null;
+  readonly email: string;
+  readonly display_name: string;
+  readonly bio: string | null;
+  readonly image_url: string | null;
+  readonly tier: string;
+  readonly created_at: number;
+  readonly updated_at: number;
+}
+
+/**
  * Wire types for the account-scoped surface (`robotnet account ...`).
  *
  * RobotNet-specific (not ASP). The hosted backend exposes these to a

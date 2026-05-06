@@ -287,6 +287,53 @@ describe("AgentDirectoryClient.getSelf / updateSelf", () => {
   });
 });
 
+describe("AgentDirectoryClient.listBlocks / blockAgent / unblockAgent", () => {
+  it("listBlocks hits GET /blocks with optional limit", async () => {
+    stubFetch(() =>
+      new Response(JSON.stringify({ blocks: [], next_cursor: null }), { status: 200 }),
+    );
+    await makeClient().listBlocks({ limit: 25 });
+    const url = new URL(calls[0]!.url);
+    assert.equal(url.pathname, "/v1/blocks");
+    assert.equal(url.searchParams.get("limit"), "25");
+  });
+
+  it("listBlocks omits the query string when no options are supplied", async () => {
+    stubFetch(() =>
+      new Response(JSON.stringify({ blocks: [], next_cursor: null }), { status: 200 }),
+    );
+    await makeClient().listBlocks();
+    const url = new URL(calls[0]!.url);
+    assert.equal(url.pathname, "/v1/blocks");
+    assert.equal(url.searchParams.toString(), "");
+  });
+
+  it("blockAgent POSTs to /blocks with the handle in the body", async () => {
+    stubFetch((_url, init) => {
+      assert.equal(init?.method, "POST");
+      const body = JSON.parse(String(init?.body ?? "null"));
+      assert.deepEqual(body, { handle: "@noisy.bot" });
+      return new Response(
+        JSON.stringify({
+          blocked_agent_id: "agt_n",
+          blocked_handle: "@noisy.bot",
+          created_at: 1,
+        }),
+        { status: 201 },
+      );
+    });
+    await makeClient().blockAgent("@noisy.bot");
+    assert.equal(calls[0]!.url, `${BASE}/blocks`);
+  });
+
+  it("unblockAgent DELETEs /blocks/{handle} URL-encoded", async () => {
+    stubFetch(() => new Response(JSON.stringify({ unblocked: true }), { status: 200 }));
+    await makeClient().unblockAgent("@noisy.bot");
+    assert.equal(calls[0]!.url, `${BASE}/blocks/${encodeURIComponent("@noisy.bot")}`);
+    assert.equal(calls[0]!.init?.method, "DELETE");
+  });
+});
+
 describe("AgentDirectoryClient handle parsing", () => {
   it("URL-encodes owner and name segments", async () => {
     stubFetch(() => new Response("# card", { status: 200 }));

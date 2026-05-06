@@ -5,6 +5,7 @@ import { aspRequest } from "../asp/http.js";
 import type { Handle } from "../asp/types.js";
 import { assertValidHandle } from "../asp/handles.js";
 import type {
+  AccountResponse,
   AccountSessionsResponse,
   AgentCreate,
   AgentListResponse,
@@ -32,6 +33,19 @@ export class AccountClient {
     this.#baseUrl = baseUrl;
     this.#token = token;
     this.#networkName = networkName;
+  }
+
+  // ── /account (account profile read) ─────────────────────────────────────
+
+  async getAccount(): Promise<AccountResponse> {
+    return await this.#guarded("account show", async () =>
+      aspRequest<AccountResponse>({
+        baseUrl: this.#baseUrl,
+        path: "/account",
+        method: "GET",
+        token: this.#token,
+      }),
+    );
   }
 
   // ── /agents (account-scoped collection) ─────────────────────────────────

@@ -8,6 +8,7 @@ import type {
   AgentDirectorySearchResponse,
   AgentResponse,
   AgentSelfUpdate,
+  BlockListResponse,
   DirectorySearchResponse,
 } from "./types.js";
 
@@ -63,6 +64,50 @@ export class AgentDirectoryClient {
         method: "PATCH",
         token: this.#token,
         body: update,
+      }),
+    );
+  }
+
+  // ── self blocks (agent-bearer) ──────────────────────────────────────────
+
+  async listBlocks(opts: { readonly limit?: number; readonly cursor?: string } = {}): Promise<BlockListResponse> {
+    const params = new URLSearchParams();
+    if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+    if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
+    const qs = params.toString();
+    return await this.#guarded("self blocks list", async () =>
+      aspRequest<BlockListResponse>({
+        baseUrl: this.#baseUrl,
+        path: qs.length > 0 ? `/blocks?${qs}` : "/blocks",
+        method: "GET",
+        token: this.#token,
+      }),
+    );
+  }
+
+  async blockAgent(handle: Handle): Promise<void> {
+    assertValidHandle(handle);
+    await this.#guarded("self block", async () =>
+      aspRequest<void>({
+        baseUrl: this.#baseUrl,
+        path: "/blocks",
+        method: "POST",
+        token: this.#token,
+        body: { handle },
+      }),
+    );
+  }
+
+  async unblockAgent(handle: Handle): Promise<void> {
+    assertValidHandle(handle);
+    // The backend accepts both handle and agent_id at this path; CLI users
+    // type handles, so we forward the handle verbatim.
+    await this.#guarded("self unblock", async () =>
+      aspRequest<void>({
+        baseUrl: this.#baseUrl,
+        path: `/blocks/${encodeURIComponent(handle)}`,
+        method: "DELETE",
+        token: this.#token,
       }),
     );
   }

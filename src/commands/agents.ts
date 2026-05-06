@@ -12,6 +12,7 @@ import {
   type AgentResponse,
   type AgentSearchResult,
   type AgentSelfUpdate,
+  type BlockedAgent,
   type OrganizationSearchResult,
   type PersonSearchResult,
 } from "../agents/types.js";
@@ -49,10 +50,13 @@ export function registerAgentsCommand(program: Command): void {
  */
 export function registerMeCommand(program: Command): void {
   const me = new Command("me").description(
-    "Show or update the calling agent's own profile",
+    "Show, update, and manage blocks for the calling agent",
   );
   me.addCommand(makeMeShowCmd());
   me.addCommand(makeMeUpdateCmd());
+  me.addCommand(makeMeBlockCmd());
+  me.addCommand(makeMeUnblockCmd());
+  me.addCommand(makeMeBlocksCmd());
   program.addCommand(me);
 }
 
@@ -250,6 +254,61 @@ interface MeUpdateOpts {
   readonly json: boolean;
 }
 
+// ── me block / unblock / blocks ──────────────────────────────────────────────
+
+function makeMeBlockCmd(): Command {
+  return new Command("block")
+    .description("Block another agent so it can't reach the calling agent")
+    .argument("<handle>", "Handle of the agent to block (e.g. @noisy.bot)", handleArg)
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .action(async (handle: string, opts: { as?: string }, cmd: Command) => {
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const client = await buildClient(config, identity.handle);
+      await client.blockAgent(handle);
+      out(`Blocked ${handle} for ${identity.handle}.`);
+    });
+}
+
+function makeMeUnblockCmd(): Command {
+  return new Command("unblock")
+    .description("Remove a block previously created by the calling agent")
+    .argument("<handle>", "Handle of the agent to unblock", handleArg)
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .action(async (handle: string, opts: { as?: string }, cmd: Command) => {
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const client = await buildClient(config, identity.handle);
+      await client.unblockAgent(handle);
+      out(`Unblocked ${handle} for ${identity.handle}.`);
+    });
+}
+
+function makeMeBlocksCmd(): Command {
+  return new Command("blocks")
+    .description("List the calling agent's active blocks")
+    .option("--limit <n>", "Maximum results (1..100)", parseLimit, 50)
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .option("--json", "Emit machine-readable JSON", false)
+    .action(async (opts: BlocksOpts, cmd: Command) => {
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const client = await buildClient(config, identity.handle);
+      const result = await client.listBlocks({ limit: opts.limit });
+      if (opts.json) {
+        out(JSON.stringify(result, null, 2));
+        return;
+      }
+      renderBlocks(result.blocks);
+      if (result.next_cursor !== null) {
+        out(`(more — pass --limit higher or use cursor=${result.next_cursor})`);
+      }
+    });
+}
+
+interface BlocksOpts {
+  readonly limit: number;
+  readonly as?: string;
+  readonly json: boolean;
+}
+
 // ── shared helpers ───────────────────────────────────────────────────────────
 
 async function buildClient(
@@ -388,5 +447,16 @@ function renderOrganizationResults(
   }
   for (const o of results) {
     out(`  ${o.slug}  ${o.name}`);
+  }
+}
+
+function renderBlocks(blocks: readonly BlockedAgent[]): void {
+  if (blocks.length === 0) {
+    out("(no blocks)");
+    return;
+  }
+  for (const b of blocks) {
+    const ts = new Date(b.created_at).toISOString();
+    out(`${b.blocked_handle}  blocked at ${ts}`);
   }
 }
