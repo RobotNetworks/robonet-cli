@@ -89,7 +89,7 @@ describe("runDoctor — remote network (auth-mode=oauth)", () => {
       return new Response("ok", { status: 200 });
     };
 
-    const config = loadConfig(undefined, { networkName: "robotnet" });
+    const config = loadConfig(undefined, { networkName: "public" });
     const checks = await runDoctor(config);
     const byName = indexByName(checks);
 
@@ -113,7 +113,7 @@ describe("runDoctor — remote network (auth-mode=oauth)", () => {
         { status: 200 },
       );
 
-    const config = loadConfig(undefined, { networkName: "robotnet" });
+    const config = loadConfig(undefined, { networkName: "public" });
     const { CredentialStore } = await import("../src/credentials/store.js");
     const { UnsafePlaintextEncryptor } = await import(
       "../src/credentials/crypto.js"
@@ -191,7 +191,7 @@ describe("runDoctor — directory_identity", () => {
       JSON.stringify({
         version: 1,
         default_network: "local",
-        identities: { local: "@cli.bot", robotnet: "@me.prod" },
+        identities: { local: "@cli.bot", public: "@me.prod" },
       }),
     );
     const cwd = process.cwd();
@@ -202,7 +202,7 @@ describe("runDoctor — directory_identity", () => {
       assert.equal(byName.directory_identity.ok, true);
       assert.match(byName.directory_identity.detail, /default=local/);
       assert.match(byName.directory_identity.detail, /local=@cli\.bot/);
-      assert.match(byName.directory_identity.detail, /robotnet=@me\.prod/);
+      assert.match(byName.directory_identity.detail, /public=@me\.prod/);
     } finally {
       process.chdir(cwd);
     }

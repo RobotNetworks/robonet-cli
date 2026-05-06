@@ -166,7 +166,7 @@ describe("agent credentials — local_bearer", () => {
 describe("agent credentials — oauth_pkce", () => {
   it("round-trips a refresh-tokened row", () => {
     store.putAgentCredential({
-      networkName: "robotnet",
+      networkName: "public",
       handle: "@cli.bot",
       kind: "oauth_pkce",
       bearer: "access-tok",
@@ -175,7 +175,7 @@ describe("agent credentials — oauth_pkce", () => {
       clientId: "public-client-xxx",
       scope: "sessions:read sessions:write",
     });
-    const got = store.getAgentCredential("robotnet", "@cli.bot");
+    const got = store.getAgentCredential("public", "@cli.bot");
     assert.ok(got);
     assert.equal(got!.kind, "oauth_pkce");
     assert.equal(got!.bearer, "access-tok");
@@ -189,7 +189,7 @@ describe("agent credentials — oauth_pkce", () => {
     assert.throws(
       () =>
         store.putAgentCredential({
-          networkName: "robotnet",
+          networkName: "public",
           handle: "@cli.bot",
           kind: "oauth_pkce",
           bearer: "tok",
@@ -203,7 +203,7 @@ describe("agent credentials — oauth_pkce", () => {
     assert.throws(
       () =>
         store.putAgentCredential({
-          networkName: "robotnet",
+          networkName: "public",
           handle: "@cli.bot",
           kind: "oauth_pkce",
           bearer: "tok",
@@ -218,7 +218,7 @@ describe("agent credentials — oauth_pkce", () => {
 describe("agent credentials — oauth_client_credentials", () => {
   it("round-trips a client-credentials row", () => {
     store.putAgentCredential({
-      networkName: "robotnet",
+      networkName: "public",
       handle: "@cli.bot",
       kind: "oauth_client_credentials",
       bearer: "access-tok",
@@ -226,7 +226,7 @@ describe("agent credentials — oauth_client_credentials", () => {
       clientId: "ci-xxx",
       clientSecret: "cs-xxx",
     });
-    const got = store.getAgentCredential("robotnet", "@cli.bot");
+    const got = store.getAgentCredential("public", "@cli.bot");
     assert.ok(got);
     assert.equal(got!.kind, "oauth_client_credentials");
     assert.equal(got!.clientId, "ci-xxx");
@@ -238,7 +238,7 @@ describe("agent credentials — oauth_client_credentials", () => {
     assert.throws(
       () =>
         store.putAgentCredential({
-          networkName: "robotnet",
+          networkName: "public",
           handle: "@cli.bot",
           kind: "oauth_client_credentials",
           bearer: "tok",
@@ -253,7 +253,7 @@ describe("agent credentials — oauth_client_credentials", () => {
     assert.throws(
       () =>
         store.putAgentCredential({
-          networkName: "robotnet",
+          networkName: "public",
           handle: "@cli.bot",
           kind: "oauth_client_credentials",
           bearer: "tok",
@@ -342,7 +342,7 @@ describe("purgeUnreadableRows", () => {
     const enc = AesGcmEncryptor.fromKey(AesGcmEncryptor.generateKey());
     const s = CredentialStore.open(encrypted, { encryptor: enc });
     s.putAgentCredential({
-      networkName: "robotnet",
+      networkName: "public",
       handle: "@cli.bot",
       kind: "oauth_pkce",
       bearer: "access-tok",
@@ -385,7 +385,7 @@ describe("agent credentials — list / delete", () => {
       bearer: "y",
     });
     store.putAgentCredential({
-      networkName: "robotnet",
+      networkName: "public",
       handle: "@cli.bot",
       kind: "oauth_pkce",
       bearer: "z",
@@ -398,7 +398,7 @@ describe("agent credentials — list / delete", () => {
       local.map((r) => r.handle),
       ["@apple.bot", "@bee.bot"],
     );
-    const robotnet = store.listAgentCredentials("robotnet");
+    const robotnet = store.listAgentCredentials("public");
     assert.deepEqual(
       robotnet.map((r) => r.handle),
       ["@cli.bot"],

@@ -186,10 +186,10 @@ describe("network resolution", () => {
     return file;
   }
 
-  it("falls back to the built-in `robotnet` network with no config", () => {
+  it("falls back to the built-in `public` network with no config", () => {
     const config = loadConfig(undefined, { cwd: env.tmpDir });
 
-    assert.equal(config.network.name, "robotnet");
+    assert.equal(config.network.name, "public");
     assert.equal(config.network.authMode, "oauth");
     assert.equal(config.networkSource.kind, "default");
     // Built-in `local` is always visible too.
@@ -208,7 +208,7 @@ describe("network resolution", () => {
   });
 
   it("--network flag wins over ROBOTNET_NETWORK env var", () => {
-    process.env.ROBOTNET_NETWORK = "robotnet";
+    process.env.ROBOTNET_NETWORK = "public";
     const config = loadConfig(undefined, {
       cwd: env.tmpDir,
       networkName: "local",
@@ -236,7 +236,7 @@ describe("network resolution", () => {
   });
 
   it("workspace `network` field wins over profile `default_network`", () => {
-    writeProfileConfig("default", { default_network: "robotnet" });
+    writeProfileConfig("default", { default_network: "public" });
     const wsDir = path.join(env.tmpDir, ".robotnet");
     fs.mkdirSync(wsDir, { recursive: true });
     fs.writeFileSync(
@@ -266,7 +266,7 @@ describe("network resolution", () => {
     assert.equal(config.network.authMode, "oauth");
     assert.equal(config.networks.staging.url, "https://staging.example/v1");
     // Built-ins are still visible alongside the user-defined entry.
-    assert.equal(config.networks.robotnet.authMode, "oauth");
+    assert.equal(config.networks.public.authMode, "oauth");
   });
 
   it("profile config can override a built-in network's URL", () => {
@@ -293,7 +293,7 @@ describe("network resolution", () => {
         err.message.includes('Network "ghost"') &&
         err.message.includes("--network flag") &&
         err.message.includes("local") &&
-        err.message.includes("robotnet"),
+        err.message.includes("public"),
     );
   });
 

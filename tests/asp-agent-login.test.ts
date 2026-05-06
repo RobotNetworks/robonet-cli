@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 function makeConfig(network: NetworkConfig = {
-  name: "robotnet",
+  name: "public",
   url: "https://api.example/v1",
   authMode: "oauth",
 }): CLIConfig {
@@ -145,7 +145,7 @@ describe("enrollAgentClientCredentials", () => {
 
     // Row landed in the store with the renewal material.
     const store = await openProcessCredentialStore(config);
-    const row = store.getAgentCredential("robotnet", "@cli.bot");
+    const row = store.getAgentCredential("public", "@cli.bot");
     assert.ok(row);
     assert.equal(row!.kind, "oauth_client_credentials");
     assert.equal(row!.bearer, "minted-bearer");
@@ -210,7 +210,7 @@ describe("renewAgentClientCredentials", () => {
     assert.equal(fresh, "second-bearer");
 
     const store = await openProcessCredentialStore(config);
-    const row = store.getAgentCredential("robotnet", "@cli.bot");
+    const row = store.getAgentCredential("public", "@cli.bot");
     assert.ok(row);
     assert.equal(row!.bearer, "second-bearer");
     assert.equal(row!.scope, "sessions:read sessions:write");

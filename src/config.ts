@@ -10,7 +10,7 @@ const DEFAULT_AUTH_BASE_URL = "https://auth.robotnet.ai";
 const DEFAULT_WEBSOCKET_URL = "wss://ws.robotnet.ai";
 const DEFAULT_ENVIRONMENT = "prod";
 const DEFAULT_PROFILE = "default";
-const DEFAULT_NETWORK = "robotnet";
+const DEFAULT_NETWORK = "public";
 const WORKSPACE_CONFIG_DIR = ".robotnet";
 const WORKSPACE_CONFIG_FILE = "config.json";
 
@@ -44,8 +44,12 @@ export type NetworkSource =
 /**
  * The set of networks every profile knows about by default.
  *
- * - `robotnet`: the hosted RobotNet backend, authenticated via OAuth (today's
- *   `robotnet login` flow).
+ * - `public`: the hosted RobotNet backend, authenticated via OAuth (today's
+ *   `robotnet login` flow). The CLI is named after the operator (RobotNet)
+ *   but the network's role from the CLI's perspective is "the public
+ *   internet-reachable network", so that's the canonical name. Stored
+ *   credentials and configs that reference the previous `robotnet` name
+ *   are migrated transparently — see `src/credentials/schema.ts` v3.
  * - `local`: a `robotnet start` instance on the loopback default port; agents
  *   authenticate with the bearer token issued at `agent register` time.
  *
@@ -53,8 +57,8 @@ export type NetworkSource =
  * field.
  */
 const BUILTIN_NETWORKS: Readonly<Record<string, NetworkConfig>> = {
-  robotnet: {
-    name: "robotnet",
+  public: {
+    name: "public",
     url: DEFAULT_API_BASE_URL,
     authMode: "oauth",
   },
@@ -354,7 +358,7 @@ function resolveNetwork(
  * `ROBOTNET_NETWORK` env var > workspace `config.json` `network` field >
  * `options.directoryIdentityDefault` (the directory identity file's
  * `default_network`, when the caller has read it) > profile config
- * `default_network` field > the built-in `"robotnet"` network.
+ * `default_network` field > the built-in `"public"` network.
  */
 export function loadConfig(
   profileName?: string,

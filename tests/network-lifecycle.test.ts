@@ -215,7 +215,7 @@ describe("network lifecycle", () => {
     const remoteCfg: CLIConfig = {
       ...config,
       network: {
-        name: "robotnet",
+        name: "public",
         url: "https://api.robotnet.ai/v1",
         authMode: "oauth",
       },

@@ -69,7 +69,7 @@ describe("writeDirectoryIdentityEntry", () => {
     });
     await writeDirectoryIdentityEntry(tmpDir, {
       handle: "@me.prod",
-      network: "robotnet",
+      network: "public",
     });
 
     const parsed = JSON.parse(
@@ -77,7 +77,7 @@ describe("writeDirectoryIdentityEntry", () => {
     );
     assert.deepEqual(parsed, {
       version: 1,
-      identities: { local: "@me.dev", robotnet: "@me.prod" },
+      identities: { local: "@me.dev", public: "@me.prod" },
       default_network: "local",
     });
   });
@@ -190,7 +190,7 @@ describe("lookupDirectoryHandle", () => {
     const file = await findDirectoryIdentityFile(tmpDir);
     assert.ok(file);
     assert.equal(lookupDirectoryHandle(file!, "local"), "@me.dev");
-    assert.equal(lookupDirectoryHandle(file!, "robotnet"), undefined);
+    assert.equal(lookupDirectoryHandle(file!, "public"), undefined);
   });
 });
 
@@ -238,12 +238,12 @@ describe("resolveAgentIdentity precedence (--as > env > directory[network])", ()
 
     const r = await resolveAgentIdentity({
       explicitHandle: "@from-flag.bot",
-      resolvedNetwork: "robotnet",
+      resolvedNetwork: "public",
       fromDir: tmpDir,
     });
     assert.ok(r);
     assert.equal(r!.handle, "@from-flag.bot");
-    assert.equal(r!.network, "robotnet");
+    assert.equal(r!.network, "public");
     assert.equal(r!.source, "flag");
   });
 
@@ -255,12 +255,12 @@ describe("resolveAgentIdentity precedence (--as > env > directory[network])", ()
     });
 
     const r = await resolveAgentIdentity({
-      resolvedNetwork: "robotnet",
+      resolvedNetwork: "public",
       fromDir: tmpDir,
     });
     assert.ok(r);
     assert.equal(r!.handle, "@from-env.bot");
-    assert.equal(r!.network, "robotnet");
+    assert.equal(r!.network, "public");
     assert.equal(r!.source, "env");
   });
 
@@ -279,7 +279,7 @@ describe("resolveAgentIdentity precedence (--as > env > directory[network])", ()
     assert.equal(matched!.source, "directory");
 
     const unmatched = await resolveAgentIdentity({
-      resolvedNetwork: "robotnet",
+      resolvedNetwork: "public",
       fromDir: tmpDir,
     });
     assert.equal(unmatched, undefined);
@@ -289,7 +289,7 @@ describe("resolveAgentIdentity precedence (--as > env > directory[network])", ()
     const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "robotnet-iso-"));
     try {
       const r = await resolveAgentIdentity({
-        resolvedNetwork: "robotnet",
+        resolvedNetwork: "public",
         fromDir: isolated,
       });
       assert.equal(r, undefined);
@@ -302,7 +302,7 @@ describe("resolveAgentIdentity precedence (--as > env > directory[network])", ()
     await assert.rejects(
       resolveAgentIdentity({
         explicitHandle: "BAD",
-        resolvedNetwork: "robotnet",
+        resolvedNetwork: "public",
         fromDir: tmpDir,
       }),
       InvalidHandleError,
@@ -313,7 +313,7 @@ describe("resolveAgentIdentity precedence (--as > env > directory[network])", ()
     process.env.ROBOTNET_AGENT = "BAD";
     await assert.rejects(
       resolveAgentIdentity({
-        resolvedNetwork: "robotnet",
+        resolvedNetwork: "public",
         fromDir: tmpDir,
       }),
       InvalidHandleError,

@@ -28,7 +28,7 @@ describe("assertLocalNetwork", () => {
 
   it("rejects oauth networks", () => {
     const net: NetworkConfig = {
-      name: "robotnet",
+      name: "public",
       url: "https://api.robotnet.ai/v1",
       authMode: "oauth",
     };

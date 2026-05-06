@@ -80,13 +80,13 @@ describe("loadConfigForAgentCommand", () => {
     });
     process.chdir(projectDir);
 
-    const leaf = makeNestedLeaf({ network: "robotnet" });
-    // Identity for the flag-resolved network "robotnet" is not in the
+    const leaf = makeNestedLeaf({ network: "public" });
+    // Identity for the flag-resolved network "public" is not in the
     // directory map, so without an env override this would fail to resolve.
     process.env.ROBOTNET_AGENT = "@env.bot";
     const { config, identity } = await loadConfigForAgentCommand(leaf, undefined);
 
-    assert.equal(config.network.name, "robotnet");
+    assert.equal(config.network.name, "public");
     assert.equal(config.networkSource.kind, "flag");
     assert.equal(identity.handle, "@env.bot");
     assert.equal(identity.source, "env");
@@ -100,13 +100,13 @@ describe("loadConfigForAgentCommand", () => {
     });
     process.chdir(projectDir);
 
-    process.env.ROBOTNET_NETWORK = "robotnet";
+    process.env.ROBOTNET_NETWORK = "public";
     process.env.ROBOTNET_AGENT = "@env.bot";
 
     const leaf = makeNestedLeaf();
     const { config } = await loadConfigForAgentCommand(leaf, undefined);
 
-    assert.equal(config.network.name, "robotnet");
+    assert.equal(config.network.name, "public");
     assert.equal(config.networkSource.kind, "env");
   });
 
@@ -149,12 +149,12 @@ describe("loadConfigForAgentCommand", () => {
     });
     process.chdir(projectDir);
 
-    const leaf = makeNestedLeaf({ network: "robotnet" });
+    const leaf = makeNestedLeaf({ network: "public" });
     await assert.rejects(
       loadConfigForAgentCommand(leaf, undefined),
       (err: unknown) =>
         err instanceof RobotNetCLIError &&
-        err.message.includes('no agent specified for network "robotnet"'),
+        err.message.includes('no agent specified for network "public"'),
     );
   });
 });

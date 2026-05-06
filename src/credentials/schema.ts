@@ -9,7 +9,7 @@
  * the store applies if `schema_version.version` is below it.
  */
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 interface Migration {
   readonly version: number;
@@ -84,6 +84,25 @@ export const MIGRATIONS: readonly Migration[] = [
         auth_mode TEXT NOT NULL CHECK (auth_mode IN ('pkce', 'client_credentials')),
         updated_at INTEGER NOT NULL
       );
+    `,
+  },
+  {
+    version: 3,
+    sql: `
+      -- The built-in remote network was renamed from "robotnet" to "public"
+      -- so the network name reflects role (public vs. local) rather than
+      -- branding. Move any existing credentials forward so testers who
+      -- already logged in keep working without re-authenticating.
+      --
+      -- The same row swap is safe to apply unconditionally: only callers who
+      -- intentionally created a "robotnet" network in their profile config
+      -- could have rows under that key, and the rename matches the new
+      -- builtin name they would have used after the upgrade. If a user
+      -- *also* defined a "public" network (collision), this UPDATE would
+      -- fail the (network_name, handle) primary key — INSERT-OR-IGNORE
+      -- semantics aren't worth the complexity for a pre-prod release.
+      UPDATE admin_tokens SET network_name = 'public' WHERE network_name = 'robotnet';
+      UPDATE agent_credentials SET network_name = 'public' WHERE network_name = 'robotnet';
     `,
   },
 ];

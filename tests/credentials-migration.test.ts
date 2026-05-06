@@ -104,7 +104,7 @@ describe("migrateLegacyCredentials", () => {
     const summary = await migrateLegacyCredentials({
       store,
       profileStateDir: stateDir,
-      networkNames: ["local", "robotnet"],
+      networkNames: ["local", "public"],
     });
     assert.deepEqual(summary, {
       adminTokensMigrated: 0,

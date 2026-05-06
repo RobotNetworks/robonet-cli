@@ -15,8 +15,8 @@ import { assertValidHandle } from "./handles.js";
  *   "version": 1,
  *   "default_network": "local",
  *   "identities": {
- *     "local":    "@me.dev",
- *     "robotnet": "@me.prod"
+ *     "local":  "@me.dev",
+ *     "public": "@me.prod"
  *   }
  * }
  * ```
@@ -157,7 +157,7 @@ export async function clearDirectoryIdentity(dir: string): Promise<boolean> {
  * Pass the network the command already resolved via the network-precedence
  * chain (typically `config.network.name`). The directory lookup is scoped
  * to that network: a directory bound to `@me.dev` on `local` does not
- * contribute when the command is targeting `robotnet`.
+ * contribute when the command is targeting `public`.
  */
 export async function resolveAgentIdentity(args: {
   readonly explicitHandle?: string;
