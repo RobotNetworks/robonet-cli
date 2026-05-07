@@ -353,17 +353,6 @@ export class BlocksRepo {
       .all(blockerHandle, limit, offset) as RawBlockRow[];
     return rows.map(rawToBlock);
   }
-
-  /** True iff `blockerHandle` is blocking `blockedHandle`. Used by session eligibility checks. */
-  isBlocking(blockerHandle: Handle, blockedHandle: Handle): boolean {
-    return (
-      this.#db
-        .prepare(
-          `SELECT 1 FROM blocks WHERE blocker_handle = ? AND blocked_handle = ? LIMIT 1`,
-        )
-        .get(blockerHandle, blockedHandle) !== undefined
-    );
-  }
 }
 
 /* -------------------------------------------------------------------------- */

@@ -294,55 +294,11 @@ describe("operator server — admin agents", () => {
     });
   });
 
-  it("allowlist add / remove flows", async () => {
-    await runWithServer(h, async (baseUrl) => {
-      await fetch(`${baseUrl}/_admin/agents`, {
-        method: "POST",
-        headers: adminHeaders(h.adminToken),
-        body: JSON.stringify({ handle: "@me.bot" }),
-      });
-
-      const add = await fetch(
-        `${baseUrl}/_admin/agents/@me.bot/allowlist`,
-        {
-          method: "POST",
-          headers: adminHeaders(h.adminToken),
-          body: JSON.stringify({ entries: ["@friend.bot", "@org.*"] }),
-        },
-      );
-      assert.equal(add.status, 200);
-      const after = (await add.json()) as { allowlist: string[] };
-      assert.deepEqual(after.allowlist.sort(), ["@friend.bot", "@org.*"]);
-
-      const rem = await fetch(
-        `${baseUrl}/_admin/agents/@me.bot/allowlist/${encodeURIComponent("@friend.bot")}`,
-        { method: "DELETE", headers: adminHeaders(h.adminToken) },
-      );
-      assert.equal(rem.status, 200);
-      const remBody = (await rem.json()) as { allowlist: string[] };
-      assert.deepEqual(remBody.allowlist, ["@org.*"]);
-    });
-  });
-
-  it("allowlist add rejects an invalid entry", async () => {
-    await runWithServer(h, async (baseUrl) => {
-      await fetch(`${baseUrl}/_admin/agents`, {
-        method: "POST",
-        headers: adminHeaders(h.adminToken),
-        body: JSON.stringify({ handle: "@me.bot" }),
-      });
-
-      const res = await fetch(
-        `${baseUrl}/_admin/agents/@me.bot/allowlist`,
-        {
-          method: "POST",
-          headers: adminHeaders(h.adminToken),
-          body: JSON.stringify({ entries: ["not-a-handle"] }),
-        },
-      );
-      assert.equal(res.status, 400);
-    });
-  });
+  // The third-party admin-side allowlist edit routes
+  // (`POST /_admin/agents/{h}/allowlist`, `DELETE /_admin/agents/{h}/allowlist/{e}`)
+  // were removed: under the actor model, an agent's allowlist is
+  // self-owned and edited only via the agent-bearer route at `/allowlist`
+  // (covered in tests/operator-self.test.ts).
 
   it("PATCH on an unknown handle returns 404", async () => {
     await runWithServer(h, async (baseUrl) => {

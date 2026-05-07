@@ -6,7 +6,7 @@ import {
   ConflictError,
   NotFoundError,
 } from "../errors.js";
-import { assertAllowlistEntry, assertHandle } from "../handles.js";
+import { assertHandle } from "../handles.js";
 import type { OperatorRepository } from "../storage/repository.js";
 import type {
   AgentRecord,
@@ -147,36 +147,12 @@ export function registerAdminRoutes(router: Router, ctx: AdminContext): void {
     sendJson(rc.res, 200, serializeAgent(ctx.repo, updated));
   }));
 
-  router.add("POST", "/_admin/agents/:handle/allowlist", guard(async (rc) => {
-    const agent = requireExistingAgent(ctx.repo, rc.params.handle);
-    const body = await parseJsonBody(rc.req);
-    const entries = parseEntriesArray(body.entries);
-    // Wrap the multi-insert in a transaction so a partial failure rolls
-    // back cleanly. Each insert is itself idempotent (ON CONFLICT DO NOTHING).
-    ctx.db.transaction(() => {
-      for (const entry of entries) {
-        ctx.repo.agents.addAllowlistEntry(agent.handle, entry);
-      }
-    })();
-    const fresh = ctx.repo.agents.byHandle(agent.handle) ?? agent;
-    sendJson(rc.res, 200, serializeAgent(ctx.repo, fresh));
-  }));
-
-  router.add(
-    "DELETE",
-    "/_admin/agents/:handle/allowlist/:entry",
-    guard((rc) => {
-      const agent = requireExistingAgent(ctx.repo, rc.params.handle);
-      const entry = assertAllowlistEntry(rc.params.entry, "path entry");
-      if (!ctx.repo.agents.removeAllowlistEntry(agent.handle, entry)) {
-        throw new NotFoundError(
-          `allowlist entry ${entry} not found on ${agent.handle}`,
-        );
-      }
-      const fresh = ctx.repo.agents.byHandle(agent.handle) ?? agent;
-      sendJson(rc.res, 200, serializeAgent(ctx.repo, fresh));
-    }),
-  );
+  // No third-party allowlist edit routes by design: an agent's allowlist
+  // is self-owned and edited via `POST /allowlist` / `DELETE /allowlist/{entry}`
+  // with the agent's own bearer (see src/operator/routes/self.ts). The
+  // local admin's authority over the network does not extend to reaching
+  // into another agent's trust list — the operator never enumerates that
+  // capability on the wire.
 }
 
 /* -------------------------------------------------------------------------- */
@@ -257,16 +233,6 @@ function parseProfileFields(body: Record<string, unknown>): ParsedProfileFields 
     out.visibility = body.visibility;
   }
   return out;
-}
-
-function parseEntriesArray(value: unknown): readonly string[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new BadRequestError(
-      "entries must be a non-empty array",
-      "INVALID_ENTRIES",
-    );
-  }
-  return value.map((e, i) => assertAllowlistEntry(e, `entries[${i}]`));
 }
 
 function isUniqueViolation(err: unknown): boolean {
