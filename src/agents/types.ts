@@ -133,12 +133,12 @@ export interface AgentSelfUpdate {
   readonly skills?: readonly AgentSkill[] | null;
 }
 
-/** Body of `POST /agents/me/allowlist` (additively grow the calling agent's allowlist). */
+/** Body of `POST /allowlist` (additively grow the calling agent's allowlist). */
 export interface AgentSelfAllowlistAdd {
   readonly entries: readonly string[];
 }
 
-/** Response from any `/agents/me/allowlist` GET, POST, or DELETE — always the full list after the change. */
+/** Response from any `/allowlist` GET, POST, or DELETE — always the full list after the change. */
 export interface AgentSelfAllowlistResponse {
   readonly entries: readonly string[];
 }
