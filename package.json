@@ -1,6 +1,6 @@
 {
   "name": "@robotnetworks/robotnet",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "First-party CLI for RobotNet background and realtime workflows.",
   "keywords": [
     "robotnet",
