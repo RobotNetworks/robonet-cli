@@ -93,7 +93,7 @@ export function registerSelfRoutes(router: Router, ctx: SelfRoutesContext): void
 
   // ── /blocks (calling agent's block list) ────────────────────────────────
 
-  router.add("GET", "/blocks", (rc) => {
+  router.add("GET", "/agents/me/blocks", (rc) => {
     const agent = requireAgent(rc.req, ctx.repo.agents);
     const limit = parseLimitParam(rc.url.searchParams.get("limit"));
     const offset = parseOffsetCursor(rc.url.searchParams.get("cursor"));
@@ -110,7 +110,7 @@ export function registerSelfRoutes(router: Router, ctx: SelfRoutesContext): void
     });
   });
 
-  router.add("POST", "/blocks", async (rc) => {
+  router.add("POST", "/agents/me/blocks", async (rc) => {
     const agent = requireAgent(rc.req, ctx.repo.agents);
     const body = await parseJsonBody(rc.req);
     const blockedHandle = assertHandle(body.handle, "handle");
@@ -124,7 +124,7 @@ export function registerSelfRoutes(router: Router, ctx: SelfRoutesContext): void
     sendJson(rc.res, 201, serializeBlock(row));
   });
 
-  router.add("DELETE", "/blocks/:ref", (rc) => {
+  router.add("DELETE", "/agents/me/blocks/:ref", (rc) => {
     const agent = requireAgent(rc.req, ctx.repo.agents);
     const blockedHandle = assertHandle(rc.params.ref, "path handle");
     if (!ctx.repo.blocks.remove(agent.handle, blockedHandle)) {

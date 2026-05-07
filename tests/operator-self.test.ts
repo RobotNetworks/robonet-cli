@@ -104,7 +104,7 @@ function agentHeaders(h: Harness, agentHandle: string, json = false): Record<str
 /* Tests                                                                       */
 /* -------------------------------------------------------------------------- */
 
-describe("local operator /agents/me/allowlist", () => {
+describe("local operator /allowlist", () => {
   let h: Harness;
 
   beforeEach(async () => {
@@ -222,7 +222,7 @@ describe("local operator /blocks", () => {
   });
 
   it("POST /blocks records a block and returns the row", async () => {
-    const res = await fetch(`${h.baseUrl}/blocks`, {
+    const res = await fetch(`${h.baseUrl}/agents/me/blocks`, {
       method: "POST",
       headers: agentHeaders(h, "@me.bot", true),
       body: JSON.stringify({ handle: "@noisy.bot" }),
@@ -237,18 +237,18 @@ describe("local operator /blocks", () => {
   it("POST /blocks is idempotent — re-blocking is a no-op", async () => {
     const headers = agentHeaders(h, "@me.bot", true);
     const body = JSON.stringify({ handle: "@noisy.bot" });
-    await fetch(`${h.baseUrl}/blocks`, { method: "POST", headers, body });
-    const res = await fetch(`${h.baseUrl}/blocks`, { method: "POST", headers, body });
+    await fetch(`${h.baseUrl}/agents/me/blocks`, { method: "POST", headers, body });
+    const res = await fetch(`${h.baseUrl}/agents/me/blocks`, { method: "POST", headers, body });
     assert.equal(res.status, 201);
 
     const list = (await (
-      await fetch(`${h.baseUrl}/blocks`, { headers: agentHeaders(h, "@me.bot") })
+      await fetch(`${h.baseUrl}/agents/me/blocks`, { headers: agentHeaders(h, "@me.bot") })
     ).json()) as { blocks: unknown[] };
     assert.equal(list.blocks.length, 1);
   });
 
   it("rejects blocking yourself", async () => {
-    const res = await fetch(`${h.baseUrl}/blocks`, {
+    const res = await fetch(`${h.baseUrl}/agents/me/blocks`, {
       method: "POST",
       headers: agentHeaders(h, "@me.bot", true),
       body: JSON.stringify({ handle: "@me.bot" }),
@@ -257,13 +257,13 @@ describe("local operator /blocks", () => {
   });
 
   it("GET /blocks returns the calling agent's blocks", async () => {
-    await fetch(`${h.baseUrl}/blocks`, {
+    await fetch(`${h.baseUrl}/agents/me/blocks`, {
       method: "POST",
       headers: agentHeaders(h, "@me.bot", true),
       body: JSON.stringify({ handle: "@noisy.bot" }),
     });
 
-    const res = await fetch(`${h.baseUrl}/blocks`, {
+    const res = await fetch(`${h.baseUrl}/agents/me/blocks`, {
       headers: agentHeaders(h, "@me.bot"),
     });
     assert.equal(res.status, 200);
@@ -274,25 +274,25 @@ describe("local operator /blocks", () => {
   });
 
   it("DELETE /blocks/{handle} removes the block", async () => {
-    await fetch(`${h.baseUrl}/blocks`, {
+    await fetch(`${h.baseUrl}/agents/me/blocks`, {
       method: "POST",
       headers: agentHeaders(h, "@me.bot", true),
       body: JSON.stringify({ handle: "@noisy.bot" }),
     });
     const del = await fetch(
-      `${h.baseUrl}/blocks/${encodeURIComponent("@noisy.bot")}`,
+      `${h.baseUrl}/agents/me/blocks/${encodeURIComponent("@noisy.bot")}`,
       { method: "DELETE", headers: agentHeaders(h, "@me.bot") },
     );
     assert.equal(del.status, 200);
     const list = (await (
-      await fetch(`${h.baseUrl}/blocks`, { headers: agentHeaders(h, "@me.bot") })
+      await fetch(`${h.baseUrl}/agents/me/blocks`, { headers: agentHeaders(h, "@me.bot") })
     ).json()) as { blocks: unknown[] };
     assert.equal(list.blocks.length, 0);
   });
 
   it("DELETE /blocks/{handle} returns 404 when not blocking", async () => {
     const del = await fetch(
-      `${h.baseUrl}/blocks/${encodeURIComponent("@noisy.bot")}`,
+      `${h.baseUrl}/agents/me/blocks/${encodeURIComponent("@noisy.bot")}`,
       { method: "DELETE", headers: agentHeaders(h, "@me.bot") },
     );
     assert.equal(del.status, 404);
@@ -300,19 +300,19 @@ describe("local operator /blocks", () => {
 
   it("blocks are scoped to the calling agent", async () => {
     // @me.bot blocks @noisy.bot — @noisy.bot's own block list should stay empty.
-    await fetch(`${h.baseUrl}/blocks`, {
+    await fetch(`${h.baseUrl}/agents/me/blocks`, {
       method: "POST",
       headers: agentHeaders(h, "@me.bot", true),
       body: JSON.stringify({ handle: "@noisy.bot" }),
     });
     const noisyView = (await (
-      await fetch(`${h.baseUrl}/blocks`, { headers: agentHeaders(h, "@noisy.bot") })
+      await fetch(`${h.baseUrl}/agents/me/blocks`, { headers: agentHeaders(h, "@noisy.bot") })
     ).json()) as { blocks: unknown[] };
     assert.equal(noisyView.blocks.length, 0);
   });
 
   it("rejects unauthenticated requests", async () => {
-    const res = await fetch(`${h.baseUrl}/blocks`);
+    const res = await fetch(`${h.baseUrl}/agents/me/blocks`);
     assert.equal(res.status, 401);
   });
 });
@@ -555,6 +555,47 @@ describe("local operator GET /search/agents", () => {
 
   it("rejects unauthenticated requests", async () => {
     const res = await fetch(`${h.baseUrl}/search/agents?q=billing`);
+    assert.equal(res.status, 401);
+  });
+});
+
+describe("local operator GET /search", () => {
+  let h: Harness;
+
+  beforeEach(async () => {
+    h = await makeHarness();
+    await adminRegister(h, "@me.bot");
+    await adminRegister(h, "@billing.bot");
+    h.repo.agents.updateProfile("@billing.bot", {
+      visibility: "public",
+      displayName: "Billing Bot",
+    });
+  });
+
+  afterEach(async () => {
+    await h.cleanup();
+  });
+
+  it("returns the agents section plus empty people/organizations", async () => {
+    const res = await fetch(`${h.baseUrl}/search?q=billing`, {
+      headers: agentHeaders(h, "@me.bot"),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      agents: Array<{ canonical_handle: string }>;
+      people: unknown[];
+      organizations: unknown[];
+    };
+    assert.deepEqual(
+      body.agents.map((a) => a.canonical_handle),
+      ["@billing.bot"],
+    );
+    assert.deepEqual(body.people, []);
+    assert.deepEqual(body.organizations, []);
+  });
+
+  it("rejects unauthenticated requests", async () => {
+    const res = await fetch(`${h.baseUrl}/search?q=billing`);
     assert.equal(res.status, 401);
   });
 });

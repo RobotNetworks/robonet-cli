@@ -55,6 +55,27 @@ export function registerSearchRoutes(router: Router, ctx: SearchRoutesContext): 
       agents: visible.map(toAgentSearchResult),
     });
   });
+
+  router.add("GET", "/search", (rc) => {
+    // Directory search aggregates agents + people + organizations. The
+    // local operator has no people or organization concept, so this
+    // route is a thin agent-search wrapper that always returns empty
+    // people/organizations arrays. The CLI's `robotnet search` uses
+    // the same shape across both operators; consumers that only care
+    // about agents can call `/search/agents` directly.
+    const caller = requireAgent(rc.req, ctx.repo.agents);
+    const query = parseQuery(rc.url);
+    const limit = parseAgentSearchLimit(rc.url);
+    const candidates = ctx.repo.agents.search(query, Math.min(limit * 4, 100));
+    const visible = candidates
+      .filter((a) => isVisibleTo(ctx, a, caller))
+      .slice(0, limit);
+    sendJson(rc.res, 200, {
+      agents: visible.map(toAgentSearchResult),
+      people: [],
+      organizations: [],
+    });
+  });
 }
 
 function isVisibleTo(

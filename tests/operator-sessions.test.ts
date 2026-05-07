@@ -110,7 +110,7 @@ async function adminRegister(h: Harness, handle: string, opts: {
     // Self-edit via the agent's own bearer at the protocol-defined route.
     // The operator does not expose any third-party allowlist edit path, so
     // there's no admin-side shortcut for fixture setup.
-    const al = await fetch(`${h.baseUrl}/allowlist`, {
+    const al = await fetch(`${h.baseUrl}/agents/me/allowlist`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${created.token}`,

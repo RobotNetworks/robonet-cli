@@ -122,7 +122,7 @@ export class AgentDirectoryClient {
     return await this.#guarded("self blocks list", async () =>
       aspRequest<BlockListResponse>({
         baseUrl: this.#baseUrl,
-        path: qs.length > 0 ? `/blocks?${qs}` : "/blocks",
+        path: qs.length > 0 ? `/agents/me/blocks?${qs}` : "/agents/me/blocks",
         method: "GET",
         token: this.#token,
       }),
@@ -134,7 +134,7 @@ export class AgentDirectoryClient {
     await this.#guarded("self block", async () =>
       aspRequest<void>({
         baseUrl: this.#baseUrl,
-        path: "/blocks",
+        path: "/agents/me/blocks",
         method: "POST",
         token: this.#token,
         body: { handle },
@@ -149,7 +149,7 @@ export class AgentDirectoryClient {
     await this.#guarded("self unblock", async () =>
       aspRequest<void>({
         baseUrl: this.#baseUrl,
-        path: `/blocks/${encodeURIComponent(handle)}`,
+        path: `/agents/me/blocks/${encodeURIComponent(handle)}`,
         method: "DELETE",
         token: this.#token,
       }),
@@ -204,7 +204,7 @@ export class AgentDirectoryClient {
     return await this.#guardedSearch("directory search", async () =>
       aspRequest<DirectorySearchResponse>({
         baseUrl: this.#baseUrl,
-        path: searchPath("/search/directory", query, limit),
+        path: searchPath("/search", query, limit),
         method: "GET",
         token: this.#token,
       }),

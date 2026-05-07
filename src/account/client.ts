@@ -58,7 +58,7 @@ export class AccountClient {
     return await this.#guarded("agent list", async () =>
       aspRequest<AgentListResponse>({
         baseUrl: this.#baseUrl,
-        path: qs.length > 0 ? `/agents?${qs}` : "/agents",
+        path: qs.length > 0 ? `/account/agents?${qs}` : "/account/agents",
         method: "GET",
         token: this.#token,
       }),
@@ -69,7 +69,7 @@ export class AccountClient {
     return await this.#guarded("agent list (managed)", async () =>
       aspRequest<AgentListResponse>({
         baseUrl: this.#baseUrl,
-        path: "/agents/managed",
+        path: "/account/agents/managed",
         method: "GET",
         token: this.#token,
       }),
@@ -80,7 +80,7 @@ export class AccountClient {
     return await this.#guarded("agent create", async () =>
       aspRequest<AgentResponse>({
         baseUrl: this.#baseUrl,
-        path: "/agents",
+        path: "/account/agents",
         method: "POST",
         token: this.#token,
         body: input,
@@ -125,7 +125,7 @@ export class AccountClient {
     );
   }
 
-  // ── /accounts/me/sessions (account-aggregated session inbox) ────────────
+  // ── /account/sessions (account-aggregated session inbox) ────────────
 
   async listSessions(opts: ListSessionsOptions = {}): Promise<AccountSessionsResponse> {
     const params = new URLSearchParams();
@@ -136,7 +136,7 @@ export class AccountClient {
     return await this.#guarded("account sessions", async () =>
       aspRequest<AccountSessionsResponse>({
         baseUrl: this.#baseUrl,
-        path: qs.length > 0 ? `/accounts/me/sessions?${qs}` : "/accounts/me/sessions",
+        path: qs.length > 0 ? `/account/sessions?${qs}` : "/account/sessions",
         method: "GET",
         token: this.#token,
       }),
@@ -188,5 +188,9 @@ function agentPath(handle: Handle): string {
   }
   const owner = stripped.slice(0, dot);
   const name = stripped.slice(dot + 1);
-  return `/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+  // Account-side admin path. The bare /agents/{owner}/{name} (without
+  // /account/) is the public AgentViewer-authed lookup; this client uses
+  // the account-scoped variant for show/update/delete on agents the
+  // calling account owns.
+  return `/account/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
 }

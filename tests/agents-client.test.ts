@@ -247,7 +247,7 @@ describe("AgentDirectoryClient.searchDirectory", () => {
     assert.equal(result.organizations.length, 1);
     assert.equal(result.organizations[0]!.slug, "acme");
     const url = new URL(calls[0]!.url);
-    assert.equal(url.pathname, "/v1/search/directory");
+    assert.equal(url.pathname, "/v1/search");
   });
 });
 
@@ -294,7 +294,7 @@ describe("AgentDirectoryClient.listBlocks / blockAgent / unblockAgent", () => {
     );
     await makeClient().listBlocks({ limit: 25 });
     const url = new URL(calls[0]!.url);
-    assert.equal(url.pathname, "/v1/blocks");
+    assert.equal(url.pathname, "/v1/agents/me/blocks");
     assert.equal(url.searchParams.get("limit"), "25");
   });
 
@@ -304,11 +304,11 @@ describe("AgentDirectoryClient.listBlocks / blockAgent / unblockAgent", () => {
     );
     await makeClient().listBlocks();
     const url = new URL(calls[0]!.url);
-    assert.equal(url.pathname, "/v1/blocks");
+    assert.equal(url.pathname, "/v1/agents/me/blocks");
     assert.equal(url.searchParams.toString(), "");
   });
 
-  it("blockAgent POSTs to /blocks with the handle in the body", async () => {
+  it("blockAgent POSTs to /agents/me/blocks with the handle in the body", async () => {
     stubFetch((_url, init) => {
       assert.equal(init?.method, "POST");
       const body = JSON.parse(String(init?.body ?? "null"));
@@ -323,13 +323,13 @@ describe("AgentDirectoryClient.listBlocks / blockAgent / unblockAgent", () => {
       );
     });
     await makeClient().blockAgent("@noisy.bot");
-    assert.equal(calls[0]!.url, `${BASE}/blocks`);
+    assert.equal(calls[0]!.url, `${BASE}/agents/me/blocks`);
   });
 
-  it("unblockAgent DELETEs /blocks/{handle} URL-encoded", async () => {
+  it("unblockAgent DELETEs /agents/me/blocks/{handle} URL-encoded", async () => {
     stubFetch(() => new Response(JSON.stringify({ unblocked: true }), { status: 200 }));
     await makeClient().unblockAgent("@noisy.bot");
-    assert.equal(calls[0]!.url, `${BASE}/blocks/${encodeURIComponent("@noisy.bot")}`);
+    assert.equal(calls[0]!.url, `${BASE}/agents/me/blocks/${encodeURIComponent("@noisy.bot")}`);
     assert.equal(calls[0]!.init?.method, "DELETE");
   });
 });

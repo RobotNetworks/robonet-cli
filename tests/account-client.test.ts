@@ -106,7 +106,7 @@ describe("AccountClient.listAgents", () => {
     assert.equal(result.agents.length, 1);
     assert.equal(result.next_cursor, null);
     const url = new URL(calls[0]!.url);
-    assert.equal(url.pathname, "/v1/agents");
+    assert.equal(url.pathname, "/v1/account/agents");
     assert.equal(url.searchParams.toString(), "");
     assert.equal(calls[0]!.init?.method, "GET");
   });
@@ -136,7 +136,7 @@ describe("AccountClient.listManagedAgents", () => {
     const result = await makeClient().listManagedAgents();
     assert.equal(result.agents.length, 1);
     const url = new URL(calls[0]!.url);
-    assert.equal(url.pathname, "/v1/agents/managed");
+    assert.equal(url.pathname, "/v1/account/agents/managed");
   });
 });
 
@@ -158,7 +158,7 @@ describe("AccountClient.createAgent", () => {
       visibility: "public",
     });
     assert.equal(created.canonical_handle, "@owner.cli");
-    assert.equal(calls[0]!.url, `${BASE}/agents`);
+    assert.equal(calls[0]!.url, `${BASE}/account/agents`);
   });
 });
 
@@ -177,7 +177,7 @@ describe("AccountClient.getAgent", () => {
     const detail = await makeClient().getAgent("@owner.cli");
     assert.equal(detail.agent.canonical_handle, "@owner.cli");
     assert.equal(detail.viewer.relationship, "owner");
-    assert.equal(calls[0]!.url, `${BASE}/agents/owner/cli`);
+    assert.equal(calls[0]!.url, `${BASE}/account/agents/owner/cli`);
     assert.equal(calls[0]!.init?.method, "GET");
   });
 
@@ -202,7 +202,7 @@ describe("AccountClient.updateAgent", () => {
     });
     const updated = await makeClient().updateAgent("@owner.cli", { paused: true });
     assert.equal(updated.paused, true);
-    assert.equal(calls[0]!.url, `${BASE}/agents/owner/cli`);
+    assert.equal(calls[0]!.url, `${BASE}/account/agents/owner/cli`);
   });
 });
 
@@ -210,7 +210,7 @@ describe("AccountClient.deleteAgent", () => {
   it("DELETEs /agents/{owner}/{name}", async () => {
     stubFetch(() => new Response(null, { status: 204 }));
     await makeClient().deleteAgent("@owner.cli");
-    assert.equal(calls[0]!.url, `${BASE}/agents/owner/cli`);
+    assert.equal(calls[0]!.url, `${BASE}/account/agents/owner/cli`);
     assert.equal(calls[0]!.init?.method, "DELETE");
   });
 });
@@ -222,7 +222,7 @@ describe("AccountClient.listSessions", () => {
     );
     await makeClient().listSessions({ state: "active", limit: 25 });
     const url = new URL(calls[0]!.url);
-    assert.equal(url.pathname, "/v1/accounts/me/sessions");
+    assert.equal(url.pathname, "/v1/account/sessions");
     assert.equal(url.searchParams.get("state"), "active");
     assert.equal(url.searchParams.get("limit"), "25");
   });
@@ -246,6 +246,6 @@ describe("AccountClient handle parsing", () => {
     stubFetch(() => new Response(null, { status: 204 }));
     await makeClient().deleteAgent("@a-1.b_2");
     const url = new URL(calls[0]!.url);
-    assert.equal(url.pathname, "/v1/agents/a-1/b_2");
+    assert.equal(url.pathname, "/v1/account/agents/a-1/b_2");
   });
 });
