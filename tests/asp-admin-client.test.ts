@@ -193,28 +193,42 @@ describe("AspAdminClient", () => {
     await client.removeAgent("@cli.bot");
   });
 
-  it("setPolicy issues PATCH /_admin/agents/<handle> with policy body", async () => {
+  it("updateAgent issues PATCH /_admin/agents/<handle> with policy + profile fields", async () => {
     const { calls } = withFetchMock([
       () =>
         new Response(
           JSON.stringify({
             handle: "@cli.bot",
-            token: "tok",
             policy: "open",
             allowlist: [],
+            display_name: "CLI Bot",
+            description: null,
+            card_body: null,
+            visibility: "private",
           }),
           { status: 200 },
         ),
     ]);
 
     const client = new AspAdminClient("http://127.0.0.1:8723", "admin");
-    await client.setPolicy("@cli.bot", "open");
+    await client.updateAgent("@cli.bot", {
+      policy: "open",
+      displayName: "CLI Bot",
+      visibility: "private",
+    });
 
     assert.equal(calls[0].init.method, "PATCH");
     assert.equal(
       calls[0].url,
       "http://127.0.0.1:8723/_admin/agents/%40cli.bot",
     );
-    assert.equal(calls[0].init.body, JSON.stringify({ policy: "open" }));
+    assert.equal(
+      calls[0].init.body,
+      JSON.stringify({
+        policy: "open",
+        display_name: "CLI Bot",
+        visibility: "private",
+      }),
+    );
   });
 });

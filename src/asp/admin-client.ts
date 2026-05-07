@@ -1,10 +1,27 @@
 import { aspRequest } from "./http.js";
 import type {
+  AgentVisibility,
   AgentWire,
   AgentWithTokenWire,
   Handle,
   InboundPolicy,
 } from "./types.js";
+
+export interface AdminAgentRegisterInput {
+  readonly policy?: InboundPolicy;
+  readonly displayName?: string;
+  readonly description?: string | null;
+  readonly cardBody?: string | null;
+  readonly visibility?: AgentVisibility;
+}
+
+export interface AdminAgentUpdateInput {
+  readonly policy?: InboundPolicy;
+  readonly displayName?: string;
+  readonly description?: string | null;
+  readonly cardBody?: string | null;
+  readonly visibility?: AgentVisibility;
+}
 
 /**
  * Typed client for a local operator's network-management surface (`/_admin/*`).
@@ -31,11 +48,15 @@ export class AspAdminClient {
 
   registerAgent(
     handle: Handle,
-    opts: { readonly policy?: InboundPolicy } = {},
+    opts: AdminAgentRegisterInput = {},
   ): Promise<AgentWithTokenWire> {
     return this.#post<AgentWithTokenWire>("/_admin/agents", {
       handle,
       ...(opts.policy !== undefined ? { policy: opts.policy } : {}),
+      ...(opts.displayName !== undefined ? { display_name: opts.displayName } : {}),
+      ...(opts.description !== undefined ? { description: opts.description } : {}),
+      ...(opts.cardBody !== undefined ? { card_body: opts.cardBody } : {}),
+      ...(opts.visibility !== undefined ? { visibility: opts.visibility } : {}),
     });
   }
 
@@ -60,10 +81,22 @@ export class AspAdminClient {
     );
   }
 
-  setPolicy(handle: Handle, policy: InboundPolicy): Promise<AgentWire> {
+  /**
+   * Apply a partial update to a local agent's profile and/or policy.
+   * Each field is independently optional; passing none short-circuits
+   * with the unchanged record. Replaces the legacy `setPolicy(handle,
+   * policy)` shape — pass `{ policy }` to keep that behavior.
+   */
+  updateAgent(handle: Handle, input: AdminAgentUpdateInput): Promise<AgentWire> {
     return this.#patch<AgentWire>(
       `/_admin/agents/${encodeURIComponent(handle)}`,
-      { policy },
+      {
+        ...(input.policy !== undefined ? { policy: input.policy } : {}),
+        ...(input.displayName !== undefined ? { display_name: input.displayName } : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...(input.cardBody !== undefined ? { card_body: input.cardBody } : {}),
+        ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
+      },
     );
   }
 

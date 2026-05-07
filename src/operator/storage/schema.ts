@@ -30,7 +30,7 @@
  * below the migration's version.
  */
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 interface Migration {
   readonly version: number;
@@ -200,6 +200,36 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX blocks_by_blocked ON blocks (blocked_handle);
 
       INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2');
+    `,
+  },
+  {
+    version: 3,
+    sql: `
+      -- ── Agent profile metadata ───────────────────────────────────────
+      --
+      -- v3 grows the agents row with the profile fields the hosted operator
+      -- carries: display_name (defaults to the handle for backfill),
+      -- description and card_body (free text), and visibility (controls
+      -- whether other agents can discover this one).
+      --
+      -- 'visibility' is a hard CHECK so the column can't be drifted to
+      -- unrecognized values via direct SQL.
+      ALTER TABLE agents ADD COLUMN display_name TEXT;
+      ALTER TABLE agents ADD COLUMN description TEXT;
+      ALTER TABLE agents ADD COLUMN card_body TEXT;
+      ALTER TABLE agents ADD COLUMN visibility TEXT
+        CHECK (visibility IN ('public', 'private'))
+        DEFAULT 'private';
+
+      -- Backfill display_name to the handle so existing rows have
+      -- something sensible to render in /agents/me and discovery output.
+      UPDATE agents SET display_name = handle WHERE display_name IS NULL;
+
+      -- Visibility on existing rows defaults to 'private' (closed by
+      -- default; an admin can promote per-agent via 'admin agent set').
+      UPDATE agents SET visibility = 'private' WHERE visibility IS NULL;
+
+      INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '3');
     `,
   },
 ];

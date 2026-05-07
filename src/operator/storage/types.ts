@@ -15,10 +15,16 @@ export type Timestamp = number;
 
 export type InboundPolicy = "open" | "allowlist";
 
+export type AgentVisibility = "public" | "private";
+
 export interface AgentRecord {
   readonly handle: Handle;
   readonly bearerTokenHash: string;
   readonly inboundPolicy: InboundPolicy;
+  readonly displayName: string;
+  readonly description: string | null;
+  readonly cardBody: string | null;
+  readonly visibility: AgentVisibility;
   readonly metadata: Readonly<Record<string, unknown>> | null;
   readonly createdAtMs: Timestamp;
   readonly updatedAtMs: Timestamp;

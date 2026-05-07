@@ -10,6 +10,7 @@ import { assertAllowlistEntry, assertHandle } from "../handles.js";
 import type { OperatorRepository } from "../storage/repository.js";
 import type {
   AgentRecord,
+  AgentVisibility,
   AllowlistEntry as AllowlistRow,
   Handle,
   InboundPolicy,
@@ -20,12 +21,18 @@ import type { Router, RouteContext } from "./router.js";
 
 /** Wire shape for an agent — mirrors the asp reference operator. The bearer
  * token is included only on register / rotate-token responses (we hash on
- * write so it's not recoverable on subsequent reads). */
+ * write so it's not recoverable on subsequent reads). Profile fields
+ * (display_name, description, card_body, visibility) carry the v3-schema
+ * agent metadata. */
 interface AgentResponse {
   readonly handle: Handle;
   readonly token?: string;
   readonly policy: InboundPolicy;
   readonly allowlist: readonly string[];
+  readonly display_name: string;
+  readonly description: string | null;
+  readonly card_body: string | null;
+  readonly visibility: AgentVisibility;
 }
 
 interface AdminContext {
@@ -54,6 +61,7 @@ export function registerAdminRoutes(router: Router, ctx: AdminContext): void {
     const body = await parseJsonBody(rc.req);
     const handle = assertHandle(body.handle);
     const policy = parseOptionalPolicy(body.policy);
+    const profile = parseProfileFields(body);
 
     if (ctx.repo.agents.byHandle(handle) !== null) {
       throw new ConflictError(`agent ${handle} already exists`, "AGENT_EXISTS");
@@ -66,6 +74,10 @@ export function registerAdminRoutes(router: Router, ctx: AdminContext): void {
         handle,
         bearerTokenHash: sha256Hex(token),
         ...(policy !== undefined ? { inboundPolicy: policy } : {}),
+        ...(profile.displayName !== undefined ? { displayName: profile.displayName } : {}),
+        ...(profile.description !== undefined ? { description: profile.description } : {}),
+        ...(profile.cardBody !== undefined ? { cardBody: profile.cardBody } : {}),
+        ...(profile.visibility !== undefined ? { visibility: profile.visibility } : {}),
       });
     } catch (err) {
       // sha256 hex collisions are infeasible; the only realistic UNIQUE
@@ -112,10 +124,25 @@ export function registerAdminRoutes(router: Router, ctx: AdminContext): void {
     const agent = requireExistingAgent(ctx.repo, rc.params.handle);
     const body = await parseJsonBody(rc.req);
     const policy = parseOptionalPolicy(body.policy);
+    const profile = parseProfileFields(body);
     let updated = agent;
     if (policy !== undefined) {
       ctx.repo.agents.setInboundPolicy(agent.handle, policy);
       updated = ctx.repo.agents.byHandle(agent.handle) ?? agent;
+    }
+    if (
+      profile.displayName !== undefined ||
+      profile.description !== undefined ||
+      profile.cardBody !== undefined ||
+      profile.visibility !== undefined
+    ) {
+      const result = ctx.repo.agents.updateProfile(agent.handle, {
+        ...(profile.displayName !== undefined ? { displayName: profile.displayName } : {}),
+        ...(profile.description !== undefined ? { description: profile.description } : {}),
+        ...(profile.cardBody !== undefined ? { cardBody: profile.cardBody } : {}),
+        ...(profile.visibility !== undefined ? { visibility: profile.visibility } : {}),
+      });
+      updated = result ?? updated;
     }
     sendJson(rc.res, 200, serializeAgent(ctx.repo, updated));
   }));
@@ -177,6 +204,61 @@ function parseOptionalPolicy(value: unknown): InboundPolicy | undefined {
   return value;
 }
 
+interface ParsedProfileFields {
+  readonly displayName?: string;
+  readonly description?: string | null;
+  readonly cardBody?: string | null;
+  readonly visibility?: AgentVisibility;
+}
+
+/**
+ * Parse the optional profile fields from a request body. Each field is
+ * independently optional: omitting one leaves the stored value untouched
+ * on PATCH and falls through to defaults on POST. `description` and
+ * `card_body` accept `null` to clear; `display_name` must be a non-empty
+ * string when supplied. `visibility` is checked against the storage enum.
+ */
+function parseProfileFields(body: Record<string, unknown>): ParsedProfileFields {
+  const out: { -readonly [K in keyof ParsedProfileFields]: ParsedProfileFields[K] } = {};
+  if (body.display_name !== undefined) {
+    if (typeof body.display_name !== "string" || body.display_name.length === 0) {
+      throw new BadRequestError(
+        "display_name must be a non-empty string",
+        "INVALID_DISPLAY_NAME",
+      );
+    }
+    out.displayName = body.display_name;
+  }
+  if (body.description !== undefined) {
+    if (body.description !== null && typeof body.description !== "string") {
+      throw new BadRequestError(
+        "description must be a string or null",
+        "INVALID_DESCRIPTION",
+      );
+    }
+    out.description = body.description;
+  }
+  if (body.card_body !== undefined) {
+    if (body.card_body !== null && typeof body.card_body !== "string") {
+      throw new BadRequestError(
+        "card_body must be a string or null",
+        "INVALID_CARD_BODY",
+      );
+    }
+    out.cardBody = body.card_body;
+  }
+  if (body.visibility !== undefined) {
+    if (body.visibility !== "public" && body.visibility !== "private") {
+      throw new BadRequestError(
+        `visibility must be "public" or "private" (got ${JSON.stringify(body.visibility)})`,
+        "INVALID_VISIBILITY",
+      );
+    }
+    out.visibility = body.visibility;
+  }
+  return out;
+}
+
 function parseEntriesArray(value: unknown): readonly string[] {
   if (!Array.isArray(value) || value.length === 0) {
     throw new BadRequestError(
@@ -213,6 +295,10 @@ function serializeAgent(
     ...(opts.includeToken !== undefined ? { token: opts.includeToken } : {}),
     policy: agent.inboundPolicy,
     allowlist,
+    display_name: agent.displayName,
+    description: agent.description,
+    card_body: agent.cardBody,
+    visibility: agent.visibility,
   };
 }
 

@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 
 import type {
   AgentRecord,
+  AgentVisibility,
   AllowlistEntry,
   BlockRecord,
   DeliveryCursorRecord,
@@ -61,7 +62,18 @@ export interface RegisterAgentInput {
   readonly handle: Handle;
   readonly bearerTokenHash: string;
   readonly inboundPolicy?: InboundPolicy;
+  readonly displayName?: string;
+  readonly description?: string | null;
+  readonly cardBody?: string | null;
+  readonly visibility?: AgentVisibility;
   readonly metadata?: Readonly<Record<string, unknown>> | null;
+}
+
+export interface UpdateAgentProfileInput {
+  readonly displayName?: string;
+  readonly description?: string | null;
+  readonly cardBody?: string | null;
+  readonly visibility?: AgentVisibility;
 }
 
 export class AgentsRepo {
@@ -74,16 +86,33 @@ export class AgentsRepo {
   register(input: RegisterAgentInput): AgentRecord {
     const now = Date.now();
     const policy = input.inboundPolicy ?? "allowlist";
+    const displayName = input.displayName ?? input.handle;
+    const visibility = input.visibility ?? "private";
     const metadataJson =
       input.metadata !== undefined && input.metadata !== null
         ? JSON.stringify(input.metadata)
         : null;
     this.#db
       .prepare(
-        `INSERT INTO agents (handle, bearer_token_hash, inbound_policy, metadata_json, created_at_ms, updated_at_ms)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO agents (
+           handle, bearer_token_hash, inbound_policy,
+           display_name, description, card_body, visibility,
+           metadata_json, created_at_ms, updated_at_ms
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(input.handle, input.bearerTokenHash, policy, metadataJson, now, now);
+      .run(
+        input.handle,
+        input.bearerTokenHash,
+        policy,
+        displayName,
+        input.description ?? null,
+        input.cardBody ?? null,
+        visibility,
+        metadataJson,
+        now,
+        now,
+      );
     const got = this.byHandle(input.handle);
     if (got === null) {
       throw new Error(
@@ -91,6 +120,52 @@ export class AgentsRepo {
       );
     }
     return got;
+  }
+
+  /**
+   * Apply a partial profile update to an existing agent. Returns the
+   * updated record, or `null` if no agent exists with that handle.
+   *
+   * Each field is independently optional: omitting a field leaves the
+   * stored value untouched. Passing `null` for `description` or
+   * `cardBody` clears it. `displayName` cannot be cleared (the wire
+   * shape requires a non-null display name; clearing would force the
+   * read path to fall back to the handle, which is what register does
+   * by default anyway).
+   */
+  updateProfile(
+    handle: Handle,
+    input: UpdateAgentProfileInput,
+  ): AgentRecord | null {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    if (input.displayName !== undefined) {
+      sets.push("display_name = ?");
+      params.push(input.displayName);
+    }
+    if (input.description !== undefined) {
+      sets.push("description = ?");
+      params.push(input.description);
+    }
+    if (input.cardBody !== undefined) {
+      sets.push("card_body = ?");
+      params.push(input.cardBody);
+    }
+    if (input.visibility !== undefined) {
+      sets.push("visibility = ?");
+      params.push(input.visibility);
+    }
+    if (sets.length === 0) {
+      return this.byHandle(handle);
+    }
+    sets.push("updated_at_ms = ?");
+    params.push(Date.now());
+    params.push(handle);
+    const info = this.#db
+      .prepare(`UPDATE agents SET ${sets.join(", ")} WHERE handle = ?`)
+      .run(...params);
+    if (info.changes === 0) return null;
+    return this.byHandle(handle);
   }
 
   byHandle(handle: Handle): AgentRecord | null {
@@ -111,6 +186,30 @@ export class AgentsRepo {
     const rows = this.#db
       .prepare("SELECT * FROM agents ORDER BY handle")
       .all() as RawAgentRow[];
+    return rows.map(rawToAgent);
+  }
+
+  /**
+   * Substring search across `handle` and `display_name`. Case-insensitive
+   * via SQLite's `LIKE` (which is ASCII case-insensitive by default; for
+   * names with non-ASCII characters callers can match exact prefixes or
+   * fall back to the search service on the hosted operator).
+   *
+   * Returns `limit + 1` rows is intentionally not done — the caller
+   * paginates externally if needed. Visibility filtering happens in the
+   * route layer because it depends on caller identity.
+   */
+  search(query: string, limit: number): readonly AgentRecord[] {
+    const pattern = `%${escapeLike(query)}%`;
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM agents
+         WHERE handle LIKE ? ESCAPE '\\'
+            OR display_name LIKE ? ESCAPE '\\'
+         ORDER BY handle
+         LIMIT ?`,
+      )
+      .all(pattern, pattern, limit) as RawAgentRow[];
     return rows.map(rawToAgent);
   }
 
@@ -735,6 +834,10 @@ interface RawAgentRow {
   handle: string;
   bearer_token_hash: string;
   inbound_policy: InboundPolicy;
+  display_name: string | null;
+  description: string | null;
+  card_body: string | null;
+  visibility: AgentVisibility | null;
   metadata_json: string | null;
   created_at_ms: number;
   updated_at_ms: number;
@@ -813,11 +916,27 @@ function parseOptionalJsonObject(
   return json === null ? null : parseJsonObject(json);
 }
 
+/**
+ * Escape `%` and `_` so they're treated as literals in a `LIKE` pattern.
+ * Backslash itself is escaped first; the `ESCAPE '\\'` clause in the
+ * caller's prepared statement honors the escape sequence.
+ */
+function escapeLike(input: string): string {
+  return input.replace(/\\/g, "\\\\").replace(/[%_]/g, "\\$&");
+}
+
 function rawToAgent(row: RawAgentRow): AgentRecord {
   return {
     handle: row.handle,
     bearerTokenHash: row.bearer_token_hash,
     inboundPolicy: row.inbound_policy,
+    // Backfilled by migration v3 to row.handle, but a column-default-less
+    // row could still be NULL on a hand-edited DB; fall back to the handle
+    // so the wire shape never carries a null display_name.
+    displayName: row.display_name ?? row.handle,
+    description: row.description,
+    cardBody: row.card_body,
+    visibility: row.visibility ?? "private",
     metadata: parseOptionalJsonObject(row.metadata_json),
     createdAtMs: row.created_at_ms,
     updatedAtMs: row.updated_at_ms,

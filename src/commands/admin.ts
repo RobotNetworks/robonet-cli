@@ -3,6 +3,7 @@ import { Command, Option } from "commander";
 import { resolveAdminClient } from "../asp/auth-resolver.js";
 import { handleArg } from "../asp/handles.js";
 import type {
+  AgentVisibility,
   AgentWire,
   AgentWithTokenWire,
   Handle,
@@ -71,6 +72,13 @@ function inboundPolicyOption(): Option {
   ).argParser(parseInboundPolicyArg);
 }
 
+function visibilityOption(): Option {
+  return new Option(
+    "--visibility <visibility>",
+    'Visibility: "public" (discoverable) or "private" (only allowlisted peers)',
+  ).argParser(parseVisibilityArg);
+}
+
 interface CommonOpts {
   readonly localAdminToken?: string;
   readonly json: boolean;
@@ -82,6 +90,10 @@ function makeCreateCmd(): Command {
   return new Command("create")
     .description("Create a new agent on the local network")
     .argument("<handle>", "Agent handle (e.g. @nick.bot)", handleArg)
+    .option("--display-name <text>", "Display name (defaults to the handle)")
+    .option("--description <text>", "Short description")
+    .option("--card-body <markdown>", "Card body (markdown)")
+    .addOption(visibilityOption())
     .addOption(inboundPolicyOption())
     .addOption(localAdminTokenOption())
     .addOption(jsonOption())
@@ -89,10 +101,13 @@ function makeCreateCmd(): Command {
       const config = await loadConfigFromRoot(cmd);
       assertLocalNetwork(config, "admin agent create");
       const client = await resolveAdminClient(config, opts.localAdminToken);
-      const created = await client.registerAgent(
-        handle,
-        opts.inboundPolicy !== undefined ? { policy: opts.inboundPolicy } : {},
-      );
+      const created = await client.registerAgent(handle, {
+        ...(opts.inboundPolicy !== undefined ? { policy: opts.inboundPolicy } : {}),
+        ...(opts.displayName !== undefined ? { displayName: opts.displayName } : {}),
+        ...(opts.description !== undefined ? { description: opts.description } : {}),
+        ...(opts.cardBody !== undefined ? { cardBody: opts.cardBody } : {}),
+        ...(opts.visibility !== undefined ? { visibility: opts.visibility } : {}),
+      });
       // Persist the freshly-minted local_bearer so subsequent `me`,
       // `session`, and `listen` commands for this handle work without an
       // additional auth step.
@@ -114,6 +129,10 @@ function makeCreateCmd(): Command {
 
 interface CreateOpts extends CommonOpts {
   readonly inboundPolicy?: InboundPolicy;
+  readonly displayName?: string;
+  readonly description?: string;
+  readonly cardBody?: string;
+  readonly visibility?: AgentVisibility;
 }
 
 // ── list ────────────────────────────────────────────────────────────────────
@@ -137,7 +156,11 @@ function makeListCmd(): Command {
         return;
       }
       for (const a of agents) {
-        out(`${a.handle}  policy=${a.policy}  allowlist=${a.allowlist.length}`);
+        out(
+          `${a.handle}  ${a.display_name}  ` +
+            `[${a.visibility}, ${a.policy}]  ` +
+            `allowlist=${a.allowlist.length}`,
+        );
       }
     });
 }
@@ -191,19 +214,25 @@ function makeSetCmd(): Command {
   return new Command("set")
     .description("Update an agent's settings on the local network")
     .argument("<handle>", "Agent handle", handleArg)
+    .option("--display-name <text>", "New display name")
+    .option("--description <text>", "New description (empty string clears)")
+    .option("--card-body <markdown>", "New card body (empty string clears)")
+    .addOption(visibilityOption())
     .addOption(inboundPolicyOption())
     .addOption(localAdminTokenOption())
     .addOption(jsonOption())
     .action(async (handle: Handle, opts: SetOpts, cmd: Command) => {
       const config = await loadConfigFromRoot(cmd);
       assertLocalNetwork(config, "admin agent set");
-      if (opts.inboundPolicy === undefined) {
+      const update = buildSetPayload(opts);
+      if (Object.keys(update).length === 0) {
         throw new RobotNetCLIError(
-          "Nothing to update. The only field local agents support is `--inbound-policy`.",
+          "Nothing to update. Provide at least one of --display-name, --description, " +
+            "--card-body, --visibility, --inbound-policy.",
         );
       }
       const client = await resolveAdminClient(config, opts.localAdminToken);
-      const updated = await client.setPolicy(handle, opts.inboundPolicy);
+      const updated = await client.updateAgent(handle, update);
       if (opts.json) {
         out(renderJson(updated));
         return;
@@ -215,6 +244,41 @@ function makeSetCmd(): Command {
 
 interface SetOpts extends CommonOpts {
   readonly inboundPolicy?: InboundPolicy;
+  readonly displayName?: string;
+  readonly description?: string;
+  readonly cardBody?: string;
+  readonly visibility?: AgentVisibility;
+}
+
+/**
+ * Translate parsed `set` flags into the AdminAgentUpdateInput shape.
+ * Empty-string `--description` / `--card-body` is honored as a clear
+ * (sent as `null`); everything else passes through verbatim.
+ */
+function buildSetPayload(opts: SetOpts): {
+  policy?: InboundPolicy;
+  displayName?: string;
+  description?: string | null;
+  cardBody?: string | null;
+  visibility?: AgentVisibility;
+} {
+  const update: {
+    policy?: InboundPolicy;
+    displayName?: string;
+    description?: string | null;
+    cardBody?: string | null;
+    visibility?: AgentVisibility;
+  } = {};
+  if (opts.inboundPolicy !== undefined) update.policy = opts.inboundPolicy;
+  if (opts.displayName !== undefined) update.displayName = opts.displayName;
+  if (opts.description !== undefined) {
+    update.description = opts.description.length > 0 ? opts.description : null;
+  }
+  if (opts.cardBody !== undefined) {
+    update.cardBody = opts.cardBody.length > 0 ? opts.cardBody : null;
+  }
+  if (opts.visibility !== undefined) update.visibility = opts.visibility;
+  return update;
 }
 
 // ── rotate-token ────────────────────────────────────────────────────────────
@@ -271,14 +335,34 @@ function parseInboundPolicyArg(value: string): InboundPolicy {
   return value;
 }
 
+function parseVisibilityArg(value: string): AgentVisibility {
+  if (value !== "public" && value !== "private") {
+    throw new RobotNetCLIError(
+      `invalid visibility "${value}" — expected "public" or "private"`,
+    );
+  }
+  return value;
+}
+
 function renderLocalAgent(agent: AgentWire | AgentWithTokenWire): void {
-  const pad = 9;
+  const pad = 13;
   out(`  ${"handle".padEnd(pad)} ${agent.handle}`);
+  out(`  ${"display name".padEnd(pad)} ${agent.display_name}`);
   out(`  ${"policy".padEnd(pad)} ${agent.policy}`);
+  out(`  ${"visibility".padEnd(pad)} ${agent.visibility}`);
+  if (agent.description !== null && agent.description.length > 0) {
+    out(`  ${"description".padEnd(pad)} ${agent.description}`);
+  }
   if ("token" in agent && typeof agent.token === "string") {
     out(`  ${"token".padEnd(pad)} ${agent.token}`);
   }
   if (agent.allowlist.length > 0) {
     out(`  ${"allowlist".padEnd(pad)} ${[...agent.allowlist].join(", ")}`);
+  }
+  if (agent.card_body !== null && agent.card_body.length > 0) {
+    out("  card");
+    for (const line of agent.card_body.split("\n")) {
+      out(`    ${line}`);
+    }
   }
 }

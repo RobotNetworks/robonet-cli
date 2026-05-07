@@ -1,9 +1,12 @@
 import { requireAgent } from "../auth.js";
 import { BadRequestError, NotFoundError } from "../errors.js";
 import { assertAllowlistEntry, assertHandle } from "../handles.js";
-import type { OperatorRepository } from "../storage/repository.js";
-import type { AgentRecord, BlockRecord } from "../storage/types.js";
-import { parseJsonBody, sendJson } from "./json.js";
+import type {
+  OperatorRepository,
+  UpdateAgentProfileInput,
+} from "../storage/repository.js";
+import type { AgentRecord, BlockRecord, Handle } from "../storage/types.js";
+import { parseJsonBody, sendJson, sendText } from "./json.js";
 import type { Router } from "./router.js";
 
 /**
@@ -36,6 +39,26 @@ export function registerSelfRoutes(router: Router, ctx: SelfRoutesContext): void
   router.add("GET", "/agents/me", (rc) => {
     const agent = requireAgent(rc.req, ctx.repo.agents);
     sendJson(rc.res, 200, synthesizeAgentResponse(agent));
+  });
+
+  router.add("PATCH", "/agents/me", async (rc) => {
+    const agent = requireAgent(rc.req, ctx.repo.agents);
+    const body = await parseJsonBody(rc.req);
+    const update = parseSelfUpdate(body);
+    if (Object.keys(update).length === 0) {
+      throw new BadRequestError(
+        "no updatable fields supplied (display_name, description, card_body)",
+        "INVALID_UPDATE",
+      );
+    }
+    const updated = ctx.repo.agents.updateProfile(agent.handle, update);
+    if (updated === null) {
+      // Defensive: byBearerHash matched seconds ago, so the row exists.
+      // A concurrent admin DELETE between requireAgent and updateProfile
+      // is the only realistic way to land here.
+      throw new NotFoundError(`agent ${agent.handle} not found`);
+    }
+    sendJson(rc.res, 200, synthesizeAgentResponse(updated));
   });
 
   router.add("GET", "/agents/me/allowlist", (rc) => {
@@ -111,6 +134,21 @@ export function registerSelfRoutes(router: Router, ctx: SelfRoutesContext): void
     }
     sendJson(rc.res, 200, { unblocked: true });
   });
+
+  // ── /agents/{owner}/{agent_name}: discovery ─────────────────────────────
+
+  router.add("GET", "/agents/:owner/:name", (rc) => {
+    const caller = requireAgent(rc.req, ctx.repo.agents);
+    const target = resolveDiscoveryTarget(ctx, rc.params.owner, rc.params.name, caller);
+    sendJson(rc.res, 200, buildAgentDetailResponse(target, caller));
+  });
+
+  router.add("GET", "/agents/:owner/:name/card", (rc) => {
+    const caller = requireAgent(rc.req, ctx.repo.agents);
+    const target = resolveDiscoveryTarget(ctx, rc.params.owner, rc.params.name, caller);
+    const body = target.cardBody ?? "";
+    sendText(rc.res, 200, "text/markdown; charset=utf-8", body);
+  });
 }
 
 function listEntries(
@@ -118,6 +156,107 @@ function listEntries(
   handle: string,
 ): readonly string[] {
   return ctx.repo.agents.listAllowlist(handle).map((row) => row.entry);
+}
+
+/**
+ * Resolve a `(owner, name)` URL pair to an agent visible to `caller`.
+ *
+ * Returns `404 NOT_FOUND` when:
+ *   - no agent exists with that handle, or
+ *   - the agent is private and the caller is neither the agent itself
+ *     nor on the agent's allowlist.
+ *
+ * The 404 is privacy-preserving — a non-contact and a missing handle look
+ * identical from the wire, so an enumerator can't probe the network.
+ */
+function resolveDiscoveryTarget(
+  ctx: SelfRoutesContext,
+  ownerParam: unknown,
+  nameParam: unknown,
+  caller: AgentRecord,
+): AgentRecord {
+  const handle = `@${assertSegment(ownerParam, "owner")}.${assertSegment(nameParam, "name")}`;
+  const target = ctx.repo.agents.byHandle(handle);
+  if (target === null) {
+    throw new NotFoundError(`agent ${handle} not found`);
+  }
+  if (canViewAgent(ctx, target, caller)) return target;
+  // Privacy-preserving: do not differentiate between "doesn't exist" and
+  // "exists but not visible to you".
+  throw new NotFoundError(`agent ${handle} not found`);
+}
+
+function canViewAgent(
+  ctx: SelfRoutesContext,
+  target: AgentRecord,
+  caller: AgentRecord,
+): boolean {
+  if (target.visibility === "public") return true;
+  if (target.handle === caller.handle) return true;
+  const allowed = ctx.repo.agents
+    .listAllowlist(target.handle)
+    .some((row) => row.entry === caller.handle || row.entry === ownerGlob(caller.handle));
+  return allowed;
+}
+
+function ownerGlob(handle: Handle): string {
+  const stripped = handle.startsWith("@") ? handle.slice(1) : handle;
+  const dot = stripped.indexOf(".");
+  return dot >= 0 ? `@${stripped.slice(0, dot)}.*` : handle;
+}
+
+function assertSegment(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new BadRequestError(`${label} segment missing`, "INVALID_HANDLE");
+  }
+  return value;
+}
+
+function buildAgentDetailResponse(
+  target: AgentRecord,
+  caller: AgentRecord,
+): Record<string, unknown> {
+  const isOwner = target.handle === caller.handle;
+  return {
+    agent: synthesizeAgentResponse(target),
+    shared_sessions: [],
+    viewer: {
+      relationship: isOwner ? "owner" : "none",
+      can_edit: isOwner,
+    },
+  };
+}
+
+function parseSelfUpdate(body: Record<string, unknown>): UpdateAgentProfileInput {
+  const out: { -readonly [K in keyof UpdateAgentProfileInput]: UpdateAgentProfileInput[K] } = {};
+  if (body.display_name !== undefined) {
+    if (typeof body.display_name !== "string" || body.display_name.length === 0) {
+      throw new BadRequestError(
+        "display_name must be a non-empty string",
+        "INVALID_DISPLAY_NAME",
+      );
+    }
+    out.displayName = body.display_name;
+  }
+  if (body.description !== undefined) {
+    if (body.description !== null && typeof body.description !== "string") {
+      throw new BadRequestError(
+        "description must be a string or null",
+        "INVALID_DESCRIPTION",
+      );
+    }
+    out.description = body.description;
+  }
+  if (body.card_body !== undefined) {
+    if (body.card_body !== null && typeof body.card_body !== "string") {
+      throw new BadRequestError(
+        "card_body must be a string or null",
+        "INVALID_CARD_BODY",
+      );
+    }
+    out.cardBody = body.card_body;
+  }
+  return out;
 }
 
 function parseEntriesArray(value: unknown): readonly string[] {
@@ -177,14 +316,11 @@ function serializeBlock(row: BlockRecord): Record<string, unknown> {
 
 /**
  * Map an in-tree {@link AgentRecord} onto the AgentResponse shape the
- * hosted operator returns. The local operator stores only
- * `(handle, inboundPolicy)` plus an allowlist; the remaining fields
- * are synthesized to sensible defaults so the CLI's `me show` renders
- * uniformly across both operators.
- *
- * Not authoritative metadata: a future operator that grows real fields
- * (display_name, visibility, …) will replace this synthesis with stored
- * values. The wire shape doesn't need to change to make that swap.
+ * hosted operator returns. The local operator stores the profile fields
+ * the CLI's `me show` renders directly (display_name, description,
+ * card_body, visibility); fields with no local analogue (image_url,
+ * paused, skills, owner-side personalia) are defaulted so the wire
+ * shape stays uniform across operators.
  */
 function synthesizeAgentResponse(agent: AgentRecord): Record<string, unknown> {
   const stripped = agent.handle.startsWith("@")
@@ -195,10 +331,10 @@ function synthesizeAgentResponse(agent: AgentRecord): Record<string, unknown> {
   const localName = dot >= 0 ? stripped.slice(dot + 1) : stripped;
   return {
     canonical_handle: agent.handle,
-    display_name: agent.handle,
-    description: null,
+    display_name: agent.displayName,
+    description: agent.description,
     image_url: null,
-    visibility: "private",
+    visibility: agent.visibility,
     inbound_policy: agent.inboundPolicy,
     inactive: false,
     is_online: true,
@@ -213,7 +349,7 @@ function synthesizeAgentResponse(agent: AgentRecord): Record<string, unknown> {
     scope: "personal",
     can_initiate_sessions: true,
     paused: false,
-    card_body: null,
+    card_body: agent.cardBody,
     skills: null,
     created_at: agent.createdAtMs,
     updated_at: agent.updatedAtMs,

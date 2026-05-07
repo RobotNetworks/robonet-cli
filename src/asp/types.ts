@@ -87,6 +87,8 @@ export type SessionState = "active" | "ended";
 
 export type InboundPolicy = "allowlist" | "open";
 
+export type AgentVisibility = "public" | "private";
+
 /* -------------------------------------------------------------------------- */
 /* Wire shapes returned by the network's HTTP API.                            */
 /* -------------------------------------------------------------------------- */
@@ -96,11 +98,20 @@ export type InboundPolicy = "allowlist" | "open";
  * mutations. Does not carry the bearer token: operators that hash bearers
  * at rest (RobotNet's local operator does) only return the plaintext on
  * the originating mint operation.
+ *
+ * `display_name`, `description`, `card_body`, and `visibility` are
+ * v3-schema profile fields. Older operators that don't populate them
+ * default `display_name` to the handle, `visibility` to `"private"`,
+ * and the rest to `null`.
  */
 export interface AgentWire {
   readonly handle: Handle;
   readonly policy: InboundPolicy;
   readonly allowlist: readonly AllowlistEntry[];
+  readonly display_name: string;
+  readonly description: string | null;
+  readonly card_body: string | null;
+  readonly visibility: AgentVisibility;
 }
 
 /**

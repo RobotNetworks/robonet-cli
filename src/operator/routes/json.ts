@@ -66,6 +66,20 @@ export function sendNoContent(res: ServerResponse): void {
   res.end();
 }
 
+/** Send a non-JSON text body (e.g. agent card markdown). */
+export function sendText(
+  res: ServerResponse,
+  status: number,
+  contentType: string,
+  body: string,
+): void {
+  res.writeHead(status, {
+    "Content-Type": contentType,
+    "Content-Length": Buffer.byteLength(body),
+  });
+  res.end(body);
+}
+
 /** Send an ASP-shaped `{error: {code, message}}` envelope at `status`. */
 export function sendError(
   res: ServerResponse,
