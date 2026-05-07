@@ -17,6 +17,7 @@ import { buildConnectHandler } from "./routes/connect.js";
 import { sendError, sendJson } from "./routes/json.js";
 import { Router, type RouteContext } from "./routes/router.js";
 import { registerSearchRoutes } from "./routes/search.js";
+import { registerSelfRoutes } from "./routes/self.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import type { OperatorRepository } from "./storage/repository.js";
 
@@ -129,6 +130,7 @@ function buildRouter(
     db: deps.db,
     adminTokenHash: deps.config.adminTokenHash,
   });
+  registerSelfRoutes(router, { repo: deps.repo });
   registerSessionRoutes(router, { repo: deps.repo, service });
   registerSearchRoutes(router, { repo: deps.repo, service });
   return router;
