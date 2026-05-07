@@ -46,10 +46,10 @@ export function registerSessionRoutes(router: Router, ctx: SessionRoutesContext)
     });
     const out: Record<string, unknown> = { session_id: result.sessionId };
     if (result.sequence !== null) out.sequence = result.sequence;
-    // Conformance suite expects 200, not the more REST-conventional 201
-    // (the ASP whitepaper doesn't pin status codes; we match what the
-    // suite asserts so cross-operator integrations stay consistent).
-    sendJson(rc.res, 200, out);
+    // 201 Created per RFC 9110 §15.3.2: a new session resource is identified
+    // by `session_id`. Lifecycle verbs (join, invite, leave, end, reopen)
+    // mutate state without creating a top-level resource and stay 200.
+    sendJson(rc.res, 201, out);
   });
 
   router.add("GET", "/sessions/:id", (rc) => {
@@ -91,7 +91,9 @@ export function registerSessionRoutes(router: Router, ctx: SessionRoutesContext)
       ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
       ...(metadata !== undefined ? { metadata } : {}),
     });
-    sendJson(rc.res, 200, {
+    // 201 Created per RFC 9110 §15.3.2: a new message resource is identified
+    // by `message_id`.
+    sendJson(rc.res, 201, {
       message_id: result.messageId,
       sequence: result.sequence,
     });

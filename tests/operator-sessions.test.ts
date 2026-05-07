@@ -107,17 +107,17 @@ async function adminRegister(h: Harness, handle: string, opts: {
   const created = (await reg.json()) as { token: string };
   h.tokens.set(handle, created.token);
   if (opts.allowlistEntries !== undefined && opts.allowlistEntries.length > 0) {
-    const al = await fetch(
-      `${h.baseUrl}/_admin/agents/${encodeURIComponent(handle)}/allowlist`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${h.adminToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ entries: opts.allowlistEntries }),
+    // Self-edit via the agent's own bearer at the protocol-defined route.
+    // The operator does not expose any third-party allowlist edit path, so
+    // there's no admin-side shortcut for fixture setup.
+    const al = await fetch(`${h.baseUrl}/allowlist`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${created.token}`,
+        "Content-Type": "application/json",
       },
-    );
+      body: JSON.stringify({ entries: opts.allowlistEntries }),
+    });
     if (al.status !== 200) {
       throw new Error(`allowlist add failed: ${al.status}`);
     }
@@ -215,7 +215,7 @@ describe("operator sessions — create + invite", () => {
         headers: agentHeaders(h, "@alice.bot"),
         body: JSON.stringify({ invite: ["@bob.bot"], topic: "hello" }),
       });
-      assert.equal(res.status, 200);
+      assert.equal(res.status, 201);
       const body = (await res.json()) as { session_id: string };
       assert.match(body.session_id, /^sess_/);
 
@@ -256,7 +256,7 @@ describe("operator sessions — create + invite", () => {
       headers: agentHeaders(h, "@alice.bot"),
       body: JSON.stringify({ invite: ["@bob.bot"] }),
     });
-    assert.equal(res.status, 200);
+    assert.equal(res.status, 201);
   });
 });
 
@@ -278,13 +278,13 @@ describe("operator sessions — list (GET /sessions)", () => {
       headers: agentHeaders(h, "@alice.bot"),
       body: JSON.stringify({ invite: ["@bob.bot"], topic: "ab" }),
     });
-    assert.equal(ab.status, 200);
+    assert.equal(ab.status, 201);
     const ac = await fetch(`${h.baseUrl}/sessions`, {
       method: "POST",
       headers: agentHeaders(h, "@alice.bot"),
       body: JSON.stringify({ invite: ["@carol.bot"], topic: "ac" }),
     });
-    assert.equal(ac.status, 200);
+    assert.equal(ac.status, 201);
 
     // alice sees both.
     const aliceList = await fetch(`${h.baseUrl}/sessions`, {
@@ -358,7 +358,7 @@ describe("operator sessions — join + send_message", () => {
           body: JSON.stringify({ content: "hello bob" }),
         },
       );
-      assert.equal(send.status, 200);
+      assert.equal(send.status, 201);
 
       const msg = await bob.waitForFrame(
         (f) =>
@@ -538,7 +538,7 @@ describe("operator sessions — replay on (re)connect", () => {
       headers: agentHeaders(h, "@alice.bot"),
       body: JSON.stringify({ invite: ["@bob.bot"] }),
     });
-    assert.equal(create.status, 200);
+    assert.equal(create.status, 201);
 
     // Now bob connects and should immediately receive the invite via replay.
     const bob = await openConnect(h, "@bob.bot");
@@ -614,7 +614,7 @@ describe("operator sessions — reopen", () => {
           body: JSON.stringify({ content: "after reopen" }),
         },
       );
-      assert.equal(send.status, 200);
+      assert.equal(send.status, 201);
     } finally {
       await bob.close();
     }
@@ -816,7 +816,7 @@ describe("operator sessions — message search (GET /search/messages)", () => {
       headers: agentHeaders(h, "@alice.bot"),
       body: JSON.stringify({ invite: ["@bob.bot"], topic: "search-test" }),
     });
-    assert.equal(create.status, 200);
+    assert.equal(create.status, 201);
     const { session_id: sid } = (await create.json()) as { session_id: string };
 
     // bob joins so he can see the session, then alice sends two messages.
@@ -832,7 +832,7 @@ describe("operator sessions — message search (GET /search/messages)", () => {
         headers: agentHeaders(h, "@alice.bot"),
         body: JSON.stringify({ content: text }),
       });
-      assert.equal(send.status, 200);
+      assert.equal(send.status, 201);
     }
 
     // Substring "hello" returns one message for the sender (alice).
@@ -869,7 +869,7 @@ describe("operator sessions — message search (GET /search/messages)", () => {
       headers: agentHeaders(h, "@alice.bot"),
       body: JSON.stringify({ invite: ["@bob.bot"] }),
     });
-    assert.equal(create.status, 200);
+    assert.equal(create.status, 201);
     const { session_id: sid } = (await create.json()) as { session_id: string };
 
     // alice sends a message; bob is invited but hasn't joined.
