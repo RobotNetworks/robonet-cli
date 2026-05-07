@@ -50,6 +50,7 @@
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
+    "smoke": "node scripts/ci-smoke-test.mjs",
     "conformance": "node --import tsx tests/conformance/run-conformance.ts",
     "prepublishOnly": "npm run build && npm test"
   },

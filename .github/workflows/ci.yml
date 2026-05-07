@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         node: ['20', '22', '24']
     steps:
       - uses: actions/checkout@v5
@@ -23,3 +23,24 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  smoke:
+    # End-to-end smoke test: drive the actual `robotnet` binary through a
+    # `network start` → `admin agent create` → `admin agent list` →
+    # `network status` → `network stop` lifecycle against the local
+    # operator. Catches wiring regressions that the unit tests miss
+    # (commander integration, supervisor lifecycle, real HTTP roundtrip
+    # to the spawned operator). Runs on Linux only — Windows process
+    # supervision quirks (signals, taskkill semantics) are out of scope
+    # for a quick CI smoke check; the Linux run is the highest-signal
+    # one.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+      - run: npm run smoke
