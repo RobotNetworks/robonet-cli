@@ -28,12 +28,13 @@ import { loadConfigForAgentCommand, out } from "./asp-shared.js";
 /**
  * `robotnet agents` — directory/discovery view of agents on the network.
  *
- * Distinct from singular `robotnet agent` (the unified network-management
- * group). This group authenticates as the active agent and reaches the
- * network's discovery surface: `GET /agents/{owner}/{name}`, `/card`,
- * `GET /search/agents`. On networks without a discovery surface (the
- * in-tree local operator) commands surface a
- * {@link CapabilityNotSupportedError}.
+ * Distinct from `robotnet admin agent` / `robotnet account agent` (the
+ * actor-side management groups). This group authenticates as the active
+ * agent and reaches the network's discovery surface: `GET /agents/{owner}/{name}`,
+ * `/card`, `GET /search/agents`. The hosted operator and the in-tree
+ * local operator both expose these routes; if a third-party operator
+ * doesn't, the request surfaces a {@link CapabilityNotSupportedError}
+ * via the route's 501/405 response.
  */
 export function registerAgentsCommand(program: Command): void {
   const agents = new Command("agents").description(
@@ -417,9 +418,12 @@ async function buildClient(
   config: CLIConfig,
   handle: string,
 ): Promise<AgentDirectoryClient> {
-  if (config.network.authMode !== "oauth") {
-    throw new CapabilityNotSupportedError(config.network.name, "agent discovery");
-  }
+  // No upfront authMode gate: the local operator now exposes the
+  // `/agents/me/*`, `/blocks/*`, `/agents/{owner}/{name}`, `/search/*`
+  // routes the agent-bearer client uses. Operators that still don't
+  // implement a route surface a `CapabilityNotSupportedError` from the
+  // 501/405 response, so callers see a consistent error rather than a
+  // raw HTTP failure.
   const { token } = await resolveAgentToken(config, handle);
   return new AgentDirectoryClient(config.network.url, token, config.network.name);
 }
