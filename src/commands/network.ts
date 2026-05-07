@@ -31,7 +31,7 @@ import { jsonOption, profileTitle } from "./shared.js";
  * - `status` — render PID, port, uptime, and a live `/healthz` snapshot.
  * - `logs` — `tail [-f]` the operator's stdout/stderr log.
  * - `reset` — destructive: stop the operator, drop the database file, and
- *   delete the admin token. Confirmation gated by `--yes`.
+ *   delete the local admin token. Confirmation gated by `--yes`.
  */
 export function registerNetworkCommand(program: Command): void {
   const network = new Command("network").description(
@@ -160,7 +160,7 @@ export function registerNetworkCommand(program: Command): void {
   network
     .command("reset")
     .description(
-      "Destructive: stop the operator, delete its database, and clear the admin token.",
+      "Destructive: stop the operator, delete its database, and clear the local admin token.",
     )
     .option("-y, --yes", "Skip the confirmation prompt", false)
     .action(async (opts: ResetOpts, cmd: Command) => {
@@ -197,12 +197,12 @@ export function registerNetworkCommand(program: Command): void {
       }
 
       const store = await openProcessCredentialStore(config);
-      const dropped = store.deleteAdminToken(config.network.name);
+      const dropped = store.deleteLocalAdminToken(config.network.name);
 
       console.log(
         `Reset network "${config.network.name}". ` +
           `Database deleted at ${paths.databaseFile}. ` +
-          (dropped ? "Admin token cleared." : "No admin token to clear."),
+          (dropped ? "Local admin token cleared." : "No local admin token to clear."),
       );
     });
 

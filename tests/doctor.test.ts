@@ -160,7 +160,7 @@ describe("runDoctor — credential_store", () => {
     const store = CredentialStore.open(credentialsStorePath(config), {
       encryptor: new UnsafePlaintextEncryptor(),
     });
-    store.putAdminToken("local", "tok");
+    store.putLocalAdminToken("local", "tok");
     store.putAgentCredential({
       networkName: "local",
       handle: "@cli.bot",

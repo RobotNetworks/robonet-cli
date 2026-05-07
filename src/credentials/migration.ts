@@ -39,7 +39,7 @@ export async function migrateLegacyCredentials(args: {
   for (const network of args.networkNames) {
     const paths = networkStatePaths(args.profileStateDir, network);
 
-    if (args.store.getAdminToken(network) === null) {
+    if (args.store.getLocalAdminToken(network) === null) {
       const migrated = await migrateAdminToken(args.store, network, paths.adminTokenFile);
       if (migrated) summary.adminTokensMigrated += 1;
     }
@@ -112,7 +112,7 @@ async function migrateAdminToken(
 ): Promise<boolean> {
   const token = await tryReadTrimmed(filePath);
   if (token === null) return false;
-  store.putAdminToken(network, token);
+  store.putLocalAdminToken(network, token);
   await tryUnlink(filePath);
   return true;
 }

@@ -106,9 +106,9 @@ export async function performPkceLogin(
  *     back as ``agent_handle`` on the token-endpoint response, and is
  *     surfaced on ``PKCELoginResult.agentHandle``.
  *
- * The user must be signed in to auth.robotnet.ai in their browser
- * (cookie / Cognito session). If they aren't, the consent page handles
- * the human login first and then proceeds with the agent authorization.
+ * The user must be signed in to auth.robotnet.ai in their browser. If they
+ * aren't, the consent page handles the human login first and then proceeds
+ * with the agent authorization.
  */
 export async function performAgentPkceLogin(args: {
   readonly endpoints: EndpointConfig;

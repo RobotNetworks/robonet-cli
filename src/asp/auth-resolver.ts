@@ -10,14 +10,14 @@ import {
   renewAgentClientCredentials,
   renewAgentPkce,
 } from "./agent-login.js";
-import { AdminTokenNotFoundError, CredentialNotFoundError } from "./credentials.js";
+import { LocalAdminTokenNotFoundError, CredentialNotFoundError } from "./credentials.js";
 import { AspSessionClient } from "./session-client.js";
 
 /**
  * Single seam for resolving the bearer tokens an ASP command needs.
  *
  * Lookup order:
- *   1. The `--admin-token` / `--token` override flag (explicit dev escape hatch).
+ *   1. The `--local-admin-token` / `--token` override flag (explicit dev escape hatch).
  *   2. The shared SQLite credential store. For OAuth-issued agent tokens,
  *      bearers within the grace window of expiry are silently renewed using
  *      the row's stored renewal material (refresh_token for PKCE,
@@ -43,19 +43,19 @@ export async function resolveAdminToken(
     return { token: override, source: "flag" };
   }
   const store = await openProcessCredentialStore(config);
-  let stored: ReturnType<CredentialStore["getAdminToken"]>;
+  let stored: ReturnType<CredentialStore["getLocalAdminToken"]>;
   try {
-    stored = store.getAdminToken(config.network.name);
+    stored = store.getLocalAdminToken(config.network.name);
   } catch (err) {
     if (err instanceof CredentialDecryptionError) {
-      handleKeyChangeRecovery(store, "admin token", config.network.name);
+      handleKeyChangeRecovery(store, "local admin token", config.network.name);
     }
     throw err;
   }
   if (stored !== null) {
     return { token: stored.token, source: "store" };
   }
-  throw new AdminTokenNotFoundError(config.network.name);
+  throw new LocalAdminTokenNotFoundError(config.network.name);
 }
 
 export async function resolveAdminClient(
@@ -155,7 +155,25 @@ export async function resolveSessionClient(
   override?: string,
 ): Promise<AspSessionClient> {
   const { token } = await resolveAgentToken(config, handle, override);
-  return new AspSessionClient(config.network.url, token);
+  return new AspSessionClient(config.network.url, websocketUrlFor(config), token);
+}
+
+/**
+ * Resolve the WebSocket handshake URL for the active network.
+ *
+ * `oauth` networks may front the WebSocket on a dedicated gateway whose
+ * origin differs from the REST API's — discovery surfaces it as
+ * `endpoints.websocketUrl`. Use that URL as-is.
+ *
+ * `agent-token` networks (e.g. `robotnet network start` running the local
+ * Node operator) serve REST and WS on the same host with WS at `/connect`.
+ * For those, promote the REST URL's scheme and append the path.
+ */
+function websocketUrlFor(config: CLIConfig): string {
+  if (config.network.authMode === "oauth") {
+    return config.endpoints.websocketUrl;
+  }
+  return `${config.network.url.replace(/^http/, "ws")}/connect`;
 }
 
 /**
@@ -164,7 +182,7 @@ export async function resolveSessionClient(
  *
  * Read order:
  *   1. The shared user_session row in the credential store. If absent →
- *      "not logged in" — the user must run `robotnet login` first.
+ *      "not logged in" — the user must run `robotnet account login` first.
  *   2. If the cached access token is within the grace window of expiry,
  *      exchange the stored refresh token at the original token endpoint
  *      and persist the rotated credential. Refresh failures from the auth
@@ -192,7 +210,7 @@ export async function resolveUserToken(config: CLIConfig): Promise<ResolvedToken
   }
   if (session === null) {
     throw new RobotNetCLIError(
-      "Not logged in — run `robotnet login` to authenticate as the calling account.",
+      "Not logged in — run `robotnet account login` to authenticate as the calling account.",
     );
   }
 
@@ -210,7 +228,7 @@ export async function resolveUserToken(config: CLIConfig): Promise<ResolvedToken
     // token by design) or the issuing client_id wasn't persisted. Either
     // way, we can't silently renew.
     throw new RobotNetCLIError(
-      "User session expired and cannot be refreshed — run `robotnet login` to re-authenticate.",
+      "User session expired and cannot be refreshed — run `robotnet account login` to re-authenticate.",
     );
   }
 
@@ -230,7 +248,7 @@ export async function resolveUserToken(config: CLIConfig): Promise<ResolvedToken
       // "not logged in" instead of looping on a doomed credential.
       store.deleteUserSession();
       throw new RobotNetCLIError(
-        "User session refresh was rejected by the auth server — run `robotnet login` to re-authenticate.",
+        "User session refresh was rejected by the auth server — run `robotnet account login` to re-authenticate.",
       );
     }
     throw err;
@@ -275,7 +293,7 @@ function handleKeyChangeRecovery(
   throw new RobotNetCLIError(
     `cannot decrypt the stored ${whatWeWereReading} on network "${networkName}". ` +
       `The OS keychain key was likely reset since these credentials were stored. ` +
-      `Cleared ${purged.adminTokens} admin token(s) and ${purged.agentCredentials} agent credential(s) ` +
+      `Cleared ${purged.localAdminTokens} local admin token(s) and ${purged.agentCredentials} agent credential(s) ` +
       `that were no longer readable — re-register agents and re-login to restore access.`,
   );
 }

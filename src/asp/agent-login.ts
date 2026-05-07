@@ -16,9 +16,8 @@ import { assertValidHandle } from "./handles.js";
  *   - `client_credentials`: generated on the website ("Generate credentials"),
  *     stored long-term in `agent_credentials.client_id` / `client_secret`,
  *     re-minted on demand when the cached access token expires.
- *   - `pkce`: stub. Lands once auth.robotnet.ai' agent-PKCE endpoint
- *     stabilises (see migration.bot's note on the in-flight `/authorize`
- *     reshape).
+ *   - `pkce`: interactive agent login, persisted with refresh material once
+ *     the issuer returns an agent-scoped token.
  *
  * All flows write through the same `agent_credentials` table, discriminated
  * by `kind`. The `auth-resolver` calls into renewal lazily — each command
@@ -225,7 +224,7 @@ async function persistAgentPkce(args: {
   // Cross-check the auth server's self-declared network against the
   // network we resolved locally. A mismatch means the profile wired
   // OAuth endpoints from one network into another's storage key — the
-  // exact failure mode that produced the original `local|nick.soa`
+  // exact failure mode that produced the original non-canonical row key
   // ghost row. Older auth servers that don't stamp this field skip the
   // check and we trust local config.
   if (result.network !== null && result.network !== config.network.name) {

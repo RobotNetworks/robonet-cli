@@ -56,7 +56,7 @@ export interface UserSessionInput {
   readonly authMode: UserSessionAuthMode;
 }
 
-export interface AdminTokenRecord {
+export interface LocalAdminTokenRecord {
   readonly networkName: string;
   readonly token: string;
   readonly issuedAt: number;
@@ -101,7 +101,7 @@ export class CredentialStoreError extends RobotNetCLIError {
  * SQLite-backed credential store, shared with the RobotNet desktop app.
  *
  * The DB file is opened in WAL mode so multiple processes (the CLI and the
- * Mac app) can read concurrently with one writer at a time. Every secret
+ * desktop app) can read concurrently with one writer at a time. Every secret
  * column passes through {@link Encryptor.encrypt} on write and
  * {@link Encryptor.decrypt} on read; today the only implementation is
  * {@link UnsafePlaintextEncryptor}, with a Keychain-backed implementation
@@ -135,7 +135,7 @@ export class CredentialStore {
       }
       db.pragma("journal_mode = WAL");
       db.pragma("foreign_keys = ON");
-      // Wait up to 3s on a contended writer before erroring; the Mac app
+      // Wait up to 3s on a contended writer before erroring; another app
       // may be holding the lock briefly during a token rotation.
       db.pragma("busy_timeout = 3000");
 
@@ -164,9 +164,9 @@ export class CredentialStore {
     return row?.version ?? 0;
   }
 
-  // ── admin tokens ──────────────────────────────────────────────────────────
+  // ── local admin tokens (one per local network) ────────────────────────────
 
-  getAdminToken(networkName: string): AdminTokenRecord | null {
+  getLocalAdminToken(networkName: string): LocalAdminTokenRecord | null {
     const row = this.#db
       .prepare(
         `SELECT network_name, token_ciphertext, issued_at, updated_at
@@ -184,7 +184,7 @@ export class CredentialStore {
     };
   }
 
-  putAdminToken(networkName: string, token: string, opts: { readonly issuedAt?: number } = {}): void {
+  putLocalAdminToken(networkName: string, token: string, opts: { readonly issuedAt?: number } = {}): void {
     const now = Date.now();
     const issuedAt = opts.issuedAt ?? now;
     const ct = this.#encryptor.encrypt(token);
@@ -205,7 +205,7 @@ export class CredentialStore {
       });
   }
 
-  deleteAdminToken(networkName: string): boolean {
+  deleteLocalAdminToken(networkName: string): boolean {
     const info = this.#db
       .prepare("DELETE FROM admin_tokens WHERE network_name = ?")
       .run(networkName);
@@ -408,7 +408,7 @@ export class CredentialStore {
 
   // ── counts (for diagnostics; secrets-free) ────────────────────────────────
 
-  countAdminTokens(): number {
+  countLocalAdminTokens(): number {
     const row = this.#db
       .prepare("SELECT count(*) AS n FROM admin_tokens")
       .get() as { n: number };
@@ -434,7 +434,7 @@ export class CredentialStore {
    * every row at once, so a sweep is cheaper than handling them one-by-one.
    */
   purgeUnreadableRows(): {
-    readonly adminTokens: number;
+    readonly localAdminTokens: number;
     readonly agentCredentials: number;
     readonly userSessions: number;
   } {
@@ -509,7 +509,7 @@ export class CredentialStore {
     }
 
     return {
-      adminTokens: badAdmin.length,
+      localAdminTokens: badAdmin.length,
       agentCredentials: badAgent.length,
       userSessions: userSessionsPurged,
     };

@@ -47,31 +47,19 @@ const LOCAL: NetworkConfig = {
 describe("assertNetworkSupportsOAuthLogin", () => {
   it("accepts an OAuth network", () => {
     assert.doesNotThrow(() =>
-      assertNetworkSupportsOAuthLogin(makeConfig({ active: PUBLIC }), undefined),
+      assertNetworkSupportsOAuthLogin(makeConfig({ active: PUBLIC })),
     );
   });
 
   it("refuses an agent-token network and points at the right OAuth network", () => {
     const config = makeConfig({ active: LOCAL, others: [PUBLIC] });
     assert.throws(
-      () => assertNetworkSupportsOAuthLogin(config, "@nick.soa"),
+      () => assertNetworkSupportsOAuthLogin(config),
       (err: unknown) =>
         err instanceof Error &&
         err.message.includes('"local" uses agent-token auth') &&
         err.message.includes("--network public") &&
-        err.message.includes("--agent @nick.soa"),
-    );
-  });
-
-  it("preserves the picker shape when --agent is bare", () => {
-    const config = makeConfig({ active: LOCAL, others: [PUBLIC] });
-    assert.throws(
-      () => assertNetworkSupportsOAuthLogin(config, true),
-      (err: unknown) =>
-        err instanceof Error &&
-        err.message.includes("--network public login --agent") &&
-        // Bare --agent must not attach a fake placeholder handle.
-        !err.message.includes("--agent <"),
+        err.message.includes("robotnet agent create"),
     );
   });
 
@@ -84,7 +72,7 @@ describe("assertNetworkSupportsOAuthLogin", () => {
       ],
     });
     assert.throws(
-      () => assertNetworkSupportsOAuthLogin(config, undefined),
+      () => assertNetworkSupportsOAuthLogin(config),
       (err: unknown) =>
         err instanceof Error &&
         err.message.includes("Available OAuth networks: public, staging"),
@@ -94,7 +82,7 @@ describe("assertNetworkSupportsOAuthLogin", () => {
   it("omits the suggestion when no OAuth network is configured at all", () => {
     const config = makeConfig({ active: LOCAL });
     assert.throws(
-      () => assertNetworkSupportsOAuthLogin(config, undefined),
+      () => assertNetworkSupportsOAuthLogin(config),
       (err: unknown) =>
         err instanceof Error &&
         err.message.includes('"local" uses agent-token auth') &&

@@ -19,9 +19,9 @@ import { loadConfigForAgentCommand, out } from "./asp-shared.js";
  *
  * Each leaf authenticates with the agent's bearer token. Resolution order:
  *   1. `--token <tok>` flag
- *   2. `<state>/networks/<network>/credentials/<owner>.<name>.token`
- *      (written by `robotnet agent register` / `rotate-token`; later: read
- *      from the shared SQLite credential store)
+ *   2. The shared SQLite credential store, keyed by `(network, handle)`.
+ *      Local bearers are written by `robotnet admin agent create` /
+ *      `admin agent rotate-token`; remote bearers by `robotnet login`.
  *
  * The acting agent is resolved by `--as <handle>` > `ROBOTNET_AGENT` env >
  * `.robotnet/asp.json` directory binding. When the directory binding declares

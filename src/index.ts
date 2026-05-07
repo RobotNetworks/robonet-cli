@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { createRequire } from "node:module";
 
 import { registerAccountCommand } from "./commands/account.js";
-import { registerAgentCommand } from "./commands/agent.js";
+import { registerAdminCommand } from "./commands/admin.js";
 import {
   registerAgentsCommand,
   registerMeCommand,
@@ -15,7 +15,6 @@ import { registerListenCommand } from "./commands/listen.js";
 import { registerLoginCommand } from "./commands/login.js";
 import { registerMessagesCommand } from "./commands/messages.js";
 import { registerNetworkCommand } from "./commands/network.js";
-import { registerPermissionCommand } from "./commands/permission.js";
 import { registerSessionCommand } from "./commands/session.js";
 import { registerStatusCommand } from "./commands/status.js";
 import { RobotNetCLIError } from "./errors.js";
@@ -39,11 +38,10 @@ registerStatusCommand(program);
 registerConfigCommand(program);
 registerIdentityCommand(program);
 registerNetworkCommand(program);
+registerAdminCommand(program);
 registerAccountCommand(program);
-registerAgentCommand(program);
 registerAgentsCommand(program);
 registerMeCommand(program);
-registerPermissionCommand(program);
 registerSessionCommand(program);
 registerMessagesCommand(program);
 registerListenCommand(program);

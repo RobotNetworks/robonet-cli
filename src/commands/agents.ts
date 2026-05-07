@@ -2,7 +2,11 @@ import { Command } from "commander";
 
 import { resolveAgentToken } from "../asp/auth-resolver.js";
 import { AspApiError } from "../asp/errors.js";
-import { handleArg } from "../asp/handles.js";
+import {
+  allowlistEntriesArg,
+  assertValidAllowlistEntry,
+  handleArg,
+} from "../asp/handles.js";
 import { AgentDirectoryClient } from "../agents/client.js";
 import { CapabilityNotSupportedError } from "../agents/errors.js";
 import {
@@ -18,17 +22,17 @@ import {
 } from "../agents/types.js";
 import type { CLIConfig } from "../config.js";
 import { RobotNetCLIError } from "../errors.js";
+import { pluralize } from "../output/formatters.js";
 import { loadConfigForAgentCommand, out } from "./asp-shared.js";
 
 /**
- * `robotnet agents` — public/discovery view of agents on the network.
+ * `robotnet agents` — directory/discovery view of agents on the network.
  *
- * Distinct from singular `robotnet agent` (admin-token-driven, only exposes
- * the operator's `/_admin/*` surface). This group authenticates as the
- * active agent and reaches the network's discovery surface:
- * `GET /agents/{owner}/{name}`, `/card`, `GET /search/agents`. Restored from
- * the pre-ASP-migration command set; on networks without a discovery
- * surface (the in-tree local operator) commands surface a
+ * Distinct from singular `robotnet agent` (the unified network-management
+ * group). This group authenticates as the active agent and reaches the
+ * network's discovery surface: `GET /agents/{owner}/{name}`, `/card`,
+ * `GET /search/agents`. On networks without a discovery surface (the
+ * in-tree local operator) commands surface a
  * {@link CapabilityNotSupportedError}.
  */
 export function registerAgentsCommand(program: Command): void {
@@ -50,10 +54,11 @@ export function registerAgentsCommand(program: Command): void {
  */
 export function registerMeCommand(program: Command): void {
   const me = new Command("me").description(
-    "Show, update, and manage blocks for the calling agent",
+    "Manage the calling agent — profile, allowlist, and blocks",
   );
   me.addCommand(makeMeShowCmd());
   me.addCommand(makeMeUpdateCmd());
+  me.addCommand(makeMeAllowlistCmd());
   me.addCommand(makeMeBlockCmd());
   me.addCommand(makeMeUnblockCmd());
   me.addCommand(makeMeBlocksCmd());
@@ -73,7 +78,7 @@ export function registerSearchCommand(program: Command): void {
 function makeShowCmd(): Command {
   return new Command("show")
     .description("Show an agent's profile by handle")
-    .argument("<handle>", "Agent handle (e.g. @nick.cli)", handleArg)
+    .argument("<handle>", "Agent handle (e.g. @owner.cli)", handleArg)
     .option("--as <handle>", "Act as this agent handle", handleArg)
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (handle: string, opts: ShowOpts, cmd: Command) => {
@@ -102,7 +107,7 @@ interface ShowOpts {
 function makeCardCmd(): Command {
   return new Command("card")
     .description("Print an agent's card body (markdown) by handle")
-    .argument("<handle>", "Agent handle (e.g. @nick.cli)", handleArg)
+    .argument("<handle>", "Agent handle (e.g. @owner.cli)", handleArg)
     .option("--as <handle>", "Act as this agent handle", handleArg)
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (handle: string, opts: CardOpts, cmd: Command) => {
@@ -254,6 +259,103 @@ interface MeUpdateOpts {
   readonly json: boolean;
 }
 
+// ── me allowlist add | remove | list ─────────────────────────────────────────
+
+function makeMeAllowlistCmd(): Command {
+  const allowlist = new Command("allowlist").description(
+    "Manage the calling agent's allowlist (who is permitted to reach you under the allowlist policy)",
+  );
+
+  allowlist
+    .command("list")
+    .description("Show the calling agent's allowlist")
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .option("--json", "Emit machine-readable JSON", false)
+    .action(async (opts: AllowlistReadOpts, cmd: Command) => {
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const client = await buildClient(config, identity.handle);
+      const result = await client.getSelfAllowlist();
+      if (opts.json) {
+        out(JSON.stringify(result, null, 2));
+        return;
+      }
+      renderAllowlist(identity.handle, result.entries);
+    });
+
+  allowlist
+    .command("add")
+    .description("Add one or more entries to the calling agent's allowlist")
+    .argument(
+      "<entries...>",
+      "Allowlist entries — each is a handle (@<owner>.<name>) or owner glob (@<owner>.*)",
+      allowlistEntriesArg,
+    )
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .option("--json", "Emit machine-readable JSON", false)
+    .action(async (entries: string[], opts: AllowlistMutateOpts, cmd: Command) => {
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const client = await buildClient(config, identity.handle);
+      const result = await client.addSelfAllowlistEntries(entries);
+      if (opts.json) {
+        out(JSON.stringify(result, null, 2));
+        return;
+      }
+      out(
+        `Added ${entries.length} ${pluralize(entries.length, "entry", "entries")} ` +
+          `to ${identity.handle}'s allowlist.`,
+      );
+      renderAllowlist(identity.handle, result.entries);
+    });
+
+  allowlist
+    .command("remove")
+    .description("Remove an entry from the calling agent's allowlist")
+    .argument("<entry>", "Allowlist entry to remove", (value: string) => {
+      assertValidAllowlistEntry(value);
+      return value;
+    })
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .option("--json", "Emit machine-readable JSON", false)
+    .action(async (entry: string, opts: AllowlistMutateOpts, cmd: Command) => {
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const client = await buildClient(config, identity.handle);
+      const result = await client.removeSelfAllowlistEntry(entry);
+      if (opts.json) {
+        out(JSON.stringify(result, null, 2));
+        return;
+      }
+      out(`Removed "${entry}" from ${identity.handle}'s allowlist.`);
+      renderAllowlist(identity.handle, result.entries);
+    });
+
+  return allowlist;
+}
+
+interface AllowlistReadOpts {
+  readonly as?: string;
+  readonly json: boolean;
+}
+
+interface AllowlistMutateOpts {
+  readonly as?: string;
+  readonly json: boolean;
+}
+
+function renderAllowlist(
+  handle: string,
+  entries: readonly string[],
+): void {
+  out(`  handle    ${handle}`);
+  if (entries.length === 0) {
+    out("  allowlist (empty)");
+    return;
+  }
+  out("  allowlist");
+  for (const entry of entries) {
+    out(`    ${entry}`);
+  }
+}
+
 // ── me block / unblock / blocks ──────────────────────────────────────────────
 
 function makeMeBlockCmd(): Command {
@@ -333,7 +435,7 @@ function parseLimit(value: string): number {
 }
 
 /**
- * Wrap a discovery call so the privacy-preserving 404 from the hosted backend
+ * Wrap a discovery call so the privacy-preserving 404 from the hosted API
  * surfaces as a plainspoken "not found or not visible" hint instead of a raw
  * `ASP API error 404: http_404` line. Other errors propagate unchanged.
  */

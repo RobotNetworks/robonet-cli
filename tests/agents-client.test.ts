@@ -40,16 +40,16 @@ function stubFetch(handler: (url: string, init?: RequestInit) => Response): void
 }
 
 const PUBLIC_AGENT = {
-  canonical_handle: "@nick.cli",
-  display_name: "Nick CLI",
+  canonical_handle: "@owner.cli",
+  display_name: "Owner CLI",
   description: null,
   image_url: null,
   visibility: "public",
   inbound_policy: "allowlist",
   inactive: false,
   is_online: true,
-  owner_label: "@nick",
-  owner_display_name: "Nick",
+  owner_label: "@owner",
+  owner_display_name: "Owner",
   owner_image_url: null,
 };
 
@@ -57,7 +57,7 @@ const FULL_AGENT = {
   ...PUBLIC_AGENT,
   id: "agt_01",
   local_name: "cli",
-  namespace: "nick",
+  namespace: "owner",
   owner_type: "account",
   owner_id: "acct_01",
   scope: "personal",
@@ -82,13 +82,13 @@ describe("AgentDirectoryClient.getAgent", () => {
       ),
     );
 
-    const detail = await makeClient().getAgent("@nick.cli");
-    assert.equal(detail.agent.canonical_handle, "@nick.cli");
+    const detail = await makeClient().getAgent("@owner.cli");
+    assert.equal(detail.agent.canonical_handle, "@owner.cli");
     assert.equal(isFullAgentResponse(detail.agent), false);
     assert.equal(detail.viewer.relationship, "none");
     assert.equal(detail.shared_sessions.length, 0);
     assert.equal(calls.length, 1);
-    assert.equal(calls[0]!.url, `${BASE}/agents/nick/cli`);
+    assert.equal(calls[0]!.url, `${BASE}/agents/owner/cli`);
   });
 
   it("returns the full agent shape inside the wrapper", async () => {
@@ -111,7 +111,7 @@ describe("AgentDirectoryClient.getAgent", () => {
       ),
     );
 
-    const detail = await makeClient().getAgent("@nick.cli");
+    const detail = await makeClient().getAgent("@owner.cli");
     assert.equal(isFullAgentResponse(detail.agent), true);
     if (isFullAgentResponse(detail.agent)) {
       assert.equal(detail.agent.skills?.length, 1);
@@ -124,13 +124,13 @@ describe("AgentDirectoryClient.getAgent", () => {
 
   it("propagates 404 as AspApiError (privacy-preserving 'not visible')", async () => {
     stubFetch(() => new Response("", { status: 404 }));
-    await assert.rejects(() => makeClient().getAgent("@nick.cli"), AspApiError);
+    await assert.rejects(() => makeClient().getAgent("@owner.cli"), AspApiError);
   });
 
   it("translates 501 to CapabilityNotSupportedError", async () => {
     stubFetch(() => new Response("", { status: 501 }));
     await assert.rejects(
-      () => makeClient().getAgent("@nick.cli"),
+      () => makeClient().getAgent("@owner.cli"),
       CapabilityNotSupportedError,
     );
   });
@@ -145,15 +145,15 @@ describe("AgentDirectoryClient.getAgentCard", () => {
           headers: { "Content-Type": "text/markdown; charset=utf-8" },
         }),
     );
-    const card = await makeClient().getAgentCard("@nick.cli");
+    const card = await makeClient().getAgentCard("@owner.cli");
     assert.equal(card, "# Hello\nLine 2");
-    assert.equal(calls[0]!.url, `${BASE}/agents/nick/cli/card`);
+    assert.equal(calls[0]!.url, `${BASE}/agents/owner/cli/card`);
   });
 
   it("propagates 404 as AspApiError (the agent doesn't exist or isn't visible)", async () => {
     stubFetch(() => new Response("", { status: 404 }));
     await assert.rejects(
-      () => makeClient().getAgentCard("@nick.cli"),
+      () => makeClient().getAgentCard("@owner.cli"),
       AspApiError,
     );
   });
@@ -161,7 +161,7 @@ describe("AgentDirectoryClient.getAgentCard", () => {
   it("translates 501 to CapabilityNotSupportedError", async () => {
     stubFetch(() => new Response("", { status: 501 }));
     await assert.rejects(
-      () => makeClient().getAgentCard("@nick.cli"),
+      () => makeClient().getAgentCard("@owner.cli"),
       CapabilityNotSupportedError,
     );
   });
@@ -173,17 +173,17 @@ describe("AgentDirectoryClient.searchAgents", () => {
       new Response(
         JSON.stringify({
           agents: [
-            { type: "agent", id: "a1", canonical_handle: "@nick.cli", display_name: "Nick", image_url: null },
+            { type: "agent", id: "a1", canonical_handle: "@owner.cli", display_name: "Owner", image_url: null },
           ],
         }),
         { status: 200 },
       ),
     );
-    const result = await makeClient().searchAgents("nick bot", 5);
+    const result = await makeClient().searchAgents("owner bot", 5);
     assert.equal(result.agents.length, 1);
     const url = new URL(calls[0]!.url);
     assert.equal(url.pathname, "/v1/search/agents");
-    assert.equal(url.searchParams.get("q"), "nick bot");
+    assert.equal(url.searchParams.get("q"), "owner bot");
     assert.equal(url.searchParams.get("limit"), "5");
   });
 
@@ -222,8 +222,8 @@ describe("AgentDirectoryClient.searchDirectory", () => {
             {
               type: "person",
               id: "p1",
-              username: "nick",
-              display_name: "Nick",
+              username: "owner",
+              display_name: "Owner",
               image_url: null,
             },
           ],
@@ -240,10 +240,10 @@ describe("AgentDirectoryClient.searchDirectory", () => {
         { status: 200 },
       ),
     );
-    const result = await makeClient().searchDirectory("nick", 10);
+    const result = await makeClient().searchDirectory("owner", 10);
     assert.equal(result.agents.length, 0);
     assert.equal(result.people.length, 1);
-    assert.equal(result.people[0]!.username, "nick");
+    assert.equal(result.people[0]!.username, "owner");
     assert.equal(result.organizations.length, 1);
     assert.equal(result.organizations[0]!.slug, "acme");
     const url = new URL(calls[0]!.url);
@@ -255,7 +255,7 @@ describe("AgentDirectoryClient.getSelf / updateSelf", () => {
   it("getSelf returns the full AgentResponse from /agents/me", async () => {
     stubFetch(() => new Response(JSON.stringify(FULL_AGENT), { status: 200 }));
     const self = await makeClient().getSelf();
-    assert.equal(self.canonical_handle, "@nick.cli");
+    assert.equal(self.canonical_handle, "@owner.cli");
     assert.equal(self.id, "agt_01");
     assert.equal(calls[0]!.url, `${BASE}/agents/me`);
   });
@@ -340,5 +340,80 @@ describe("AgentDirectoryClient handle parsing", () => {
     await makeClient().getAgentCard("@a-1.b_2");
     const url = new URL(calls[0]!.url);
     assert.equal(url.pathname, "/v1/agents/a-1/b_2/card");
+  });
+});
+
+describe("AgentDirectoryClient self-allowlist", () => {
+  it("getSelfAllowlist GETs /agents/me/allowlist and returns the entries", async () => {
+    stubFetch(() =>
+      new Response(JSON.stringify({ entries: ["@friend.bot", "@team.*"] }), {
+        status: 200,
+      }),
+    );
+    const result = await makeClient().getSelfAllowlist();
+    assert.deepEqual([...result.entries], ["@friend.bot", "@team.*"]);
+    assert.equal(calls[0]!.url, `${BASE}/agents/me/allowlist`);
+    assert.equal(calls[0]!.init?.method, "GET");
+  });
+
+  it("addSelfAllowlistEntries POSTs entries to /agents/me/allowlist", async () => {
+    stubFetch((_url, init) => {
+      assert.equal(init?.method, "POST");
+      const body = JSON.parse(String(init?.body ?? "null"));
+      assert.deepEqual(body, { entries: ["@friend.bot", "@team.*"] });
+      return new Response(
+        JSON.stringify({ entries: ["@friend.bot", "@team.*"] }),
+        { status: 200 },
+      );
+    });
+    const result = await makeClient().addSelfAllowlistEntries([
+      "@friend.bot",
+      "@team.*",
+    ]);
+    assert.deepEqual([...result.entries], ["@friend.bot", "@team.*"]);
+  });
+
+  it("addSelfAllowlistEntries rejects malformed entries before calling the network", async () => {
+    let called = false;
+    stubFetch(() => {
+      called = true;
+      return new Response("{}", { status: 200 });
+    });
+    await assert.rejects(
+      () => makeClient().addSelfAllowlistEntries(["not-a-handle"]),
+      /invalid allowlist entry/,
+    );
+    assert.equal(called, false);
+  });
+
+  it("removeSelfAllowlistEntry DELETEs /agents/me/allowlist/{entry} URL-encoded", async () => {
+    stubFetch(() => new Response(JSON.stringify({ entries: [] }), { status: 200 }));
+    await makeClient().removeSelfAllowlistEntry("@friend.bot");
+    assert.equal(
+      calls[0]!.url,
+      `${BASE}/agents/me/allowlist/${encodeURIComponent("@friend.bot")}`,
+    );
+    assert.equal(calls[0]!.init?.method, "DELETE");
+  });
+
+  it("removeSelfAllowlistEntry rejects malformed entry before calling the network", async () => {
+    let called = false;
+    stubFetch(() => {
+      called = true;
+      return new Response("{}", { status: 200 });
+    });
+    await assert.rejects(
+      () => makeClient().removeSelfAllowlistEntry("not-a-handle"),
+      /invalid allowlist entry/,
+    );
+    assert.equal(called, false);
+  });
+
+  it("translates 501 on the read path to CapabilityNotSupportedError", async () => {
+    stubFetch(() => new Response("", { status: 501 }));
+    await assert.rejects(
+      () => makeClient().getSelfAllowlist(),
+      CapabilityNotSupportedError,
+    );
   });
 });

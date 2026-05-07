@@ -32,7 +32,7 @@ describe("migrateLegacyCredentials", () => {
   it("ingests admin and agent files into the store and removes the originals", async () => {
     await writeAdminToken(stateDir, "local", "admin-tok");
     await writeAgentCredential(stateDir, "local", "@cli.bot", "agent-tok-1");
-    await writeAgentCredential(stateDir, "local", "@migration.bot", "agent-tok-2");
+    await writeAgentCredential(stateDir, "local", "@peer.bot", "agent-tok-2");
 
     const summary = await migrateLegacyCredentials({
       store,
@@ -46,9 +46,9 @@ describe("migrateLegacyCredentials", () => {
       userSessionsMigrated: 0,
     });
 
-    assert.equal(store.getAdminToken("local")?.token, "admin-tok");
+    assert.equal(store.getLocalAdminToken("local")?.token, "admin-tok");
     assert.equal(store.getAgentCredential("local", "@cli.bot")?.bearer, "agent-tok-1");
-    assert.equal(store.getAgentCredential("local", "@migration.bot")?.bearer, "agent-tok-2");
+    assert.equal(store.getAgentCredential("local", "@peer.bot")?.bearer, "agent-tok-2");
 
     // Files removed.
     assert.equal(
@@ -81,7 +81,7 @@ describe("migrateLegacyCredentials", () => {
   });
 
   it("does not overwrite a value already in the store", async () => {
-    store.putAdminToken("local", "store-wins");
+    store.putLocalAdminToken("local", "store-wins");
     await writeAdminToken(stateDir, "local", "file-loses");
 
     const summary = await migrateLegacyCredentials({
@@ -93,7 +93,7 @@ describe("migrateLegacyCredentials", () => {
     // Store-side value wins; file is left in place because the migration
     // skipped it.
     assert.equal(summary.adminTokensMigrated, 0);
-    assert.equal(store.getAdminToken("local")?.token, "store-wins");
+    assert.equal(store.getLocalAdminToken("local")?.token, "store-wins");
     assert.equal(
       fs.existsSync(path.join(stateDir, "networks", "local", "admin.token")),
       true,

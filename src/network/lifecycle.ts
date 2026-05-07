@@ -74,7 +74,7 @@ export interface StatusResult {
  *
  * - Spawns a detached `node` child running the operator entrypoint.
  * - Writes the network state file (`network.json`).
- * - Persists a freshly-minted admin token in the encrypted credential store.
+ * - Persists a freshly-minted local admin token in the encrypted credential store.
  *
  * If a stale state file points at a dead PID the supervisor cleans it up
  * and proceeds. If a healthy operator is already running, `start` returns
@@ -200,7 +200,7 @@ export async function startNetwork(
   writeNetworkState(paths.stateFile, state);
 
   const store = await openProcessCredentialStore(config);
-  store.putAdminToken(networkName, adminToken);
+  store.putLocalAdminToken(networkName, adminToken);
 
   return { state, health, adopted: false };
 }

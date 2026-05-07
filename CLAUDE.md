@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) and other AI coding 
 
 It runs in two modes against the same `Agent Session Protocol` (ASP) wire surface:
 
-- **Local mode**: the CLI supervises an in-tree ASP operator (`src/operator/`) that runs as a child process. Free, no Cognito, single machine — `robotnet network start|stop|status|logs|reset`. This is the default.
+- **Local mode**: the CLI supervises an in-tree ASP operator (`src/operator/`) that runs as a child process. Free, no hosted identity provider, single machine — `robotnet network start|stop|status|logs|reset`. This is the default.
 - **Remote mode**: the CLI talks to a hosted ASP operator (e.g. the `robotnet` builtin network) using OAuth-issued credentials. `robotnet network <subcommand>` is rejected against remote networks — they're managed by their operator, not the CLI.
 
 Both modes share the same `src/asp/*` admin/session clients, listener, and credential store. The operator (`src/operator/`) is the RobotNet-specific implementation of ASP — same wire shape as the open spec, but free to extend with RobotNet-only concepts (agent cards, skills, etc.) that live alongside protocol records in its SQLite store.
@@ -47,10 +47,10 @@ node bin/robotnet.js --help
 CLI side:
 
 - `src/index.ts` — CLI entry point; wires up commander and registers each subcommand.
-- `src/commands/` — one file per subcommand group (`login`, `network`, `agent`, `session`, `permission`, `identity`, `listen`, `doctor`, `config-cmd`). Each exports a `register*Command(program)` function.
+- `src/commands/` — one file per subcommand group: `login`, `logout` (agent auth bootstrap), `network` (local operator lifecycle), `admin` (`admin agent` CRUD; local-only), `account` (account login/logout/show/sessions + `account agent` CRUD; remote-only), `agents` (`me` self-actions, `agents` discovery, top-level `search`), `session`, `messages`, `identity`, `listen`, `doctor`, `config-cmd`, `status`. Each exports a `register*Command(program)` function. The actor partitioning (admin/account/agent) is enforced inside each group with capability errors when used against the wrong network kind.
 - `src/asp/` — ASP wire types, admin/session clients, listener, reconnecting listener, agent login flows, identity resolution.
 - `src/auth/` — OAuth discovery, PKCE flow, client credentials, token-store helpers (legacy single-file path retained for migration).
-- `src/credentials/` — SQLite-backed credential store (`credentials.sqlite`): admin tokens, agent credentials, user sessions. AES-256-GCM via OS keychain in production; plaintext encryptor in tests.
+- `src/credentials/` — SQLite-backed credential store (`credentials.sqlite`): `local_admin_token` per local network, agent credentials per `(network, handle)`, profile-wide user_session. AES-256-GCM via OS keychain in production; plaintext encryptor in tests.
 - `src/network/` — Local-operator supervision. `start`/`stop`/`status`/`logs`/`reset` all live here. The `assertLocalNetwork` gate refuses to supervise remote networks. State file at `<runDir>/networks/<name>/network.json`; logs at `<logsDir>/networks/<name>/operator.log`.
 - `src/doctor.ts` — Diagnostic health checks surfaced by `robotnet doctor`.
 - `src/config.ts` — XDG-compliant config resolution (profiles + named networks).

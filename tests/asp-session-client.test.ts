@@ -44,9 +44,9 @@ describe("AspSessionClient", () => {
         }),
     ]);
 
-    const client = new AspSessionClient("http://127.0.0.1:8723", "tok");
+    const client = new AspSessionClient("http://127.0.0.1:8723", "ws://127.0.0.1:8723/connect", "tok");
     const out = await client.createSession({
-      invite: ["@migration.bot"],
+      invite: ["@peer.bot"],
       topic: "migration plan",
       initialMessage: { content: "hi" },
       endAfterSend: false,
@@ -56,7 +56,7 @@ describe("AspSessionClient", () => {
     assert.equal(calls[0].url, "http://127.0.0.1:8723/sessions");
     const sentBody = JSON.parse(String(calls[0].init.body));
     assert.deepEqual(sentBody, {
-      invite: ["@migration.bot"],
+      invite: ["@peer.bot"],
       topic: "migration plan",
       initial_message: { content: "hi" },
     });
@@ -72,9 +72,9 @@ describe("AspSessionClient", () => {
       () => new Response(JSON.stringify({ session_id: "sess_X" }), { status: 200 }),
     ]);
 
-    const client = new AspSessionClient("http://127.0.0.1:8723", "tok");
+    const client = new AspSessionClient("http://127.0.0.1:8723", "ws://127.0.0.1:8723/connect", "tok");
     await client.createSession({
-      invite: ["@migration.bot"],
+      invite: ["@peer.bot"],
       initialMessage: { content: "ok" },
       endAfterSend: true,
     });
@@ -101,7 +101,7 @@ describe("AspSessionClient", () => {
         ),
     ]);
 
-    const client = new AspSessionClient("http://127.0.0.1:8723", "tok");
+    const client = new AspSessionClient("http://127.0.0.1:8723", "ws://127.0.0.1:8723/connect", "tok");
     const out = await client.listSessions();
     assert.equal(out.length, 1);
     assert.equal(out[0].id, "sess_A");
@@ -115,7 +115,7 @@ describe("AspSessionClient", () => {
         }),
     ]);
 
-    const client = new AspSessionClient("http://127.0.0.1:8723", "tok");
+    const client = new AspSessionClient("http://127.0.0.1:8723", "ws://127.0.0.1:8723/connect", "tok");
     const out = await client.sendMessage("sess_A", "hello", {
       idempotencyKey: "k1",
     });
@@ -133,7 +133,7 @@ describe("AspSessionClient", () => {
       () => new Response(JSON.stringify({ events: [] }), { status: 200 }),
     ]);
 
-    const client = new AspSessionClient("http://127.0.0.1:8723", "tok");
+    const client = new AspSessionClient("http://127.0.0.1:8723", "ws://127.0.0.1:8723/connect", "tok");
     await client.getEvents("sess_A", { afterSequence: 12, limit: 50 });
 
     const url = new URL(calls[0].url);
@@ -147,38 +147,49 @@ describe("AspSessionClient", () => {
       () => new Response(JSON.stringify({ events: [] }), { status: 200 }),
     ]);
 
-    const client = new AspSessionClient("http://127.0.0.1:8723", "tok");
+    const client = new AspSessionClient("http://127.0.0.1:8723", "ws://127.0.0.1:8723/connect", "tok");
     await client.getEvents("sess_A");
 
     assert.equal(calls[0].url, "http://127.0.0.1:8723/sessions/sess_A/events");
   });
 
-  it("wsUrl swaps http→ws and points at /connect", () => {
-    const a = new AspSessionClient("http://127.0.0.1:8723", "tok");
+  it("wsUrl passes through whatever the caller supplied", () => {
+    // Hosts where REST and WS share an origin (the local operator).
+    const a = new AspSessionClient(
+      "http://127.0.0.1:8723",
+      "ws://127.0.0.1:8723/connect",
+      "tok",
+    );
     assert.equal(a.wsUrl, "ws://127.0.0.1:8723/connect");
 
-    const b = new AspSessionClient("https://api.example/v1", "tok");
-    assert.equal(b.wsUrl, "wss://api.example/v1/connect");
+    // Hosts where REST and WS are on different origins. The client must NOT
+    // derive the WS URL from the REST URL — the resolver passes both.
+    const b = new AspSessionClient(
+      "https://api.example/v1",
+      "wss://ws.example",
+      "tok",
+    );
+    assert.equal(b.wsUrl, "wss://ws.example");
   });
 
   it("inviteToSession sends invite array to /invite", async () => {
     const { calls } = withFetchMock([
       () =>
-        new Response(JSON.stringify({ invited: ["@migration.bot"] }), {
+        new Response(JSON.stringify({ invited: ["@peer.bot"] }), {
           status: 200,
         }),
     ]);
 
-    const client = new AspSessionClient("http://127.0.0.1:8723", "tok");
-    const out = await client.inviteToSession("sess_A", ["@migration.bot"]);
+    const client = new AspSessionClient("http://127.0.0.1:8723", "ws://127.0.0.1:8723/connect", "tok");
+    const out = await client.inviteToSession("sess_A", ["@peer.bot"]);
 
-    assert.deepEqual(out.invited, ["@migration.bot"]);
+    assert.deepEqual(out.invited, ["@peer.bot"]);
     assert.equal(
       calls[0].url,
       "http://127.0.0.1:8723/sessions/sess_A/invite",
     );
     assert.deepEqual(JSON.parse(String(calls[0].init.body)), {
-      invite: ["@migration.bot"],
+      invite: ["@peer.bot"],
     });
   });
 
@@ -190,7 +201,7 @@ describe("AspSessionClient", () => {
         }),
     ]);
 
-    const client = new AspSessionClient("http://127.0.0.1:8723", "tok");
+    const client = new AspSessionClient("http://127.0.0.1:8723", "ws://127.0.0.1:8723/connect", "tok");
     await assert.rejects(
       () => client.showSession("sess_missing"),
       (err: unknown) => {

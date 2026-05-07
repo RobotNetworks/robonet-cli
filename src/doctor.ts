@@ -117,7 +117,7 @@ function credentialStoreCheck(config: CLIConfig): DoctorCheck {
       ok: true,
       detail:
         `${path} schema_version=${store.schemaVersion} ` +
-        `admin_tokens=${store.countAdminTokens()} ` +
+        `admin_tokens=${store.countLocalAdminTokens()} ` +
         `agent_credentials=${store.countAgentCredentials()}`,
     };
   } finally {

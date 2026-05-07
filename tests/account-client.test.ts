@@ -39,20 +39,20 @@ function stubFetch(handler: (url: string, init?: RequestInit) => Response): void
 }
 
 const STUB_AGENT = {
-  canonical_handle: "@nick.cli",
-  display_name: "Nick CLI",
+  canonical_handle: "@owner.cli",
+  display_name: "Owner CLI",
   description: null,
   image_url: null,
   visibility: "public",
   inbound_policy: "allowlist",
   inactive: false,
   is_online: false,
-  owner_label: "@nick",
-  owner_display_name: "Nick",
+  owner_label: "@owner",
+  owner_display_name: "Owner",
   owner_image_url: null,
   id: "agt_01",
   local_name: "cli",
-  namespace: "nick",
+  namespace: "owner",
   owner_type: "account",
   owner_id: "acc_01",
   scope: "personal",
@@ -68,9 +68,9 @@ describe("AccountClient.getAccount", () => {
   it("hits GET /account and returns the response shape", async () => {
     const account = {
       id: "acc_1",
-      username: "nick",
-      email: "nick@example.com",
-      display_name: "Nick",
+      username: "owner",
+      email: "owner@example.com",
+      display_name: "Owner",
       bio: null,
       image_url: null,
       tier: "free",
@@ -80,7 +80,7 @@ describe("AccountClient.getAccount", () => {
     stubFetch(() => new Response(JSON.stringify(account), { status: 200 }));
     const result = await makeClient().getAccount();
     assert.equal(result.id, "acc_1");
-    assert.equal(result.username, "nick");
+    assert.equal(result.username, "owner");
     assert.equal(calls[0]!.url, `${BASE}/account`);
     assert.equal(calls[0]!.init?.method, "GET");
   });
@@ -115,9 +115,9 @@ describe("AccountClient.listAgents", () => {
     stubFetch(() =>
       new Response(JSON.stringify({ agents: [], next_cursor: null }), { status: 200 }),
     );
-    await makeClient().listAgents({ query: "nick", limit: 10, cursor: "100" });
+    await makeClient().listAgents({ query: "owner", limit: 10, cursor: "100" });
     const url = new URL(calls[0]!.url);
-    assert.equal(url.searchParams.get("q"), "nick");
+    assert.equal(url.searchParams.get("q"), "owner");
     assert.equal(url.searchParams.get("limit"), "10");
     assert.equal(url.searchParams.get("cursor"), "100");
   });
@@ -147,18 +147,46 @@ describe("AccountClient.createAgent", () => {
       const body = JSON.parse(String(init?.body ?? "null"));
       assert.deepEqual(body, {
         local_name: "cli",
-        display_name: "Nick CLI",
+        display_name: "Owner CLI",
         visibility: "public",
       });
       return new Response(JSON.stringify(STUB_AGENT), { status: 201 });
     });
     const created = await makeClient().createAgent({
       local_name: "cli",
-      display_name: "Nick CLI",
+      display_name: "Owner CLI",
       visibility: "public",
     });
-    assert.equal(created.canonical_handle, "@nick.cli");
+    assert.equal(created.canonical_handle, "@owner.cli");
     assert.equal(calls[0]!.url, `${BASE}/agents`);
+  });
+});
+
+describe("AccountClient.getAgent", () => {
+  it("GETs /agents/{owner}/{name} and returns the AgentDetailResponse wrapper", async () => {
+    stubFetch(() =>
+      new Response(
+        JSON.stringify({
+          agent: STUB_AGENT,
+          shared_sessions: [],
+          viewer: { relationship: "owner", can_edit: true },
+        }),
+        { status: 200 },
+      ),
+    );
+    const detail = await makeClient().getAgent("@owner.cli");
+    assert.equal(detail.agent.canonical_handle, "@owner.cli");
+    assert.equal(detail.viewer.relationship, "owner");
+    assert.equal(calls[0]!.url, `${BASE}/agents/owner/cli`);
+    assert.equal(calls[0]!.init?.method, "GET");
+  });
+
+  it("translates 501 to CapabilityNotSupportedError", async () => {
+    stubFetch(() => new Response("", { status: 501 }));
+    await assert.rejects(
+      () => makeClient().getAgent("@owner.cli"),
+      CapabilityNotSupportedError,
+    );
   });
 });
 
@@ -172,17 +200,17 @@ describe("AccountClient.updateAgent", () => {
         status: 200,
       });
     });
-    const updated = await makeClient().updateAgent("@nick.cli", { paused: true });
+    const updated = await makeClient().updateAgent("@owner.cli", { paused: true });
     assert.equal(updated.paused, true);
-    assert.equal(calls[0]!.url, `${BASE}/agents/nick/cli`);
+    assert.equal(calls[0]!.url, `${BASE}/agents/owner/cli`);
   });
 });
 
 describe("AccountClient.deleteAgent", () => {
   it("DELETEs /agents/{owner}/{name}", async () => {
     stubFetch(() => new Response(null, { status: 204 }));
-    await makeClient().deleteAgent("@nick.cli");
-    assert.equal(calls[0]!.url, `${BASE}/agents/nick/cli`);
+    await makeClient().deleteAgent("@owner.cli");
+    assert.equal(calls[0]!.url, `${BASE}/agents/owner/cli`);
     assert.equal(calls[0]!.init?.method, "DELETE");
   });
 });

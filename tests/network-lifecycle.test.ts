@@ -140,7 +140,7 @@ describe("network lifecycle", () => {
 
     await startNetwork(config, TEST_START_OPTS);
     const store = await openProcessCredentialStore(config);
-    const tokenA = store.getAdminToken("local");
+    const tokenA = store.getLocalAdminToken("local");
     assert.notEqual(tokenA, null);
     assert.equal(typeof tokenA?.token, "string");
     assert.ok((tokenA?.token.length ?? 0) > 20);
@@ -150,7 +150,7 @@ describe("network lifecycle", () => {
     // the user (otherwise the in-flight operator's hash would mismatch).
     const second = await startNetwork(config, TEST_START_OPTS);
     assert.equal(second.adopted, true);
-    const tokenB = store.getAdminToken("local");
+    const tokenB = store.getLocalAdminToken("local");
     assert.equal(tokenB?.token, tokenA?.token);
   });
 

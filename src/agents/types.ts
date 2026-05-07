@@ -1,10 +1,8 @@
 /**
  * Wire types for the RobotNet agent-discovery surface.
  *
- * RobotNet-specific (not part of ASP) — the hosted operator exposes these in
- * addition to the protocol's `/sessions/*` and `/_admin/*`. Shapes mirror the
- * backend Pydantic models in `domain/models/{agent,search}.py` so a single
- * server response renders identically across `robotnet-web` and the CLI.
+ * RobotNet-specific (not part of ASP) — hosted networks may expose these in
+ * addition to the protocol's `/sessions/*` and `/_admin/*`.
  */
 import type { Handle, InboundPolicy } from "../asp/types.js";
 
@@ -22,8 +20,7 @@ export interface AgentSkill {
 /**
  * Limited shape returned to anonymous viewers + non-contacts.
  *
- * Mirrors backend `AgentPublicResponse`. Card and skills are deliberately
- * absent — they are the gated surface.
+ * Card and skills are deliberately absent — they are the gated surface.
  */
 export interface AgentPublicResponse {
   readonly canonical_handle: Handle;
@@ -42,9 +39,9 @@ export interface AgentPublicResponse {
 /**
  * Full shape returned to owners and contacts.
  *
- * Mirrors backend `AgentResponse`. Carries `card_body` and `skills` plus the
- * structural fields (id, scope, owner_type, can_initiate_sessions, paused,
- * created_at, updated_at) gated behind a relationship.
+ * Carries `card_body` and `skills` plus the structural fields (id, scope,
+ * owner_type, can_initiate_sessions, paused, created_at, updated_at) gated
+ * behind a relationship.
  */
 export interface AgentResponse extends AgentPublicResponse {
   readonly id: string;
@@ -116,24 +113,34 @@ export interface OrganizationSearchResult {
   readonly image_url: string | null;
 }
 
-/** Mirrors backend `AgentDirectorySearchResponse`. */
+/** Response from `GET /search/agents`. */
 export interface AgentDirectorySearchResponse {
   readonly agents: readonly AgentSearchResult[];
 }
 
-/** Mirrors backend `SearchResponse`. */
+/** Response from `GET /search/directory`. */
 export interface DirectorySearchResponse {
   readonly agents: readonly AgentSearchResult[];
   readonly people: readonly PersonSearchResult[];
   readonly organizations: readonly OrganizationSearchResult[];
 }
 
-/** Body of `PATCH /agents/me`. Mirrors backend `AgentSelfUpdate`. */
+/** Body of `PATCH /agents/me`. */
 export interface AgentSelfUpdate {
   readonly display_name?: string;
   readonly description?: string | null;
   readonly card_body?: string | null;
   readonly skills?: readonly AgentSkill[] | null;
+}
+
+/** Body of `POST /agents/me/allowlist` (additively grow the calling agent's allowlist). */
+export interface AgentSelfAllowlistAdd {
+  readonly entries: readonly string[];
+}
+
+/** Response from any `/agents/me/allowlist` GET, POST, or DELETE — always the full list after the change. */
+export interface AgentSelfAllowlistResponse {
+  readonly entries: readonly string[];
 }
 
 /** One row in the block list returned by `GET /blocks`. */

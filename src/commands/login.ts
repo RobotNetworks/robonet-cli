@@ -1,7 +1,5 @@
 import { Command } from "commander";
 
-import { discoverOAuth } from "../auth/discovery.js";
-import { performPkceLogin } from "../auth/pkce.js";
 import {
   enrollAgentClientCredentials,
   enrollAgentPkce,
@@ -10,10 +8,10 @@ import {
 import { assertValidHandle, handleArg } from "../asp/handles.js";
 import type { CLIConfig } from "../config.js";
 import { openProcessCredentialStore } from "../credentials/lifecycle.js";
-import { loadConfigFromRoot } from "./asp-shared.js";
 import { RobotNetCLIError } from "../errors.js";
 import { renderKeyValues } from "../output/formatters.js";
 import { renderJson } from "../output/json-output.js";
+import { loadConfigForAgentCommand, loadConfigFromRoot } from "./asp-shared.js";
 import {
   clientIdOption,
   clientSecretOption,
@@ -24,21 +22,16 @@ import {
 } from "./shared.js";
 
 /**
- * `robotnet login` — establish a credential, either for the human user or
- * for a specific agent.
+ * `robotnet login` and `robotnet logout` — agent-credential bootstrap.
  *
- * Surface (final):
- *   robotnet login                                  → user PKCE
- *   robotnet login --agent @x.y                     → agent PKCE
- *   robotnet login --agent @x.y --client-id ...     → agent client_credentials
- *   robotnet login show [--agent @x.y]              → status
- *   robotnet logout [--agent @x.y | --all]          → remove credentials
+ * Under the actor model, "login" without further qualification is the
+ * common path of "authenticate as an agent": either pick one in the web
+ * (no flag) or specify a handle (`--agent @x.y`). The user-account-side
+ * authentication lives at `robotnet account login` (see commands/account.ts).
  *
- * Storage state (transitional):
- *   - User PKCE writes today's `auth.json` (legacy single-file store).
- *   - Agent flows are stubbed pending the shared SQLite credential store.
- *     Help text and error messages reflect this so the CLI surface is
- *     accurate from this PR forward.
+ * Agent credentials are stored in the SQLite credential store keyed by
+ * `(network, handle)` and surface to every agent-bearer command (`me`,
+ * `agents`, `session`, `listen`, `messages`).
  */
 export function registerLoginCommand(program: Command): void {
   program.addCommand(makeLoginCmd());
@@ -50,14 +43,12 @@ export function registerLoginCommand(program: Command): void {
 function makeLoginCmd(): Command {
   const login = new Command("login")
     .description(
-      "Sign in. Without --agent: user PKCE. With --agent: that agent's credential " +
-        "(PKCE by default; client_credentials when --client-id/--client-secret are supplied).",
+      "Authenticate as an agent. Without --agent: a web picker chooses the agent " +
+        "from those owned by the calling account. With --agent <handle>: PKCE for " +
+        "that specific agent (or client_credentials when --client-id/--client-secret " +
+        "are supplied).",
     )
-    // Optional value form: `--agent` alone triggers the picker (asks
-     // /accounts/me/agents), `--agent @x.y` skips it. We can't use commander's
-     // built-in argParser for the optional case, so we validate the handle
-     // shape inside the action when a string is supplied.
-    .option("--agent [handle]", "Authenticate this agent (with handle, or empty to pick interactively)")
+    .option("--agent <handle>", "Authenticate this agent handle (skips the picker)")
     .addOption(clientIdOption())
     .addOption(clientSecretOption())
     .addOption(scopeOption())
@@ -65,58 +56,41 @@ function makeLoginCmd(): Command {
     .addOption(jsonOption())
     .action(async (opts: LoginOpts, cmd: Command) => {
       const config = await loadConfigFromRoot(cmd);
+      assertNetworkSupportsOAuthLogin(config);
 
-      assertNetworkSupportsOAuthLogin(config, opts.agent);
-
-      // Validation: --client-id is meaningless without --agent.
+      // Validation: --client-id requires an explicit --agent because the web
+      // picker only applies to PKCE; client_credentials is always for a
+      // specific known handle.
       if (opts.clientId !== undefined && opts.agent === undefined) {
-        throw new RobotNetCLIError(
-          "--client-id only applies with --agent <handle>. " +
-            "Client_credentials is always agent-scoped.",
-        );
-      }
-      // Validation: --client-id with picker mode would need a handle that
-      // doesn't exist yet. The web picker isn't reachable from the
-      // client-credentials grant anyway. Reject early.
-      if (opts.clientId !== undefined && opts.agent === true) {
         throw new RobotNetCLIError(
           "--client-id requires --agent <handle>. The web picker only applies to PKCE.",
         );
       }
 
-      if (opts.agent === undefined) {
-        // No --agent flag at all → user PKCE.
-        await runUserLogin(config, opts);
-        return;
-      }
-
-      if (opts.clientId !== undefined) {
-        // commander gives us `string` for `--agent <handle>` after the
-        // earlier guard ruled out the bare `--agent` shape.
-        const handle = opts.agent as string;
-        assertValidHandle(handle);
+      if (opts.agent !== undefined && opts.clientId !== undefined) {
+        assertValidHandle(opts.agent);
         const clientSecret = await resolveClientSecret(opts.clientSecret);
         const minted = await enrollAgentClientCredentials({
           config,
-          handle,
+          handle: opts.agent,
           clientId: opts.clientId,
           clientSecret,
           ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
         });
         printAgentLoginResult(opts, config, {
           kind: "oauth_client_credentials",
-          handle,
+          handle: opts.agent,
           expiresAt: minted.bearerExpiresAt,
           scope: minted.scope,
         });
         return;
       }
 
-      // Agent PKCE. Two shapes:
-      //   - explicit handle (`--agent @x.y`): confirm-mode in the web.
-      //   - bare `--agent`: web picker, handle resolved from token response.
+      // PKCE. Two shapes:
+      //   - explicit handle (`--agent @x.y`): confirm-mode in the web picker.
+      //   - no handle: web picker chooses, handle returned in the token response.
       const enrolled =
-        typeof opts.agent === "string"
+        opts.agent !== undefined
           ? await (async () => {
               assertValidHandle(opts.agent as string);
               return await enrollAgentPkce({
@@ -139,70 +113,49 @@ function makeLoginCmd(): Command {
     });
 
   // login show
-  // --agent lives on the parent `login` command; commander binds it there
-  // when set, so we read via optsWithGlobals() to merge parent + own opts.
+  // --agent and --as both flow through commander's parent merging.
   login
     .command("show")
-    .description("Show the current login state (user, or an agent with --agent)")
+    .description("Show the credential state for an agent (defaults to the active agent)")
+    .option("--agent <handle>", "Show this agent's credential", handleArg)
+    .option("--as <handle>", "Resolve the active agent via this handle", handleArg)
     .addOption(jsonOption())
     .action(async (_opts: ShowOpts, cmd: Command) => {
       const opts = cmd.optsWithGlobals() as ShowOpts;
+      // Determine which agent's credential to inspect: explicit --agent,
+      // else the active agent resolved via --as / env / identity file.
+      const handle =
+        opts.agent ??
+        (await loadConfigForAgentCommand(cmd, opts.as)).identity.handle;
       const config = await loadConfigFromRoot(cmd);
-
-      if (opts.agent !== undefined) {
-        const store = await openProcessCredentialStore(config);
-        const row = store.getAgentCredential(config.network.name, opts.agent);
-        if (row === null) {
-          const message =
-            `No credential stored for ${opts.agent} on network "${config.network.name}". ` +
-            `Try: robotnet --network ${config.network.name} login --agent ${opts.agent}`;
-          if (opts.json) {
-            console.log(renderJson({ stored: false, agent: opts.agent }));
-          } else {
-            console.log(message);
-          }
-          return;
-        }
-        const payload: Record<string, unknown> = {
-          stored: true,
-          handle: row.handle,
-          network: row.networkName,
-          kind: row.kind,
-          expires_at: row.bearerExpiresAt,
-          scope: row.scope,
-          registered_at: row.registeredAt,
-          updated_at: row.updatedAt,
-        };
+      const store = await openProcessCredentialStore(config);
+      const row = store.getAgentCredential(config.network.name, handle);
+      if (row === null) {
+        const message =
+          `No credential stored for ${handle} on network "${config.network.name}". ` +
+          `Try: robotnet login --agent ${handle} --network ${config.network.name}`;
         if (opts.json) {
-          console.log(renderJson(payload));
+          out(renderJson({ stored: false, agent: handle }));
         } else {
-          console.log(
-            renderKeyValues(profileTitle("RobotNet Agent Login", config), payload),
-          );
+          out(message);
         }
         return;
       }
-
-      const store = await openProcessCredentialStore(config);
-      const info = store.getUserSessionInfo();
       const payload: Record<string, unknown> = {
-        configured: info !== null,
+        stored: true,
+        handle: row.handle,
+        network: row.networkName,
+        kind: row.kind,
+        expires_at: row.bearerExpiresAt,
+        scope: row.scope,
+        registered_at: row.registeredAt,
+        updated_at: row.updatedAt,
       };
-      if (info) {
-        payload.auth_mode = info.authMode;
-        payload.client_id = info.clientId;
-        payload.expires_at = info.accessTokenExpiresAt;
-        payload.scope = info.scope;
-        payload.token_endpoint = info.tokenEndpoint;
-        payload.resource = info.resource;
-      }
       if (opts.json) {
-        console.log(renderJson(payload));
-      } else {
-        console.log(
-          renderKeyValues(profileTitle("RobotNet Login Status", config), payload),
-        );
+        out(renderJson(payload));
+        return;
       }
+      out(renderKeyValues(profileTitle("Agent login", config), payload));
     });
 
   return login;
@@ -213,15 +166,16 @@ function makeLoginCmd(): Command {
 function makeLogoutCmd(): Command {
   return new Command("logout")
     .description(
-      "Remove a stored credential. Without --agent: the user session. " +
-        "With --agent: that agent's credential. With --all: every credential in this profile.",
+      "Remove a stored agent credential. Without flags: the active agent. " +
+        "With --agent: that handle. With --all: every agent credential in this profile.",
     )
     .option(
       "--agent <handle>",
-      "Remove this agent's credential instead of the user's",
+      "Remove this agent's credential",
       handleArg,
     )
-    .option("--all", "Remove user session AND all agent credentials in this profile", false)
+    .option("--as <handle>", "Resolve the active agent via this handle", handleArg)
+    .option("--all", "Remove every agent credential across every network in this profile", false)
     .action(async (opts: LogoutOpts, cmd: Command) => {
       const config = await loadConfigFromRoot(cmd);
 
@@ -229,30 +183,9 @@ function makeLogoutCmd(): Command {
         throw new RobotNetCLIError("--agent and --all are mutually exclusive");
       }
 
-      if (opts.agent !== undefined) {
-        const store = await openProcessCredentialStore(config);
-        const removed = store.deleteAgentCredential(config.network.name, opts.agent);
-        if (removed) {
-          console.log(`Removed credential for ${opts.agent} on network "${config.network.name}".`);
-        } else {
-          console.log(`No credential stored for ${opts.agent} on network "${config.network.name}".`);
-        }
-        return;
-      }
-
-      const store = await openProcessCredentialStore(config);
-      const removed = store.deleteUserSession();
-      if (removed) {
-        console.log("Signed out (user session cleared).");
-      } else if (!opts.all) {
-        console.log("Already signed out.");
-        return;
-      }
-
       if (opts.all) {
-        // Drop every agent credential row in the active profile's store,
-        // across every network the profile knows about.
         let totalRemoved = 0;
+        const store = await openProcessCredentialStore(config);
         for (const networkName of Object.keys(config.networks)) {
           const rows = store.listAgentCredentials(networkName);
           for (const row of rows) {
@@ -261,105 +194,61 @@ function makeLogoutCmd(): Command {
             }
           }
         }
-        console.log(
+        out(
           totalRemoved === 0
             ? "(No agent credentials to remove.)"
             : `Removed ${totalRemoved} agent credential(s) across all networks in this profile.`,
         );
+        return;
+      }
+
+      const handle =
+        opts.agent ??
+        (await loadConfigForAgentCommand(cmd, opts.as)).identity.handle;
+      const store = await openProcessCredentialStore(config);
+      const removed = store.deleteAgentCredential(config.network.name, handle);
+      if (removed) {
+        out(`Removed credential for ${handle} on network "${config.network.name}".`);
+      } else {
+        out(`No credential stored for ${handle} on network "${config.network.name}".`);
       }
     });
 }
 
 /* -------------------------------------------------------------------------- */
-/* Login helpers                                                               */
+/* Helpers                                                                     */
 /* -------------------------------------------------------------------------- */
 
 /**
  * Refuse `login` against networks that don't speak OAuth.
  *
  * `agent-token` networks (e.g. a local `robotnet network start` instance)
- * have no PKCE flow at all; running `login` against one would silently
- * dial whichever auth server the profile's `endpoints` happen to point
- * at and persist a credential under the wrong network key. The
- * canonical failure: cwd resolves the network to `local` but endpoints
- * still default to `https://auth.robotnet.ai`, so the human signs in
- * to the public auth server, gets a real token, and the row lands keyed
- * on `("local", "<handle>")` — invisible to anything querying by
- * `("public", "<handle>")` afterwards.
+ * have no PKCE flow; the corresponding ceremony for minting an agent
+ * bearer there is `robotnet agent create`. Surface a clear error rather
+ * than letting the command fall through to whichever auth server the
+ * profile's `endpoints` happen to point at.
  *
  * Exported so the guard can be tested in isolation from the commander
  * action wrapper.
  */
-export function assertNetworkSupportsOAuthLogin(
-  config: CLIConfig,
-  agent: string | true | undefined,
-): void {
+export function assertNetworkSupportsOAuthLogin(config: CLIConfig): void {
   if (config.network.authMode === "oauth") return;
 
   const oauthNetworks = Object.values(config.networks)
     .filter((n) => n.authMode === "oauth")
     .map((n) => n.name);
-  const agentSuffix =
-    typeof agent === "string"
-      ? ` --agent ${agent}`
-      : agent === true
-        ? " --agent"
-        : "";
   const suggestion =
     oauthNetworks.length === 1
-      ? ` Try: robotnet --network ${oauthNetworks[0]} login${agentSuffix}`
+      ? ` Try: robotnet login --network ${oauthNetworks[0]}`
       : oauthNetworks.length > 1
         ? ` Available OAuth networks: ${oauthNetworks.join(", ")}.`
         : "";
   throw new RobotNetCLIError(
-    `\`login\` requires an OAuth network, but the resolved network "${config.network.name}" uses ${config.network.authMode} auth.${suggestion}`,
+    `\`login\` requires an OAuth network, but the resolved network "${config.network.name}" uses ${config.network.authMode} auth. ` +
+      `For local networks, mint an agent bearer with \`robotnet agent create <handle>\` instead.${suggestion}`,
   );
 }
 
-async function runUserLogin(config: CLIConfig, opts: LoginOpts): Promise<void> {
-  const discovery = await discoverOAuth(config.endpoints);
-  const result = await performPkceLogin({
-    endpoints: config.endpoints,
-    discovery,
-    ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
-  });
-  const accessTokenExpiresAt =
-    result.token.expiresIn !== null
-      ? Date.now() + result.token.expiresIn * 1000
-      : null;
-  const store = await openProcessCredentialStore(config);
-  store.putUserSession({
-    accessToken: result.token.accessToken,
-    refreshToken: result.refreshToken,
-    accessTokenExpiresAt,
-    scope: result.token.scope,
-    clientId: result.clientId,
-    tokenEndpoint: result.tokenEndpoint,
-    resource: result.token.resource,
-    redirectUri: result.redirectUri,
-    authMode: "pkce",
-  });
-
-  const payload: Record<string, unknown> = {
-    signed_in_as: "user",
-    client_id: result.clientId,
-    expires_at: accessTokenExpiresAt,
-    scope: result.token.scope,
-  };
-  if (opts.json) {
-    console.log(renderJson(payload));
-  } else {
-    console.log(
-      renderKeyValues(profileTitle("RobotNet Login", config), payload),
-    );
-  }
-}
-
-/**
- * Render the success output for an agent-mode login (PKCE or
- * client_credentials), preserving the shape `login` has emitted since
- * v0.3 so plugins parsing `--json` don't drift.
- */
 function printAgentLoginResult(
   opts: LoginOpts,
   config: CLIConfig,
@@ -379,23 +268,20 @@ function printAgentLoginResult(
     scope: args.scope,
   };
   if (opts.json) {
-    console.log(renderJson(payload));
+    out(renderJson(payload));
   } else {
-    console.log(
-      renderKeyValues(profileTitle("RobotNet Agent Login", config), payload),
-    );
+    out(renderKeyValues(profileTitle("Agent login", config), payload));
   }
+}
+
+function out(line: string): void {
+  console.log(line);
 }
 
 // ── option types ────────────────────────────────────────────────────────────
 
 interface LoginOpts {
-  /**
-   * `string`: explicit handle (`--agent @x.y`).
-   * `true`: flag passed with no value (`--agent`) → trigger picker.
-   * `undefined`: flag absent → user login.
-   */
-  readonly agent?: string | true;
+  readonly agent?: string;
   readonly clientId?: string;
   readonly clientSecret?: string;
   readonly scope?: string;
@@ -405,10 +291,12 @@ interface LoginOpts {
 
 interface ShowOpts {
   readonly agent?: string;
+  readonly as?: string;
   readonly json?: boolean;
 }
 
 interface LogoutOpts {
   readonly agent?: string;
+  readonly as?: string;
   readonly all: boolean;
 }

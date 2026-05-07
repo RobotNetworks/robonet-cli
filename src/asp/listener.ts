@@ -14,9 +14,9 @@ const KNOWN_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<SessionEventTyp
 ]);
 
 export interface AspListenerOptions {
-  /** Base URL for the network, e.g. `http://127.0.0.1:8723`. The `/connect` path is appended. */
+  /** Fully-qualified WebSocket handshake URL, e.g. `ws://127.0.0.1:8723/connect` or `wss://ws.robotnet.ai`. Used as-is — no path is appended. */
   readonly wsUrl: string;
-  /** The calling agent's bearer token. Sent as a `?token=` query parameter on the handshake. */
+  /** The calling agent's bearer token. Sent as the `Authorization: Bearer …` handshake header. */
   readonly token: string;
 
   readonly onOpen?: () => void;
@@ -41,8 +41,9 @@ export interface AspListener {
  * (e.g. exit on close vs. backoff-and-retry).
  */
 export function startAspListener(opts: AspListenerOptions): AspListener {
-  const url = `${opts.wsUrl}?token=${encodeURIComponent(opts.token)}`;
-  const ws = new WebSocket(url);
+  const ws = new WebSocket(opts.wsUrl, {
+    headers: { Authorization: `Bearer ${opts.token}` },
+  });
 
   ws.on("open", () => {
     opts.onOpen?.();

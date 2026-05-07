@@ -7,10 +7,13 @@ import type {
   AgentDetailResponse,
   AgentDirectorySearchResponse,
   AgentResponse,
+  AgentSelfAllowlistResponse,
   AgentSelfUpdate,
   BlockListResponse,
   DirectorySearchResponse,
 } from "./types.js";
+import type { AllowlistEntry } from "../asp/types.js";
+import { assertValidAllowlistEntry } from "../asp/handles.js";
 
 /**
  * Typed client for the RobotNet hosted agent-discovery surface.
@@ -18,13 +21,12 @@ import type {
  * Wraps:
  *
  * - `GET /agents/me` and `PATCH /agents/me` — authed agent's own profile,
- *   already accept agent-bearer auth (`ActingAgent`) on the backend.
+ *   authenticated with the calling agent's bearer.
  * - `GET /agents/{owner}/{name}` and `/card` — viewer-aware detail and card
- *   markdown for any handle. Currently `CurrentAccount`-only on the backend;
- *   the additive dual-auth rewire (so they accept agent-bearer too) is on
- *   `@backend.bot`'s track.
+ *   markdown for any handle. Some hosted deployments may not expose these to
+ *   agent bearers yet; the guarded helpers below normalize that cleanly.
  * - `GET /search/agents` and `GET /search/directory` — already
- *   `ActingAgent`-callable.
+ *   callable with an agent bearer.
  *
  * Capability gating: routes the operator does not implement (the local
  * in-tree operator, third-party ASP-only operators) surface as
@@ -68,6 +70,48 @@ export class AgentDirectoryClient {
     );
   }
 
+  // ── self allowlist (agent-bearer) ───────────────────────────────────────
+
+  async getSelfAllowlist(): Promise<AgentSelfAllowlistResponse> {
+    return await this.#guarded("agent self allowlist list", async () =>
+      aspRequest<AgentSelfAllowlistResponse>({
+        baseUrl: this.#baseUrl,
+        path: "/agents/me/allowlist",
+        method: "GET",
+        token: this.#token,
+      }),
+    );
+  }
+
+  async addSelfAllowlistEntries(
+    entries: readonly AllowlistEntry[],
+  ): Promise<AgentSelfAllowlistResponse> {
+    for (const entry of entries) assertValidAllowlistEntry(entry);
+    return await this.#guarded("agent self allowlist add", async () =>
+      aspRequest<AgentSelfAllowlistResponse>({
+        baseUrl: this.#baseUrl,
+        path: "/agents/me/allowlist",
+        method: "POST",
+        token: this.#token,
+        body: { entries },
+      }),
+    );
+  }
+
+  async removeSelfAllowlistEntry(
+    entry: AllowlistEntry,
+  ): Promise<AgentSelfAllowlistResponse> {
+    assertValidAllowlistEntry(entry);
+    return await this.#guarded("agent self allowlist remove", async () =>
+      aspRequest<AgentSelfAllowlistResponse>({
+        baseUrl: this.#baseUrl,
+        path: `/agents/me/allowlist/${encodeURIComponent(entry)}`,
+        method: "DELETE",
+        token: this.#token,
+      }),
+    );
+  }
+
   // ── self blocks (agent-bearer) ──────────────────────────────────────────
 
   async listBlocks(opts: { readonly limit?: number; readonly cursor?: string } = {}): Promise<BlockListResponse> {
@@ -100,7 +144,7 @@ export class AgentDirectoryClient {
 
   async unblockAgent(handle: Handle): Promise<void> {
     assertValidHandle(handle);
-    // The backend accepts both handle and agent_id at this path; CLI users
+    // The hosted API accepts both handle and agent_id at this path; CLI users
     // type handles, so we forward the handle verbatim.
     await this.#guarded("self unblock", async () =>
       aspRequest<void>({
@@ -170,7 +214,7 @@ export class AgentDirectoryClient {
   /**
    * Translate operator responses that signal an unimplemented agent/card/me
    * route into {@link CapabilityNotSupportedError}. 404 stays as-is for these
-   * routes because the backend uses 404 as a privacy-preserving "not visible"
+   * routes because the hosted API uses 404 as a privacy-preserving "not visible"
    * — only 405/501 are unambiguous capability gaps.
    */
   async #guarded<T>(capability: string, call: () => Promise<T>): Promise<T> {

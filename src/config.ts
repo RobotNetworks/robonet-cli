@@ -20,7 +20,7 @@ export type NetworkAuthMode = "oauth" | "agent-token";
 /**
  * A named ASP network the CLI can target.
  *
- * `oauth` networks (e.g. the hosted RobotNet backend) authenticate via the
+ * `oauth` networks (e.g. the hosted RobotNet network) authenticate via the
  * usual `robotnet login` flow. `agent-token` networks (a local
  * `robotnet start` instance, or any other ASP network that issues bearer
  * tokens at agent registration time) authenticate per-agent with the token
@@ -44,7 +44,7 @@ export type NetworkSource =
 /**
  * The set of networks every profile knows about by default.
  *
- * - `public`: the hosted RobotNet backend, authenticated via OAuth (today's
+ * - `public`: the hosted RobotNet network, authenticated via OAuth (today's
  *   `robotnet login` flow). The CLI is named after the operator (RobotNet)
  *   but the network's role from the CLI's perspective is "the public
  *   internet-reachable network", so that's the canonical name. Stored

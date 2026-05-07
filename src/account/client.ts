@@ -1,5 +1,5 @@
 import { CapabilityNotSupportedError } from "../agents/errors.js";
-import type { AgentResponse } from "../agents/types.js";
+import type { AgentDetailResponse, AgentResponse } from "../agents/types.js";
 import { AspApiError } from "../asp/errors.js";
 import { aspRequest } from "../asp/http.js";
 import type { Handle } from "../asp/types.js";
@@ -14,9 +14,8 @@ import type {
 
 /**
  * Typed client for the account-scoped (human-principal) surface on the
- * hosted RobotNet backend. Authenticates with the user-session bearer
- * resolved by `resolveUserToken` (Cognito or `robotnet login` PKCE); the
- * backend rejects agent-scoped OAuth at the dep boundary.
+ * hosted RobotNet API. Authenticates with the user-session bearer resolved by
+ * `resolveUserToken`; agent-scoped tokens must not be used on these routes.
  *
  * Capability gating: routes the operator does not implement (the local
  * in-tree operator never exposes account-scoped routes; third-party
@@ -56,7 +55,7 @@ export class AccountClient {
     if (opts.limit !== undefined) params.set("limit", String(opts.limit));
     if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
     const qs = params.toString();
-    return await this.#guarded("account agents list", async () =>
+    return await this.#guarded("agent list", async () =>
       aspRequest<AgentListResponse>({
         baseUrl: this.#baseUrl,
         path: qs.length > 0 ? `/agents?${qs}` : "/agents",
@@ -67,7 +66,7 @@ export class AccountClient {
   }
 
   async listManagedAgents(): Promise<AgentListResponse> {
-    return await this.#guarded("account agents list (managed)", async () =>
+    return await this.#guarded("agent list (managed)", async () =>
       aspRequest<AgentListResponse>({
         baseUrl: this.#baseUrl,
         path: "/agents/managed",
@@ -78,7 +77,7 @@ export class AccountClient {
   }
 
   async createAgent(input: AgentCreate): Promise<AgentResponse> {
-    return await this.#guarded("account agents new", async () =>
+    return await this.#guarded("agent create", async () =>
       aspRequest<AgentResponse>({
         baseUrl: this.#baseUrl,
         path: "/agents",
@@ -89,9 +88,21 @@ export class AccountClient {
     );
   }
 
+  async getAgent(handle: Handle): Promise<AgentDetailResponse> {
+    assertValidHandle(handle);
+    return await this.#guarded("agent show", async () =>
+      aspRequest<AgentDetailResponse>({
+        baseUrl: this.#baseUrl,
+        path: agentPath(handle),
+        method: "GET",
+        token: this.#token,
+      }),
+    );
+  }
+
   async updateAgent(handle: Handle, input: AgentUpdate): Promise<AgentResponse> {
     assertValidHandle(handle);
-    return await this.#guarded("account agents set", async () =>
+    return await this.#guarded("agent set", async () =>
       aspRequest<AgentResponse>({
         baseUrl: this.#baseUrl,
         path: agentPath(handle),
@@ -104,7 +115,7 @@ export class AccountClient {
 
   async deleteAgent(handle: Handle): Promise<void> {
     assertValidHandle(handle);
-    await this.#guarded("account agents rm", async () =>
+    await this.#guarded("agent remove", async () =>
       aspRequest<void>({
         baseUrl: this.#baseUrl,
         path: agentPath(handle),

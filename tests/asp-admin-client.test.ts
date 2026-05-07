@@ -108,33 +108,27 @@ describe("AspAdminClient", () => {
     assert.equal(calls[0].init.method, "DELETE");
   });
 
-  it("addToAllowlist POSTs entries to the right path", async () => {
+  it("listAgents GETs /_admin/agents and returns the agents array", async () => {
     const { calls } = withFetchMock([
       () =>
         new Response(
           JSON.stringify({
-            handle: "@cli.bot",
-            token: "tok",
-            policy: "allowlist",
-            allowlist: ["@migration.bot"],
+            agents: [
+              { handle: "@cli.bot", policy: "allowlist", allowlist: [] },
+              { handle: "@noisy.bot", policy: "open", allowlist: [] },
+            ],
           }),
           { status: 200 },
         ),
     ]);
 
     const client = new AspAdminClient("http://127.0.0.1:8723", "admin");
-    const out = await client.addToAllowlist("@cli.bot", ["@migration.bot"]);
+    const agents = await client.listAgents();
 
-    assert.deepEqual(out.allowlist, ["@migration.bot"]);
-    assert.equal(
-      calls[0].url,
-      "http://127.0.0.1:8723/_admin/agents/%40cli.bot/allowlist",
-    );
-    assert.equal(calls[0].init.method, "POST");
-    assert.equal(
-      calls[0].init.body,
-      JSON.stringify({ entries: ["@migration.bot"] }),
-    );
+    assert.equal(agents.length, 2);
+    assert.equal(agents[0].handle, "@cli.bot");
+    assert.equal(calls[0].url, "http://127.0.0.1:8723/_admin/agents");
+    assert.equal(calls[0].init.method, "GET");
   });
 
   it("translates non-2xx with JSON `error` body into AspApiError carrying the code", async () => {

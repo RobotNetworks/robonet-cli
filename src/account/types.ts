@@ -1,10 +1,8 @@
 /**
- * Account profile fields. Mirrors backend `AccountResponse`.
+ * Account profile fields returned by `GET /account`.
  *
- * `image_url` is included on this base shape; the backend's
- * `AccountProfileResponse` (returned by `/account/profile`) re-declares
- * the same field with a signed-URL implementation. The CLI doesn't render
- * images, so `GET /account` is sufficient.
+ * The CLI doesn't render profile images directly, so the base account shape is
+ * sufficient here.
  */
 export interface AccountResponse {
   readonly id: string;
@@ -21,20 +19,9 @@ export interface AccountResponse {
 /**
  * Wire types for the account-scoped surface (`robotnet account ...`).
  *
- * RobotNet-specific (not ASP). The hosted backend exposes these to a
- * human-driven principal — Cognito ID tokens or user-OAuth (`robotnet login`
- * PKCE) bearers. Agent-scoped tokens are explicitly rejected at the auth
- * boundary by `get_account_principal` (see backend
- * `src/functions/api/app/dependencies.py`); never wire an agent bearer
- * onto these calls.
- *
- * Pydantic mirrors:
- *   `AgentResponse`        ← already typed in `src/agents/types.ts`
- *   `AgentListResponse`    ← below
- *   `AgentCreate`          ← below
- *   `AgentUpdate`          ← below
- *   `AccountSessionsResponse` + `AccountSessionListItem`
- *   `GetSessionResponse`   ← already typed via `SessionWire` in `src/asp/types.ts`
+ * RobotNet-specific (not ASP). The hosted API exposes these to a human
+ * principal authenticated by `robotnet login`; never wire an agent bearer onto
+ * these calls.
  */
 import type { Handle, Participant, SessionId, SessionState, Timestamp } from "../asp/types.js";
 import type {
@@ -49,7 +36,7 @@ export interface AgentListResponse {
   readonly next_cursor: string | null;
 }
 
-/** Body for `POST /agents` (create personal agent). Mirrors backend `AgentCreate`. */
+/** Body for `POST /agents` (create personal agent). */
 export interface AgentCreate {
   readonly local_name: string;
   readonly display_name: string;
@@ -59,7 +46,7 @@ export interface AgentCreate {
   readonly can_initiate_sessions?: boolean;
 }
 
-/** Body for `PATCH /agents/{id}` and `PATCH /agents/{owner}/{name}`. Mirrors backend `AgentUpdate`. */
+/** Body for `PATCH /agents/{id}` and `PATCH /agents/{owner}/{name}`. */
 export interface AgentUpdate {
   readonly display_name?: string;
   readonly description?: string | null;
@@ -78,7 +65,7 @@ export interface AccountSessionListItem {
   readonly acting_handle: Handle;
 }
 
-/** Mirrors backend `AccountSessionsResponse` (operator extension). */
+/** Account-scoped session list response. */
 export interface AccountSessionsResponse {
   readonly sessions: readonly AccountSessionListItem[];
   readonly next_cursor: string | null;
@@ -86,9 +73,9 @@ export interface AccountSessionsResponse {
 
 /**
  * The `session` field of an `AccountSessionListItem`. Same shape as the
- * `GetSessionResponse` Pydantic model — duplicated here as a typed local
- * because `SessionWire` in `src/asp/types.ts` doesn't include `ended_at`
- * and we want to render that for closed sessions.
+ * account-session response shape. Duplicated here because `SessionWire` in
+ * `src/asp/types.ts` doesn't include `ended_at` and we want to render that
+ * for closed sessions.
  */
 export interface AccountSessionView {
   readonly id: SessionId;

@@ -52,19 +52,27 @@ export interface GetEventsResponse {
  *
  * Authenticated by the calling agent's bearer token. Operations match the
  * Whitepaper Appendix C.1 REST surface; nothing here is admin-scoped.
+ *
+ * REST and WebSocket endpoints are passed in separately. Hosted ASP networks
+ * (e.g. RobotNet's public operator) front the WebSocket on a dedicated
+ * gateway whose origin differs from the REST API's; computing the WS URL
+ * by string-substituting the REST URL's scheme is wrong for those networks.
+ * Callers (see `resolveSessionClient`) decide the right pair.
  */
 export class AspSessionClient {
   readonly #baseUrl: string;
+  readonly #wsUrl: string;
   readonly #token: string;
 
-  constructor(baseUrl: string, token: string) {
+  constructor(baseUrl: string, wsUrl: string, token: string) {
     this.#baseUrl = baseUrl;
+    this.#wsUrl = wsUrl;
     this.#token = token;
   }
 
-  /** WebSocket URL for the `/connect` event-stream endpoint. */
+  /** WebSocket URL for the event-stream handshake. */
   get wsUrl(): string {
-    return `${this.#baseUrl.replace(/^http/, "ws")}/connect`;
+    return this.#wsUrl;
   }
 
   /** The calling agent's bearer token (needed to authenticate the WS handshake). */

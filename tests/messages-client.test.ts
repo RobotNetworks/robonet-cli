@@ -46,7 +46,7 @@ describe("MessageSearchClient.searchMessages", () => {
             {
               id: "msg_01",
               session_id: "sess_01",
-              sender: "@nick.cli",
+              sender: "@owner.cli",
               sequence: 1,
               content: "hello world",
               created_at: 1_700_000_000_000,

@@ -17,8 +17,8 @@ interface TestServer {
   dropAll(): number;
   /** Number of connections accepted across the server's lifetime. */
   connections(): number;
-  /** URLs of every accepted handshake (handy to confirm a fresh token per attempt). */
-  urls(): readonly string[];
+  /** Authorization header of every accepted handshake (handy to confirm a fresh token per attempt). */
+  authorizations(): readonly string[];
   close(): Promise<void>;
 }
 
@@ -28,11 +28,12 @@ async function startTestServer(): Promise<TestServer> {
   const port = (httpServer.address() as AddressInfo).port;
   const wss = new WebSocketServer({ server: httpServer });
 
-  const urls: string[] = [];
+  const auths: string[] = [];
   let count = 0;
   wss.on("connection", (_socket: WebSocket, req) => {
     count += 1;
-    urls.push(req.url ?? "");
+    const a = req.headers["authorization"];
+    auths.push(typeof a === "string" ? a : "");
   });
 
   return {
@@ -46,7 +47,7 @@ async function startTestServer(): Promise<TestServer> {
       return dropped;
     },
     connections: (): number => count,
-    urls: (): readonly string[] => urls.slice(),
+    authorizations: (): readonly string[] => auths.slice(),
     close: async (): Promise<void> => {
       for (const c of wss.clients) c.terminate();
       await new Promise<void>((r) => wss.close(() => r()));
@@ -93,12 +94,9 @@ describe("startReconnectingAspListener", () => {
     await waitFor(() => harness.connections() === 3);
 
     assert.equal(resolveCalls, 3);
-    // Tokens were re-resolved per attempt → handshake URLs differ.
-    const urls = harness.urls();
-    assert.equal(urls.length, 3);
-    assert.match(urls[0], /token=tok-1$/);
-    assert.match(urls[1], /token=tok-2$/);
-    assert.match(urls[2], /token=tok-3$/);
+    // Tokens were re-resolved per attempt → Authorization headers differ.
+    const auths = harness.authorizations();
+    assert.deepEqual(auths, ["Bearer tok-1", "Bearer tok-2", "Bearer tok-3"]);
 
     // onReconnectScheduled was called for the 2nd and 3rd attempts (not the
     // initial connect).

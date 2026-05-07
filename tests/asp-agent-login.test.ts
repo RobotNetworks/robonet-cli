@@ -177,11 +177,11 @@ describe("enrollAgentClientCredentials", () => {
 
 describe("_canonicalizeHandleForTests", () => {
   it("prepends @ when missing", () => {
-    assert.equal(_canonicalizeHandleForTests("nick.soa"), "@nick.soa");
+    assert.equal(_canonicalizeHandleForTests("owner.agent"), "@owner.agent");
   });
 
   it("leaves already-canonical handles alone", () => {
-    assert.equal(_canonicalizeHandleForTests("@nick.soa"), "@nick.soa");
+    assert.equal(_canonicalizeHandleForTests("@owner.agent"), "@owner.agent");
   });
 
   it("rejects malformed input rather than silently passing through", () => {
@@ -203,7 +203,7 @@ function fakePkceResult(overrides: Partial<PKCELoginResult> = {}): PKCELoginResu
     clientId: "oac_fake",
     redirectUri: "http://127.0.0.1:50000/callback",
     tokenEndpoint: "https://auth.example/token",
-    agentHandle: "nick.soa",
+    agentHandle: "owner.agent",
     network: null,
     ...overrides,
   };
@@ -214,17 +214,17 @@ describe("persistAgentPkce", () => {
     const config = makeConfig();
     const enrolled = await _persistAgentPkceForTests({
       config,
-      handle: "@nick.soa",
+      handle: "@owner.agent",
       result: fakePkceResult(),
     });
-    assert.equal(enrolled.handle, "@nick.soa");
+    assert.equal(enrolled.handle, "@owner.agent");
 
     // The bug we're guarding against: the row used to land as
-    // ``nick.soa`` (no @), so listener lookups for ``@nick.soa`` missed.
+    // the bare handle (no @), so listener lookups for the canonical handle missed.
     const store = await openProcessCredentialStore(config);
-    const row = store.getAgentCredential("public", "@nick.soa");
+    const row = store.getAgentCredential("public", "@owner.agent");
     assert.ok(row, "row must be keyed by canonical @-form");
-    assert.equal(row!.handle, "@nick.soa");
+    assert.equal(row!.handle, "@owner.agent");
     assert.equal(row!.kind, "oauth_pkce");
     assert.equal(row!.networkName, "public");
   });
@@ -238,7 +238,7 @@ describe("persistAgentPkce", () => {
     await assert.rejects(
       _persistAgentPkceForTests({
         config,
-        handle: "@nick.soa",
+        handle: "@owner.agent",
         // Auth server identifies as a different network than the one
         // the CLI thinks it's logging into → this is exactly the case
         // where the credential would land under the wrong key.
@@ -252,29 +252,29 @@ describe("persistAgentPkce", () => {
 
     // Nothing should have been written.
     const store = await openProcessCredentialStore(config);
-    assert.equal(store.getAgentCredential("public", "@nick.soa"), null);
+    assert.equal(store.getAgentCredential("public", "@owner.agent"), null);
   });
 
   it("falls back to local config when auth-server omits the network field", async () => {
     const config = makeConfig();
     await _persistAgentPkceForTests({
       config,
-      handle: "@nick.soa",
+      handle: "@owner.agent",
       result: fakePkceResult({ network: null }),
     });
     const store = await openProcessCredentialStore(config);
-    assert.ok(store.getAgentCredential("public", "@nick.soa"));
+    assert.ok(store.getAgentCredential("public", "@owner.agent"));
   });
 
   it("accepts when auth-server network matches local config", async () => {
     const config = makeConfig();
     await _persistAgentPkceForTests({
       config,
-      handle: "@nick.soa",
+      handle: "@owner.agent",
       result: fakePkceResult({ network: "public" }),
     });
     const store = await openProcessCredentialStore(config);
-    assert.ok(store.getAgentCredential("public", "@nick.soa"));
+    assert.ok(store.getAgentCredential("public", "@owner.agent"));
   });
 });
 

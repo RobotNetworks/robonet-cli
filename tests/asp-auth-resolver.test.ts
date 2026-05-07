@@ -5,7 +5,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 
 import {
-  AdminTokenNotFoundError,
+  LocalAdminTokenNotFoundError,
   CredentialNotFoundError,
 } from "../src/asp/credentials.js";
 import { RobotNetCLIError } from "../src/errors.js";
@@ -79,17 +79,17 @@ describe("resolveAdminToken", () => {
     assert.deepEqual(out, { token: "stored-tok", source: "store" });
   });
 
-  it("throws AdminTokenNotFoundError with no override and no file", async () => {
+  it("throws LocalAdminTokenNotFoundError with no override and no file", async () => {
     await assert.rejects(
       resolveAdminToken(makeConfig()),
-      AdminTokenNotFoundError,
+      LocalAdminTokenNotFoundError,
     );
   });
 
   it("an empty override is treated as 'not provided' rather than as an empty token", async () => {
     await assert.rejects(
       resolveAdminToken(makeConfig(), ""),
-      AdminTokenNotFoundError,
+      LocalAdminTokenNotFoundError,
     );
   });
 });
@@ -266,7 +266,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
       "../src/credentials/lifecycle.js"
     );
     const sA = await openProcessCredentialStore(config);
-    sA.putAdminToken("public", "admin-tok");
+    sA.putLocalAdminToken("public", "admin-tok");
     sA.putAgentCredential({
       networkName: "public",
       handle: "@cli.bot",
@@ -288,7 +288,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
 
     // The store should now be clean — both rows gone.
     const sB = await openProcessCredentialStore(config);
-    assert.equal(sB.countAdminTokens(), 0);
+    assert.equal(sB.countLocalAdminTokens(), 0);
     assert.equal(sB.countAgentCredentials(), 0);
   });
 

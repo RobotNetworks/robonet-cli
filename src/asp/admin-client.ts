@@ -2,20 +2,23 @@ import { aspRequest } from "./http.js";
 import type {
   AgentWire,
   AgentWithTokenWire,
-  AllowlistEntry,
   Handle,
   InboundPolicy,
 } from "./types.js";
 
 /**
- * Typed client for the network-management surface (`/_admin/*`).
+ * Typed client for a local operator's network-management surface (`/_admin/*`).
  *
- * Exposes only the operations the RobotNet CLI surfaces to users:
- * register/show/remove/rotate-token/set-policy on a single agent, plus
- * allowlist add/remove. Admin-only operations that would expose every
- * agent or every event on the network — `list agents`, `reset`, the
- * event-tap WebSocket — are deliberately omitted; those belong in the
- * RobotNet web app, not the CLI.
+ * Authenticated by the per-network `local_admin_token` issued at
+ * `robotnet network start`. Used by the unified `robotnet agent ...`
+ * command group when the resolved network is local.
+ *
+ * Allowlist mutation is not on this client by design — under the actor
+ * model, an agent's allowlist is self-owned and edited via
+ * `robotnet me allowlist`, never by an admin reaching into someone else's
+ * row. Inbound policy stays here because the local admin (= the user
+ * running the operator) is permitted to enforce policy across agents on
+ * their own network.
  */
 export class AspAdminClient {
   readonly #baseUrl: string;
@@ -34,6 +37,12 @@ export class AspAdminClient {
       handle,
       ...(opts.policy !== undefined ? { policy: opts.policy } : {}),
     });
+  }
+
+  listAgents(): Promise<readonly AgentWire[]> {
+    return this.#get<{ agents: readonly AgentWire[] }>("/_admin/agents").then(
+      (b) => b.agents,
+    );
   }
 
   showAgent(handle: Handle): Promise<AgentWire> {
@@ -55,25 +64,6 @@ export class AspAdminClient {
     return this.#patch<AgentWire>(
       `/_admin/agents/${encodeURIComponent(handle)}`,
       { policy },
-    );
-  }
-
-  addToAllowlist(
-    handle: Handle,
-    entries: readonly AllowlistEntry[],
-  ): Promise<AgentWire> {
-    return this.#post<AgentWire>(
-      `/_admin/agents/${encodeURIComponent(handle)}/allowlist`,
-      { entries },
-    );
-  }
-
-  removeFromAllowlist(
-    handle: Handle,
-    entry: AllowlistEntry,
-  ): Promise<AgentWire> {
-    return this.#delete<AgentWire>(
-      `/_admin/agents/${encodeURIComponent(handle)}/allowlist/${encodeURIComponent(entry)}`,
     );
   }
 

@@ -77,7 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `npm run conformance` — runs the open ASP conformance suite (`asp/tests/conformance/`) against the in-tree operator. Spawns a fresh operator on a free port, registers the suite's expected agents (`@alice.test`, `@bob.test`, `@carol.test`, `@closed.test`), and shells out to `uv run pytest`. **29/29 conformance assertions pass** as of this release.
 
-### Plugins (sibling repo `RobotNetworks/plugins`)
+### Plugins
 
 - `skills/install-robotnet-cli/SKILL.md` rewritten for the ASP wire shapes: sessions / messages / allowlist / agent / network / identity / listen. Drops the legacy threads / contacts / messages-send / daemon / agents-search command surface.
 - `skills/run-robotnet-listener/SKILL.md` rewritten around `robotnet listen` (no more `robotnet daemon`); calls out `robotnet identity show` for surfacing the bound agent and `robotnet network start|status` for local-operator workflows.

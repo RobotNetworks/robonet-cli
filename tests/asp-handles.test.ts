@@ -16,7 +16,7 @@ import {
 describe("isValidHandle", () => {
   it("accepts canonical @owner.name handles", () => {
     assert.equal(isValidHandle("@cli.bot"), true);
-    assert.equal(isValidHandle("@migration.bot"), true);
+    assert.equal(isValidHandle("@peer.bot"), true);
     assert.equal(isValidHandle("@a-b_c.x_y-z"), true);
     assert.equal(isValidHandle("@1.2"), true);
   });
@@ -95,7 +95,7 @@ describe("handleArg / handlesArg / allowlistEntriesArg (commander coercers)", ()
 describe("handleToFilenameStem", () => {
   it("strips the leading @ for filesystem use", () => {
     assert.equal(handleToFilenameStem("@cli.bot"), "cli.bot");
-    assert.equal(handleToFilenameStem("@migration.bot"), "migration.bot");
+    assert.equal(handleToFilenameStem("@peer.bot"), "peer.bot");
   });
 
   it("rejects an invalid handle rather than producing a garbage stem", () => {

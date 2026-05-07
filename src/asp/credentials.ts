@@ -28,7 +28,9 @@ export class CredentialNotFoundError extends RobotNetCLIError {
   constructor(handle: string, networkName: string) {
     super(
       `no stored token for ${handle} on network "${networkName}". ` +
-        `Run \`robotnet agent register ${handle} --network ${networkName}\` first, or pass --token.`,
+        `Run \`robotnet login --agent ${handle} --network ${networkName}\` (remote) ` +
+        `or \`robotnet agent create ${handle} --network ${networkName}\` (local) first, ` +
+        `or pass --token.`,
     );
     this.name = "CredentialNotFoundError";
     this.handle = handle;
@@ -36,14 +38,15 @@ export class CredentialNotFoundError extends RobotNetCLIError {
   }
 }
 
-export class AdminTokenNotFoundError extends RobotNetCLIError {
+export class LocalAdminTokenNotFoundError extends RobotNetCLIError {
   readonly networkName: string;
   constructor(networkName: string) {
     super(
-      `no admin token for network "${networkName}". ` +
-        `Start the network with \`robotnet start --network ${networkName}\`, or pass --admin-token.`,
+      `no local admin token for network "${networkName}". ` +
+        `Start the operator with \`robotnet network start --network ${networkName}\`, ` +
+        `or pass --local-admin-token.`,
     );
-    this.name = "AdminTokenNotFoundError";
+    this.name = "LocalAdminTokenNotFoundError";
     this.networkName = networkName;
   }
 }

@@ -10,8 +10,12 @@ import type { SessionEvent, UnknownSessionEvent } from "../src/asp/types.js";
 
 interface RunHarness {
   readonly wsUrl: string;
-  /** Resolves with `(send, requestUrl)` once the test client connects. */
-  readonly waitForClient: Promise<{ readonly send: (raw: string) => void; readonly url: string }>;
+  /** Resolves with `(send, requestUrl, authorization)` once the test client connects. */
+  readonly waitForClient: Promise<{
+    readonly send: (raw: string) => void;
+    readonly url: string;
+    readonly authorization: string | undefined;
+  }>;
   /** Tear down the WS server, terminating any still-connected sockets. */
   readonly close: () => Promise<void>;
 }
@@ -22,16 +26,20 @@ async function startTestServer(): Promise<RunHarness> {
   const port = (httpServer.address() as AddressInfo).port;
   const wss = new WebSocketServer({ server: httpServer });
 
-  const waitForClient = new Promise<{ send: (raw: string) => void; url: string }>(
-    (resolve) => {
-      wss.once("connection", (socket, req) => {
-        resolve({
-          send: (raw) => socket.send(raw),
-          url: req.url ?? "",
-        });
+  const waitForClient = new Promise<{
+    send: (raw: string) => void;
+    url: string;
+    authorization: string | undefined;
+  }>((resolve) => {
+    wss.once("connection", (socket, req) => {
+      const auth = req.headers["authorization"];
+      resolve({
+        send: (raw) => socket.send(raw),
+        url: req.url ?? "",
+        authorization: typeof auth === "string" ? auth : undefined,
       });
-    },
-  );
+    });
+  });
 
   return {
     wsUrl: `ws://127.0.0.1:${port}`,
@@ -64,8 +72,9 @@ describe("startAspListener", () => {
 
     const client = await harness.waitForClient;
 
-    // Token must be on the handshake URL — the network authenticates this way.
-    assert.match(client.url, /\?token=tok-abc$/);
+    // Bearer must be on the handshake's Authorization header — hosted
+    // networks may reject `?token=` query-param authentication.
+    assert.equal(client.authorization, "Bearer tok-abc");
 
     const frame = JSON.stringify({
       type: "session.message",
@@ -76,7 +85,7 @@ describe("startAspListener", () => {
       payload: {
         id: "msg_1",
         session_id: "sess_A",
-        sender: "@migration.bot",
+        sender: "@peer.bot",
         sequence: 0,
         content: "hi",
         created_at: 12345,

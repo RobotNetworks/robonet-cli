@@ -4,9 +4,8 @@ import { aspRequest } from "../asp/http.js";
 import type { Message } from "../asp/types.js";
 
 /**
- * Wire shape returned by `GET /search/messages`. Mirrors the backend
- * `MessageSearchResponse` Pydantic model and the operator's `{ messages: [...] }`
- * response — both surface the same `Message` body that drops out of a
+ * Wire shape returned by `GET /search/messages`. Both hosted and local
+ * implementations return the same `Message` body that drops out of a
  * `session.message` event.
  */
 export interface MessageSearchResponse {
@@ -21,8 +20,8 @@ export interface MessageSearchOptions {
 }
 
 /**
- * Typed client for `GET /search/messages` — works against both the hosted
- * RobotNet backend and the in-tree local operator. Eligibility filtering
+ * Typed client for `GET /search/messages` — works against both hosted
+ * RobotNet and the in-tree local operator. Eligibility filtering
  * (caller-must-be-currently-joined-and-message-after-join) lives server-side.
  */
 export class MessageSearchClient {

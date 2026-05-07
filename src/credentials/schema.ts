@@ -25,9 +25,10 @@ export const MIGRATIONS: readonly Migration[] = [
       );
       INSERT INTO schema_version (version) VALUES (1);
 
-      -- Admin tokens for networks the user can administer.
-      -- Single row per network; written by the desktop app's network
-      -- supervisor and by 'robotnet agent register' (admin token override).
+      -- Local admin tokens — one per local network the user runs.
+      -- Single row per network; written by 'robotnet network start' and
+      -- read by the network-management commands ('network reset', the
+      -- unified 'agent' group when the resolved network is local).
       CREATE TABLE admin_tokens (
         network_name TEXT NOT NULL PRIMARY KEY,
         token_ciphertext BLOB NOT NULL,
@@ -68,7 +69,7 @@ export const MIGRATIONS: readonly Migration[] = [
     sql: `
       -- The human user's authenticated session for this profile.
       -- Singleton — one user per profile (the CLI's --profile flag isolates).
-      -- When the remote ASP postgres lands, account_id (Cognito sub) will join.
+      -- When remote account-backed credentials land, account_id can join.
       CREATE TABLE user_sessions (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         access_token_ciphertext BLOB NOT NULL,
