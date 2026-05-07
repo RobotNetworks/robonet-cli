@@ -42,9 +42,9 @@ async function mintViaClientCredentials(args: {
   readonly clientSecret: string;
   readonly scope?: string;
 }): Promise<MintedAgentToken> {
-  const discovery = await discoverOAuth(args.config.endpoints);
+  const discovery = await discoverOAuth(args.config.network);
   const resource =
-    discovery.apiResource ?? args.config.endpoints.apiBaseUrl.replace(/\/+$/, "");
+    discovery.apiResource ?? args.config.network.url.replace(/\/+$/, "");
   const response = await requestClientCredentialsToken({
     tokenEndpoint: discovery.tokenEndpoint,
     clientId: args.clientId,
@@ -162,9 +162,9 @@ export async function enrollAgentPkce(args: {
   readonly handle: string;
   readonly scope?: string;
 }): Promise<EnrolledAgentPkce> {
-  const discovery = await discoverOAuth(args.config.endpoints);
+  const discovery = await discoverOAuth(args.config.network);
   const result = await performAgentPkceLogin({
-    endpoints: args.config.endpoints,
+    network: args.config.network,
     discovery,
     target: { kind: "handle", handle: args.handle },
     ...(args.scope !== undefined ? { scope: args.scope } : {}),
@@ -192,9 +192,9 @@ export async function enrollAgentPkceViaPicker(args: {
   readonly config: CLIConfig;
   readonly scope?: string;
 }): Promise<EnrolledAgentPkce> {
-  const discovery = await discoverOAuth(args.config.endpoints);
+  const discovery = await discoverOAuth(args.config.network);
   const result = await performAgentPkceLogin({
-    endpoints: args.config.endpoints,
+    network: args.config.network,
     discovery,
     target: { kind: "picker" },
     ...(args.scope !== undefined ? { scope: args.scope } : {}),
@@ -304,9 +304,9 @@ export async function renewAgentPkce(args: {
   readonly refreshToken: string;
   readonly scope: string | null;
 }): Promise<string> {
-  const discovery = await discoverOAuth(args.config.endpoints);
+  const discovery = await discoverOAuth(args.config.network);
   const resource =
-    discovery.apiResource ?? args.config.endpoints.apiBaseUrl.replace(/\/+$/, "");
+    discovery.apiResource ?? args.config.network.url.replace(/\/+$/, "");
   const exchanged = await requestRefreshTokenExchange({
     tokenEndpoint: discovery.tokenEndpoint,
     clientId: args.clientId,

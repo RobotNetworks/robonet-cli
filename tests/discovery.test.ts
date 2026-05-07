@@ -80,7 +80,9 @@ describe("discoverOAuth", () => {
     };
 
     const result = await discoverOAuth({
-      apiBaseUrl: "https://api.test/v1",
+      name: "test",
+      url: "https://api.test/v1",
+      authMode: "oauth",
       authBaseUrl: "https://auth.test",
       websocketUrl: "wss://ws.test",
     });
@@ -104,7 +106,9 @@ describe("discoverOAuth", () => {
     await assert.rejects(
       () =>
         discoverOAuth({
-          apiBaseUrl: "https://api.test/v1",
+          name: "test",
+          url: "https://api.test/v1",
+          authMode: "oauth",
           authBaseUrl: "https://auth.test",
           websocketUrl: "wss://ws.test",
         }),
@@ -133,7 +137,9 @@ describe("discoverOAuth", () => {
     await assert.rejects(
       () =>
         discoverOAuth({
-          apiBaseUrl: "https://api.test/v1",
+          name: "test",
+          url: "https://api.test/v1",
+          authMode: "oauth",
           authBaseUrl: "https://auth.test",
           websocketUrl: "wss://ws.test",
         }),
@@ -149,7 +155,9 @@ describe("discoverOAuth", () => {
     await assert.rejects(
       () =>
         discoverOAuth({
-          apiBaseUrl: "https://api.test/v1",
+          name: "test",
+          url: "https://api.test/v1",
+          authMode: "oauth",
           authBaseUrl: "https://auth.test",
           websocketUrl: "wss://ws.test",
         }),

@@ -40,16 +40,13 @@ function makeConfig(network: NetworkConfig = {
   name: "public",
   url: "https://api.example/v1",
   authMode: "oauth",
+  authBaseUrl: "https://auth.example",
+  websocketUrl: "wss://ws.example",
 }): CLIConfig {
   return {
     profile: "default",
     profileSource: { kind: "default" },
     environment: "prod",
-    endpoints: {
-      apiBaseUrl: "https://api.example/v1",
-      authBaseUrl: "https://auth.example",
-      websocketUrl: "wss://ws.example",
-    },
     paths: {
       configDir: path.join(stateDir, "config"),
       stateDir,
@@ -60,7 +57,7 @@ function makeConfig(network: NetworkConfig = {
     tokenStoreFile: path.join(stateDir, "config", "auth.json"),
     network,
     networkSource: { kind: "default" },
-    networks: { robotnet: network },
+    networks: { [network.name]: network },
   };
 }
 

@@ -6,7 +6,7 @@ export class RobotNetCLIError extends Error {
   }
 }
 
-/** Thrown when CLI configuration (profile, endpoints, paths) is missing or malformed. */
+/** Thrown when CLI configuration (profile, networks, paths) is missing or malformed. */
 export class ConfigurationError extends RobotNetCLIError {
   constructor(message: string) {
     super(message);

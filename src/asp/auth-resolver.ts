@@ -90,8 +90,8 @@ export async function resolveAgentToken(
 
   switch (stored.kind) {
     case "local_bearer":
-      // Long-lived bearers issued by `agent register` on a local network.
-      // No expiry, no renewal.
+      // Long-lived bearers issued by `admin agent create` on a local
+      // network. No expiry, no renewal.
       return { token: stored.bearer, source: "store" };
 
     case "oauth_pkce": {
@@ -161,9 +161,9 @@ export async function resolveSessionClient(
 /**
  * Resolve the WebSocket handshake URL for the active network.
  *
- * `oauth` networks may front the WebSocket on a dedicated gateway whose
- * origin differs from the REST API's — discovery surfaces it as
- * `endpoints.websocketUrl`. Use that URL as-is.
+ * `oauth` networks front the WebSocket on a dedicated gateway whose origin
+ * may differ from the REST API's — the network's `websocketUrl` field is
+ * the authoritative source. Use it as-is.
  *
  * `agent-token` networks (e.g. `robotnet network start` running the local
  * Node operator) serve REST and WS on the same host with WS at `/connect`.
@@ -171,7 +171,12 @@ export async function resolveSessionClient(
  */
 function websocketUrlFor(config: CLIConfig): string {
   if (config.network.authMode === "oauth") {
-    return config.endpoints.websocketUrl;
+    if (!config.network.websocketUrl) {
+      throw new RobotNetCLIError(
+        `Network "${config.network.name}" has auth_mode=oauth but no websocket_url configured.`,
+      );
+    }
+    return config.network.websocketUrl;
   }
   return `${config.network.url.replace(/^http/, "ws")}/connect`;
 }

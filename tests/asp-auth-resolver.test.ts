@@ -48,11 +48,6 @@ function makeConfig(network: NetworkConfig = {
     profile: "default",
     profileSource: { kind: "default" },
     environment: "prod",
-    endpoints: {
-      apiBaseUrl: "https://api.example/v1",
-      authBaseUrl: "https://auth.example",
-      websocketUrl: "wss://ws.example",
-    },
     paths: {
       configDir: path.join(stateDir, "config"),
       stateDir,
@@ -63,7 +58,7 @@ function makeConfig(network: NetworkConfig = {
     tokenStoreFile: path.join(stateDir, "config", "auth.json"),
     network,
     networkSource: { kind: "default" },
-    networks: { local: network },
+    networks: { [network.name]: network },
   };
 }
 
@@ -163,6 +158,8 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
       name: "public",
       url: "https://api.example/v1",
       authMode: "oauth",
+      authBaseUrl: "https://auth.example",
+      websocketUrl: "wss://ws.example",
     });
     // Seed the store with a still-valid bearer.
     const { openProcessCredentialStore } = await import(
@@ -191,6 +188,8 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
       name: "public",
       url: "https://api.example/v1",
       authMode: "oauth",
+      authBaseUrl: "https://auth.example",
+      websocketUrl: "wss://ws.example",
     });
     const { openProcessCredentialStore } = await import(
       "../src/credentials/lifecycle.js"
@@ -257,6 +256,8 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
       name: "public",
       url: "https://api.example/v1",
       authMode: "oauth",
+      authBaseUrl: "https://auth.example",
+      websocketUrl: "wss://ws.example",
     });
 
     // Phase 1: write rows under encryptor A.
@@ -297,6 +298,8 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
       name: "public",
       url: "https://api.example/v1",
       authMode: "oauth",
+      authBaseUrl: "https://auth.example",
+      websocketUrl: "wss://ws.example",
     });
     const { openProcessCredentialStore } = await import(
       "../src/credentials/lifecycle.js"
@@ -370,6 +373,8 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
       name: "public",
       url: "https://api.example/v1",
       authMode: "oauth",
+      authBaseUrl: "https://auth.example",
+      websocketUrl: "wss://ws.example",
     });
     const { openProcessCredentialStore } = await import(
       "../src/credentials/lifecycle.js"

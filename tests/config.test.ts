@@ -57,12 +57,22 @@ describe("loadConfig", () => {
     );
   });
 
-  it("honors endpoint env overrides", () => {
+  it("ROBOTNET_API_BASE_URL env override patches the resolved network's `url`", () => {
     process.env.ROBOTNET_API_BASE_URL = "https://api.example.test/v1";
 
     const config = loadConfig(undefined, { cwd: env.tmpDir });
 
-    assert.equal(config.endpoints.apiBaseUrl, "https://api.example.test/v1");
+    assert.equal(config.network.url, "https://api.example.test/v1");
+  });
+
+  it("ROBOTNET_AUTH_BASE_URL / ROBOTNET_WEBSOCKET_URL env overrides patch the resolved network", () => {
+    process.env.ROBOTNET_AUTH_BASE_URL = "https://auth.example.test";
+    process.env.ROBOTNET_WEBSOCKET_URL = "wss://ws.example.test";
+
+    const config = loadConfig(undefined, { cwd: env.tmpDir });
+
+    assert.equal(config.network.authBaseUrl, "https://auth.example.test");
+    assert.equal(config.network.websocketUrl, "wss://ws.example.test");
   });
 
   it("falls back to default profile when nothing is set", () => {
@@ -226,17 +236,7 @@ describe("network resolution", () => {
     assert.equal(config.networkSource.kind, "env");
   });
 
-  it("profile config `default_network` is used when no flag/env override", () => {
-    writeProfileConfig("default", { default_network: "local" });
-
-    const config = loadConfig(undefined, { cwd: env.tmpDir });
-
-    assert.equal(config.network.name, "local");
-    assert.equal(config.networkSource.kind, "profile");
-  });
-
-  it("workspace `network` field wins over profile `default_network`", () => {
-    writeProfileConfig("default", { default_network: "public" });
+  it("workspace `network` field selects a named network when no flag/env override", () => {
     const wsDir = path.join(env.tmpDir, ".robotnet");
     fs.mkdirSync(wsDir, { recursive: true });
     fs.writeFileSync(
@@ -250,10 +250,15 @@ describe("network resolution", () => {
     assert.equal(config.networkSource.kind, "workspace");
   });
 
-  it("profile config can define an additional network", () => {
+  it("profile config can define an additional OAuth network with auth + websocket URLs", () => {
     writeProfileConfig("default", {
       networks: {
-        staging: { url: "https://staging.example/v1", auth_mode: "oauth" },
+        staging: {
+          url: "https://staging.example/v1",
+          auth_mode: "oauth",
+          auth_base_url: "https://auth.staging.example",
+          websocket_url: "wss://ws.staging.example",
+        },
       },
     });
 
@@ -264,9 +269,46 @@ describe("network resolution", () => {
 
     assert.equal(config.network.url, "https://staging.example/v1");
     assert.equal(config.network.authMode, "oauth");
+    assert.equal(config.network.authBaseUrl, "https://auth.staging.example");
+    assert.equal(config.network.websocketUrl, "wss://ws.staging.example");
     assert.equal(config.networks.staging.url, "https://staging.example/v1");
     // Built-ins are still visible alongside the user-defined entry.
     assert.equal(config.networks.public.authMode, "oauth");
+    assert.equal(config.networks.public.authBaseUrl, "https://auth.robotnet.ai");
+  });
+
+  it("rejects an oauth network missing `auth_base_url`", () => {
+    writeProfileConfig("default", {
+      networks: {
+        broken: { url: "https://staging.example/v1", auth_mode: "oauth" },
+      },
+    });
+
+    assert.throws(
+      () => loadConfig(undefined, { cwd: env.tmpDir, networkName: "broken" }),
+      (err: unknown) =>
+        err instanceof ConfigurationError &&
+        err.message.includes('Network "broken"') &&
+        err.message.includes("auth_base_url"),
+    );
+  });
+
+  it("an agent-token network does NOT require auth_base_url / websocket_url", () => {
+    writeProfileConfig("default", {
+      networks: {
+        custom: { url: "http://127.0.0.1:9000", auth_mode: "agent-token" },
+      },
+    });
+
+    const config = loadConfig(undefined, {
+      cwd: env.tmpDir,
+      networkName: "custom",
+    });
+
+    assert.equal(config.network.url, "http://127.0.0.1:9000");
+    assert.equal(config.network.authMode, "agent-token");
+    assert.equal(config.network.authBaseUrl, undefined);
+    assert.equal(config.network.websocketUrl, undefined);
   });
 
   it("profile config can override a built-in network's URL", () => {

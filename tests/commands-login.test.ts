@@ -14,11 +14,6 @@ function makeConfig(args: {
     profile: "default",
     profileSource: { kind: "default" },
     environment: "prod",
-    endpoints: {
-      apiBaseUrl: "https://api.example/v1",
-      authBaseUrl: "https://auth.example",
-      websocketUrl: "wss://ws.example",
-    },
     paths: {
       configDir: "/tmp/cfg",
       stateDir: "/tmp/state",
@@ -37,6 +32,8 @@ const PUBLIC: NetworkConfig = {
   name: "public",
   url: "https://api.example/v1",
   authMode: "oauth",
+  authBaseUrl: "https://auth.example",
+  websocketUrl: "wss://ws.example",
 };
 const LOCAL: NetworkConfig = {
   name: "local",

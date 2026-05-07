@@ -94,7 +94,7 @@ function credentialStoreCheck(config: CLIConfig): DoctorCheck {
     return {
       name: "credential_store",
       ok: true,
-      detail: `not yet created at ${path} (created on first agent register or login)`,
+      detail: `not yet created at ${path} (created on first \`admin agent create\`, \`account login\`, or \`login\`)`,
     };
   }
 
@@ -117,7 +117,7 @@ function credentialStoreCheck(config: CLIConfig): DoctorCheck {
       ok: true,
       detail:
         `${path} schema_version=${store.schemaVersion} ` +
-        `admin_tokens=${store.countLocalAdminTokens()} ` +
+        `local_admin_tokens=${store.countLocalAdminTokens()} ` +
         `agent_credentials=${store.countAgentCredentials()}`,
     };
   } finally {
@@ -134,7 +134,7 @@ function keychainCheck(config: CLIConfig): DoctorCheck {
       ok: true,
       detail: present
         ? `key present (service=com.robotnet.cli account=${config.profile})`
-        : `keychain accessible; no key yet — minted on first agent register`,
+        : `keychain accessible; no key yet — minted on first \`admin agent create\` or \`login\``,
     };
   } catch (err) {
     return {
@@ -154,19 +154,17 @@ async function directoryIdentityCheck(): Promise<DoctorCheck> {
       return {
         name: "directory_identity",
         ok: true,
-        detail: "no .robotnet/asp.json in cwd or any ancestor",
+        detail: "no .robotnet/config.json in cwd or any ancestor",
       };
     }
-    const entries = Object.entries(file.identities)
-      .map(([network, handle]) => `${network}=${handle}`)
-      .join(", ");
-    const defaultPart =
-      file.defaultNetwork !== undefined ? ` default=${file.defaultNetwork}` : "";
-    const identitiesPart = entries.length > 0 ? ` identities=[${entries}]` : "";
+    const bindingPart =
+      file.agent !== undefined
+        ? ` agent=${file.agent} bound_to=${file.network ?? "(none)"}`
+        : " agent=(none)";
     return {
       name: "directory_identity",
       ok: true,
-      detail: `${file.filePath}${defaultPart}${identitiesPart}`,
+      detail: `${file.filePath}${bindingPart}`,
     };
   } catch (err) {
     return {
@@ -179,7 +177,7 @@ async function directoryIdentityCheck(): Promise<DoctorCheck> {
 
 async function oauthDiscoveryCheck(config: CLIConfig): Promise<DoctorCheck> {
   try {
-    const discovery = await discoverOAuth(config.endpoints);
+    const discovery = await discoverOAuth(config.network);
     return {
       name: "oauth_discovery",
       ok: true,

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { networkStatePaths } from "../asp/credentials.js";
 import { isValidHandle } from "../asp/handles.js";
 import { loadToken, deleteToken } from "../auth/token-store.js";
+import { CredentialDecryptionError } from "./aes-encryptor.js";
 import type { CredentialStore } from "./store.js";
 
 /**
@@ -39,16 +40,34 @@ export async function migrateLegacyCredentials(args: {
   for (const network of args.networkNames) {
     const paths = networkStatePaths(args.profileStateDir, network);
 
-    if (args.store.getLocalAdminToken(network) === null) {
+    // Decryption errors here mean the keychain key has been rotated and the
+    // existing rows are unreadable. Don't fail migration — the per-command
+    // self-heal path in `resolveAgentToken` / `resolveAdminToken` is what
+    // surfaces the friendly recovery message and purges the bad rows. We
+    // simply skip the "do we already have a row?" check and the migration
+    // for this network; the next operation against it will trigger recovery.
+    let hasExistingAdmin = false;
+    try {
+      hasExistingAdmin = args.store.getLocalAdminToken(network) !== null;
+    } catch (err) {
+      if (!(err instanceof CredentialDecryptionError)) throw err;
+      continue;
+    }
+    if (!hasExistingAdmin) {
       const migrated = await migrateAdminToken(args.store, network, paths.adminTokenFile);
       if (migrated) summary.adminTokensMigrated += 1;
     }
 
-    summary.agentCredentialsMigrated += await migrateAgentCredentials(
-      args.store,
-      network,
-      paths.credentialsDir,
-    );
+    try {
+      summary.agentCredentialsMigrated += await migrateAgentCredentials(
+        args.store,
+        network,
+        paths.credentialsDir,
+      );
+    } catch (err) {
+      if (!(err instanceof CredentialDecryptionError)) throw err;
+      // Same recovery story — skip this network's agent credentials.
+    }
   }
 
   if (

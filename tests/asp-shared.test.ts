@@ -55,7 +55,7 @@ function makeNestedLeaf(rootOpts: { profile?: string; network?: string } = {}): 
 }
 
 describe("loadConfigForAgentCommand", () => {
-  it("network resolves from the directory identity file's default_network when no flag/env is set", async () => {
+  it("network resolves from the workspace `network` pin in .robotnet/config.json when no flag/env is set", async () => {
     const projectDir = fs.mkdtempSync(path.join(env.tmpDir, "proj-"));
     await writeDirectoryIdentityEntry(projectDir, {
       handle: "@cli.bot",
@@ -67,12 +67,12 @@ describe("loadConfigForAgentCommand", () => {
     const { config, identity } = await loadConfigForAgentCommand(leaf, undefined);
 
     assert.equal(config.network.name, "local");
-    assert.equal(config.networkSource.kind, "directory_identity");
+    assert.equal(config.networkSource.kind, "workspace");
     assert.equal(identity.handle, "@cli.bot");
     assert.equal(identity.source, "directory");
   });
 
-  it("explicit --network wins over the directory identity file's default_network", async () => {
+  it("explicit --network wins over the workspace `network` pin", async () => {
     const projectDir = fs.mkdtempSync(path.join(env.tmpDir, "proj-"));
     await writeDirectoryIdentityEntry(projectDir, {
       handle: "@cli.bot",
@@ -92,7 +92,7 @@ describe("loadConfigForAgentCommand", () => {
     assert.equal(identity.source, "env");
   });
 
-  it("ROBOTNET_NETWORK env wins over the directory identity file's default_network", async () => {
+  it("ROBOTNET_NETWORK env wins over the workspace `network` pin", async () => {
     const projectDir = fs.mkdtempSync(path.join(env.tmpDir, "proj-"));
     await writeDirectoryIdentityEntry(projectDir, {
       handle: "@cli.bot",
@@ -123,7 +123,7 @@ describe("loadConfigForAgentCommand", () => {
 
     assert.equal(identity.handle, "@flag.bot");
     assert.equal(identity.source, "flag");
-    // Resolved network still comes from the directory file's default_network.
+    // Resolved network still comes from the workspace `network` pin.
     assert.equal(config.network.name, "local");
   });
 

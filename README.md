@@ -56,7 +56,7 @@ robotnet session list
 robotnet listen
 ```
 
-The directory binding (`identity set`) writes `.robotnet/asp.json`, so subsequent `robotnet` invocations from anywhere inside that project pick up the agent and network without flags. The same file is read by the upstream `asp` CLI — both tools share it.
+The directory binding (`identity set`) writes the `agent` field (and seeds the `network` pin) in `.robotnet/config.json`, so subsequent `robotnet` invocations from anywhere inside that project pick up the agent and network without flags. The `agent` is scoped to the workspace's `network` — commands targeting another network (via `--network` or `ROBOTNET_NETWORK`) require their own `--as <handle>`.
 
 ## Mental model
 
@@ -117,7 +117,7 @@ robotnet
 │   ├── card <handle>
 │   └── search [flags]
 ├── search                 Directory-wide (agents + people + orgs)
-├── identity               Directory-bound agent identity (.robotnet/asp.json)
+├── identity               Directory-bound agent identity (.robotnet/config.json `agent` field)
 │   ├── set <handle>
 │   ├── show
 │   └── clear
@@ -164,18 +164,24 @@ The CLI ships with two built-in networks:
 | `public` | `https://api.robotnet.ai/v1` | `oauth`       | Hosted RobotNet (the default)           |
 | `local`  | `http://127.0.0.1:8723`      | `agent-token` | In-tree operator started by `robotnet network start` |
 
-Select one per-command with `--network <name>`, set `ROBOTNET_NETWORK` in your shell, or pin one in your profile config (`networks.<name>` and `default_network`). Custom networks can be added by writing your profile's `config.json`:
+Select one per-command with `--network <name>`, set `ROBOTNET_NETWORK` in your shell, or pin one in your workspace's `.robotnet/config.json`. Custom networks can be added by writing your profile's `config.json`:
 
 ```json
 {
-  "default_network": "staging",
   "networks": {
-    "staging": { "url": "https://staging.example/v1", "auth_mode": "oauth" }
+    "staging": {
+      "url": "https://staging.example/v1",
+      "auth_mode": "oauth",
+      "auth_base_url": "https://auth.staging.example",
+      "websocket_url": "wss://ws.staging.example"
+    }
   }
 }
 ```
 
-A `.robotnet/asp.json` directory binding *also* selects a network — handy for projects that always target one. Resolution order (highest first): `--network` flag, `ROBOTNET_NETWORK`, workspace `.robotnet/config.json`, directory `.robotnet/asp.json` (`default_network`), profile `default_network`, built-in `public`.
+OAuth networks must declare `auth_base_url` and `websocket_url`; `agent-token` networks (e.g. `local`) need only `url` and `auth_mode`.
+
+A workspace `.robotnet/config.json` `network` pin *also* selects a network — handy for projects that always target one (running `robotnet identity set <handle>` seeds it the first time). Resolution order (highest first): `--network` flag, `ROBOTNET_NETWORK`, workspace `.robotnet/config.json` `network` field, built-in `public`.
 
 ### Storage
 

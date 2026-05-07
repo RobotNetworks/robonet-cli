@@ -2,12 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
-import type { EndpointConfig } from "./endpoints.js";
 import { ConfigurationError } from "./errors.js";
 
-const DEFAULT_API_BASE_URL = "https://api.robotnet.ai/v1";
-const DEFAULT_AUTH_BASE_URL = "https://auth.robotnet.ai";
-const DEFAULT_WEBSOCKET_URL = "wss://ws.robotnet.ai";
 const DEFAULT_ENVIRONMENT = "prod";
 const DEFAULT_PROFILE = "default";
 const DEFAULT_NETWORK = "public";
@@ -21,15 +17,27 @@ export type NetworkAuthMode = "oauth" | "agent-token";
  * A named ASP network the CLI can target.
  *
  * `oauth` networks (e.g. the hosted RobotNet network) authenticate via the
- * usual `robotnet login` flow. `agent-token` networks (a local
- * `robotnet start` instance, or any other ASP network that issues bearer
- * tokens at agent registration time) authenticate per-agent with the token
- * returned by the network at registration.
+ * usual `robotnet login` flow and **must** carry their own `authBaseUrl`
+ * (and almost always `websocketUrl`) — different operators run different
+ * auth servers and WebSocket gateways, so these belong to the network, not
+ * the profile.
+ *
+ * `agent-token` networks (a `robotnet network start` instance, or any other
+ * ASP network that issues bearer tokens at agent registration time)
+ * authenticate per-agent with the token returned by the network at
+ * registration. They derive the WebSocket URL from `url` and never consult
+ * an OAuth auth server, so `authBaseUrl` / `websocketUrl` should be left
+ * unset.
  */
 export interface NetworkConfig {
   readonly name: string;
+  /** REST API base URL. Required for every network. */
   readonly url: string;
   readonly authMode: NetworkAuthMode;
+  /** OAuth authorization server base URL — required when `authMode === "oauth"`. */
+  readonly authBaseUrl?: string;
+  /** WebSocket handshake URL — required when `authMode === "oauth"`; ignored for `agent-token`. */
+  readonly websocketUrl?: string;
 }
 
 /** Where the active network selection was resolved from. Surfaced in `config show` for debuggability. */
@@ -37,21 +45,18 @@ export type NetworkSource =
   | { readonly kind: "flag" }
   | { readonly kind: "env" }
   | { readonly kind: "workspace"; readonly configFile: string }
-  | { readonly kind: "directory_identity"; readonly configFile: string }
-  | { readonly kind: "profile"; readonly configFile: string }
   | { readonly kind: "default" };
 
 /**
  * The set of networks every profile knows about by default.
  *
  * - `public`: the hosted RobotNet network, authenticated via OAuth (today's
- *   `robotnet login` flow). The CLI is named after the operator (RobotNet)
- *   but the network's role from the CLI's perspective is "the public
- *   internet-reachable network", so that's the canonical name. Stored
- *   credentials and configs that reference the previous `robotnet` name
- *   are migrated transparently — see `src/credentials/schema.ts` v3.
- * - `local`: a `robotnet start` instance on the loopback default port; agents
- *   authenticate with the bearer token issued at `agent register` time.
+ *   `robotnet login` flow). Carries its own auth + websocket URLs so it
+ *   works out of the box without any profile config.
+ * - `local`: a `robotnet network start` instance on the loopback default
+ *   port; agents authenticate with the long-lived bearer token issued at
+ *   `robotnet admin agent create` time. No OAuth, no separate websocket
+ *   gateway — both are derived from `url`.
  *
  * A profile config may add more entries or override these via its `networks`
  * field.
@@ -59,8 +64,10 @@ export type NetworkSource =
 const BUILTIN_NETWORKS: Readonly<Record<string, NetworkConfig>> = {
   public: {
     name: "public",
-    url: DEFAULT_API_BASE_URL,
+    url: "https://api.robotnet.ai/v1",
     authMode: "oauth",
+    authBaseUrl: "https://auth.robotnet.ai",
+    websocketUrl: "wss://ws.robotnet.ai",
   },
   local: {
     name: "local",
@@ -84,12 +91,11 @@ export interface CLIPaths {
   readonly runDir: string;
 }
 
-/** Fully resolved CLI configuration: profile, environment, endpoints, network selection, and filesystem paths. */
+/** Fully resolved CLI configuration: profile, environment, network selection, and filesystem paths. */
 export interface CLIConfig {
   readonly profile: string;
   readonly profileSource: ProfileSource;
   readonly environment: string;
-  readonly endpoints: EndpointConfig;
   readonly paths: CLIPaths;
   readonly configFile: string;
   readonly tokenStoreFile: string;
@@ -105,17 +111,6 @@ export interface LoadConfigOptions {
   readonly cwd?: string;
   /** Override the network selection — wired to the top-level `--network <name>` flag. */
   readonly networkName?: string;
-  /**
-   * Default network contributed by the directory identity file
-   * (`<dir>/.robotnet/asp.json`'s `default_network` field). Provided by the
-   * caller so `loadConfig` does not have to depend on the `asp/` layer; the
-   * caller (typically a command-side helper) reads the file and passes the
-   * value in, along with its absolute path for source attribution.
-   */
-  readonly directoryIdentityDefault?: {
-    readonly network: string;
-    readonly filePath: string;
-  };
 }
 
 function xdgPath(envVar: string, defaultSuffix: string): string {
@@ -241,6 +236,22 @@ function parseAuthMode(value: unknown, networkName: string, configFile: string):
   );
 }
 
+function parseOptionalUrlField(
+  entry: Record<string, unknown>,
+  field: string,
+  networkName: string,
+  configFile: string,
+): string | undefined {
+  const raw = entry[field];
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new ConfigurationError(
+      `Network "${networkName}" in ${configFile} has an invalid \`${field}\` — expected a non-empty string`,
+    );
+  }
+  return raw.trim();
+}
+
 /** Merge the built-in network map with any user-defined entries from the per-profile config file. */
 function loadNetworksFromProfile(
   profilePayload: Record<string, unknown>,
@@ -252,7 +263,7 @@ function loadNetworksFromProfile(
   if (raw === undefined) return merged;
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new ConfigurationError(
-      `\`networks\` in ${configFile} must be an object mapping name → { url, auth_mode }`,
+      `\`networks\` in ${configFile} must be an object mapping name → { url, auth_mode, ... }`,
     );
   }
 
@@ -269,14 +280,46 @@ function loadNetworksFromProfile(
         `Network "${name}" in ${configFile} is missing a \`url\` field`,
       );
     }
+    const authMode = parseAuthMode(e["auth_mode"], name, configFile);
+    const authBaseUrl = parseOptionalUrlField(e, "auth_base_url", name, configFile);
+    const websocketUrl = parseOptionalUrlField(e, "websocket_url", name, configFile);
+
+    if (authMode === "oauth" && authBaseUrl === undefined) {
+      throw new ConfigurationError(
+        `Network "${name}" in ${configFile} has \`auth_mode: "oauth"\` but no \`auth_base_url\` field. ` +
+          `Add the OAuth authorization server URL (e.g. "https://auth.example.com").`,
+      );
+    }
+
     merged[name] = {
       name,
       url: url.trim(),
-      authMode: parseAuthMode(e["auth_mode"], name, configFile),
+      authMode,
+      ...(authBaseUrl !== undefined ? { authBaseUrl } : {}),
+      ...(websocketUrl !== undefined ? { websocketUrl } : {}),
     };
   }
 
   return merged;
+}
+
+/**
+ * After network resolution, apply per-invocation env-var overrides
+ * (`ROBOTNET_API_BASE_URL` / `ROBOTNET_AUTH_BASE_URL` / `ROBOTNET_WEBSOCKET_URL`)
+ * onto the resolved network. These are testing escape hatches — they let
+ * a script point at a non-prod surface for one run without editing config.
+ */
+function applyEndpointEnvOverrides(network: NetworkConfig): NetworkConfig {
+  const apiOverride = (process.env.ROBOTNET_API_BASE_URL ?? "").trim();
+  const authOverride = (process.env.ROBOTNET_AUTH_BASE_URL ?? "").trim();
+  const wsOverride = (process.env.ROBOTNET_WEBSOCKET_URL ?? "").trim();
+  if (!apiOverride && !authOverride && !wsOverride) return network;
+  return {
+    ...network,
+    ...(apiOverride ? { url: apiOverride } : {}),
+    ...(authOverride ? { authBaseUrl: authOverride } : {}),
+    ...(wsOverride ? { websocketUrl: wsOverride } : {}),
+  };
 }
 
 interface NetworkResolution {
@@ -288,11 +331,8 @@ function resolveNetwork(
   networks: Readonly<Record<string, NetworkConfig>>,
   args: {
     readonly flag: string | undefined;
-    readonly profileConfigFile: string;
-    readonly profileDefault: string | undefined;
     readonly workspaceFile: string | null;
     readonly workspaceNetwork: string | undefined;
-    readonly directoryIdentityDefault: LoadConfigOptions["directoryIdentityDefault"];
   },
 ): NetworkResolution {
   const fail = (name: string, where: string): never => {
@@ -325,25 +365,6 @@ function resolveNetwork(
     };
   }
 
-  if (args.directoryIdentityDefault) {
-    const { network, filePath } = args.directoryIdentityDefault;
-    if (!networks[network]) fail(network, `directory identity file ${filePath}`);
-    return {
-      network: networks[network],
-      source: { kind: "directory_identity", configFile: filePath },
-    };
-  }
-
-  if (args.profileDefault) {
-    if (!networks[args.profileDefault]) {
-      fail(args.profileDefault, `profile config ${args.profileConfigFile}`);
-    }
-    return {
-      network: networks[args.profileDefault],
-      source: { kind: "profile", configFile: args.profileConfigFile },
-    };
-  }
-
   return { network: networks[DEFAULT_NETWORK], source: { kind: "default" } };
 }
 
@@ -352,13 +373,17 @@ function resolveNetwork(
  * env vars, `config.json`, and built-in defaults.
  *
  * Profile name resolution: `--profile` flag > `ROBOTNET_PROFILE` env var >
- * workspace `.robotnet/config.json` (walked up from `cwd`) > `"default"`.
+ * workspace `.robotnet/config.json` `profile` field (walked up from `cwd`)
+ * > `"default"`.
  *
  * Network resolution: `options.networkName` (typically the `--network` flag) >
- * `ROBOTNET_NETWORK` env var > workspace `config.json` `network` field >
- * `options.directoryIdentityDefault` (the directory identity file's
- * `default_network`, when the caller has read it) > profile config
- * `default_network` field > the built-in `"public"` network.
+ * `ROBOTNET_NETWORK` env var > workspace `.robotnet/config.json` `network`
+ * field > the built-in `"public"` network.
+ *
+ * Per-network endpoint env overrides (`ROBOTNET_API_BASE_URL`,
+ * `ROBOTNET_AUTH_BASE_URL`, `ROBOTNET_WEBSOCKET_URL`) are applied to the
+ * resolved network after network selection — useful for one-shot
+ * redirection at a staging surface without editing config.
  */
 export function loadConfig(
   profileName?: string,
@@ -390,21 +415,6 @@ export function loadConfig(
     getNestedString(payload, "environment") ||
     DEFAULT_ENVIRONMENT;
 
-  const endpoints: EndpointConfig = {
-    apiBaseUrl:
-      (process.env.ROBOTNET_API_BASE_URL ?? "").trim() ||
-      getNestedString(payload, "endpoints", "api_base_url") ||
-      DEFAULT_API_BASE_URL,
-    authBaseUrl:
-      (process.env.ROBOTNET_AUTH_BASE_URL ?? "").trim() ||
-      getNestedString(payload, "endpoints", "auth_base_url") ||
-      DEFAULT_AUTH_BASE_URL,
-    websocketUrl:
-      (process.env.ROBOTNET_WEBSOCKET_URL ?? "").trim() ||
-      getNestedString(payload, "endpoints", "websocket_url") ||
-      DEFAULT_WEBSOCKET_URL,
-  };
-
   const networks = loadNetworksFromProfile(payload, configFile);
 
   let workspaceNetwork: string | undefined;
@@ -413,20 +423,18 @@ export function loadConfig(
     workspaceNetwork = getNestedString(wsPayload, "network");
   }
 
-  const { network, source: networkSource } = resolveNetwork(networks, {
+  const { network: resolvedNetwork, source: networkSource } = resolveNetwork(networks, {
     flag: options?.networkName,
-    profileConfigFile: configFile,
-    profileDefault: getNestedString(payload, "default_network"),
     workspaceFile,
     workspaceNetwork,
-    directoryIdentityDefault: options?.directoryIdentityDefault,
   });
+
+  const network = applyEndpointEnvOverrides(resolvedNetwork);
 
   return {
     profile,
     profileSource,
     environment,
-    endpoints,
     paths,
     configFile,
     tokenStoreFile: path.join(paths.configDir, "auth.json"),
@@ -464,28 +472,26 @@ function networkSourceLabel(source: NetworkSource): string {
       return "ROBOTNET_NETWORK env var";
     case "workspace":
       return `workspace file ${source.configFile}`;
-    case "directory_identity":
-      return `directory identity file ${source.configFile}`;
-    case "profile":
-      return `profile config ${source.configFile}`;
     case "default":
       return "built-in default";
   }
 }
 
 function networkSourceJson(source: NetworkSource): Record<string, unknown> {
-  if (
-    source.kind === "workspace" ||
-    source.kind === "directory_identity" ||
-    source.kind === "profile"
-  ) {
+  if (source.kind === "workspace") {
     return { kind: source.kind, config_file: source.configFile };
   }
   return { kind: source.kind };
 }
 
 function networkToJson(net: NetworkConfig): Record<string, unknown> {
-  return { name: net.name, url: net.url, auth_mode: net.authMode };
+  return {
+    name: net.name,
+    url: net.url,
+    auth_mode: net.authMode,
+    auth_base_url: net.authBaseUrl ?? null,
+    websocket_url: net.websocketUrl ?? null,
+  };
 }
 
 /** Serialize a config to a snake_case JSON object suitable for machine-readable output. */
@@ -500,11 +506,6 @@ export function configToJson(config: CLIConfig): Record<string, unknown> {
     environment: config.environment,
     config_file: config.configFile,
     token_store_file: config.tokenStoreFile,
-    endpoints: {
-      api_base_url: config.endpoints.apiBaseUrl,
-      auth_base_url: config.endpoints.authBaseUrl,
-      websocket_url: config.endpoints.websocketUrl,
-    },
     network: networkToJson(config.network),
     network_source: networkSourceJson(config.networkSource),
     networks,
@@ -524,12 +525,11 @@ export function configToHumanPayload(config: CLIConfig): Record<string, string> 
     environment: config.environment,
     config_file: config.configFile,
     token_store_file: config.tokenStoreFile,
-    api_base_url: config.endpoints.apiBaseUrl,
-    auth_base_url: config.endpoints.authBaseUrl,
-    websocket_url: config.endpoints.websocketUrl,
     network: config.network.name,
     network_url: config.network.url,
     network_auth_mode: config.network.authMode,
+    network_auth_base_url: config.network.authBaseUrl ?? "(n/a)",
+    network_websocket_url: config.network.websocketUrl ?? "(derived from url)",
     network_source: networkSourceLabel(config.networkSource),
     config_dir: config.paths.configDir,
     state_dir: config.paths.stateDir,

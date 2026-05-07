@@ -74,9 +74,9 @@ function makeLoginCmd(): Command {
       const config = await loadConfigFromRoot(cmd);
       assertOAuthNetwork(config, "account login");
 
-      const discovery = await discoverOAuth(config.endpoints);
+      const discovery = await discoverOAuth(config.network);
       const result = await performPkceLogin({
-        endpoints: config.endpoints,
+        network: config.network,
         discovery,
         ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
       });

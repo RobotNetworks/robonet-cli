@@ -173,13 +173,13 @@ describe("runDoctor — credential_store", () => {
     const byName = indexByName(checks);
     assert.equal(byName.credential_store.ok, true);
     assert.match(byName.credential_store.detail, /schema_version=\d+/);
-    assert.match(byName.credential_store.detail, /admin_tokens=1/);
+    assert.match(byName.credential_store.detail, /local_admin_tokens=1/);
     assert.match(byName.credential_store.detail, /agent_credentials=1/);
   });
 });
 
 describe("runDoctor — directory_identity", () => {
-  it("reports the bound identities and default_network when .robotnet/asp.json exists in cwd", async () => {
+  it("reports the bound agent and network when .robotnet/config.json exists in cwd", async () => {
     globalThis.fetch = async () =>
       new Response("ok", { status: 200 });
 
@@ -187,11 +187,10 @@ describe("runDoctor — directory_identity", () => {
     const dotDir = path.join(env.tmpDir, ".robotnet");
     fs.mkdirSync(dotDir, { recursive: true });
     fs.writeFileSync(
-      path.join(dotDir, "asp.json"),
+      path.join(dotDir, "config.json"),
       JSON.stringify({
-        version: 1,
-        default_network: "local",
-        identities: { local: "@cli.bot", public: "@me.prod" },
+        network: "local",
+        agent: "@cli.bot",
       }),
     );
     const cwd = process.cwd();
@@ -200,9 +199,8 @@ describe("runDoctor — directory_identity", () => {
       const checks = await runDoctor(config);
       const byName = indexByName(checks);
       assert.equal(byName.directory_identity.ok, true);
-      assert.match(byName.directory_identity.detail, /default=local/);
-      assert.match(byName.directory_identity.detail, /local=@cli\.bot/);
-      assert.match(byName.directory_identity.detail, /public=@me\.prod/);
+      assert.match(byName.directory_identity.detail, /agent=@cli\.bot/);
+      assert.match(byName.directory_identity.detail, /bound_to=local/);
     } finally {
       process.chdir(cwd);
     }

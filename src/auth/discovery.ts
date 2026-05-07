@@ -1,4 +1,5 @@
-import { DISCOVERY_TIMEOUT_MS, type EndpointConfig } from "../endpoints.js";
+import type { NetworkConfig } from "../config.js";
+import { DISCOVERY_TIMEOUT_MS } from "../endpoints.js";
 import { DiscoveryError } from "../errors.js";
 
 /** Resolved OAuth endpoints plus the resource identifiers for each RobotNet surface (API, WebSocket). */
@@ -25,15 +26,32 @@ function origin(url: string): string {
 }
 
 /**
- * Perform OAuth 2.0 discovery by fetching the protected-resource and
- * authorization-server metadata documents. Throws {@link DiscoveryError} on
- * network failure or missing required metadata fields.
+ * Perform OAuth 2.0 discovery against the given OAuth network. Throws
+ * {@link DiscoveryError} on network failure, missing required metadata
+ * fields, or when called against a non-OAuth network (which is a
+ * programming error — `agent-token` networks have no OAuth surface).
  */
 export async function discoverOAuth(
-  endpoints: EndpointConfig,
+  network: NetworkConfig,
 ): Promise<OAuthDiscovery> {
-  const protectedResourceUrl = `${endpoints.apiBaseUrl.replace(/\/+$/, "")}/.well-known/oauth-protected-resource`;
-  const authorizationServerUrl = `${endpoints.authBaseUrl.replace(/\/+$/, "")}/.well-known/oauth-authorization-server`;
+  if (network.authMode !== "oauth") {
+    throw new DiscoveryError(
+      `OAuth discovery is not applicable to network "${network.name}" (auth_mode=${network.authMode}).`,
+    );
+  }
+  if (!network.authBaseUrl) {
+    throw new DiscoveryError(
+      `Network "${network.name}" is missing \`auth_base_url\` — cannot perform OAuth discovery.`,
+    );
+  }
+  if (!network.websocketUrl) {
+    throw new DiscoveryError(
+      `Network "${network.name}" is missing \`websocket_url\` — cannot resolve WebSocket resource.`,
+    );
+  }
+
+  const protectedResourceUrl = `${network.url.replace(/\/+$/, "")}/.well-known/oauth-protected-resource`;
+  const authorizationServerUrl = `${network.authBaseUrl.replace(/\/+$/, "")}/.well-known/oauth-authorization-server`;
 
   let protectedBody: Record<string, unknown>;
   let authBody: Record<string, unknown>;
@@ -90,7 +108,7 @@ export async function discoverOAuth(
     );
   }
 
-  const wsOrigin = origin(endpoints.websocketUrl);
+  const wsOrigin = origin(network.websocketUrl);
   let websocketResource: string | null = null;
 
   const resourceServers = authBody.resource_servers;

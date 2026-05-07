@@ -9,7 +9,7 @@ import {
   DEFAULT_USER_SCOPES,
 } from "./client-credentials.js";
 import type { OAuthDiscovery } from "./discovery.js";
-import type { EndpointConfig } from "../endpoints.js";
+import type { NetworkConfig } from "../config.js";
 import { REQUEST_TIMEOUT_MS } from "../endpoints.js";
 import {
   AuthenticationError,
@@ -59,7 +59,7 @@ export type AgentLoginTarget =
 
 /** Common options accepted by both user and agent PKCE flows. */
 interface CorePkceOptions {
-  readonly endpoints: EndpointConfig;
+  readonly network: NetworkConfig;
   readonly discovery: OAuthDiscovery;
   readonly scope?: string;
   readonly clientName?: string;
@@ -111,7 +111,7 @@ export async function performPkceLogin(
  * with the agent authorization.
  */
 export async function performAgentPkceLogin(args: {
-  readonly endpoints: EndpointConfig;
+  readonly network: NetworkConfig;
   readonly discovery: OAuthDiscovery;
   readonly target: AgentLoginTarget;
   readonly scope?: string;
@@ -126,7 +126,7 @@ export async function performAgentPkceLogin(args: {
       ? `Opening browser for RobotNet agent authorization (${args.target.handle}).`
       : "Opening browser to pick an agent for RobotNet.";
   return await runPkceFlow({
-    endpoints: args.endpoints,
+    network: args.network,
     discovery: args.discovery,
     scope: args.scope ?? DEFAULT_AGENT_SCOPES,
     ...(args.clientName !== undefined ? { clientName: args.clientName } : {}),
@@ -141,7 +141,7 @@ export async function performAgentPkceLogin(args: {
 
 async function runPkceFlow(options: CorePkceOptions): Promise<PKCELoginResult> {
   const {
-    endpoints,
+    network,
     discovery,
     // Each public entrypoint (`performPkceLogin`, `performAgentPkceLogin`)
     // sets its own scope default; we never silently fall back here so a
@@ -189,8 +189,8 @@ async function runPkceFlow(options: CorePkceOptions): Promise<PKCELoginResult> {
 
     const code = await loopback.awaitCode(state);
 
-    const resource = discovery.apiResource ?? endpoints.apiBaseUrl.replace(/\/+$/, "");
-    const { token, refreshToken, agentHandle, network } = await requestAuthorizationCodeToken({
+    const resource = discovery.apiResource ?? network.url.replace(/\/+$/, "");
+    const tokenResult = await requestAuthorizationCodeToken({
       tokenEndpoint: discovery.tokenEndpoint,
       clientId,
       code,
@@ -200,13 +200,13 @@ async function runPkceFlow(options: CorePkceOptions): Promise<PKCELoginResult> {
     });
 
     result = {
-      token,
-      refreshToken,
+      token: tokenResult.token,
+      refreshToken: tokenResult.refreshToken,
       clientId,
       redirectUri,
       tokenEndpoint: discovery.tokenEndpoint,
-      agentHandle,
-      network,
+      agentHandle: tokenResult.agentHandle,
+      network: tokenResult.network,
     };
   } finally {
     loopback.close();

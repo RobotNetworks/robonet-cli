@@ -24,10 +24,9 @@ import { loadConfigForAgentCommand, out } from "./asp-shared.js";
  *      `admin agent rotate-token`; remote bearers by `robotnet login`.
  *
  * The acting agent is resolved by `--as <handle>` > `ROBOTNET_AGENT` env >
- * `.robotnet/asp.json` directory binding. When the directory binding declares
- * a network and `--network` is not set explicitly, the binding's network is
- * also used for the request — so a project pinned to `local` "just works"
- * from inside its directory.
+ * the directory's `.robotnet/config.json` `identities` map. The same file's
+ * `network` field also pins the workspace network, so a project pinned to
+ * `local` "just works" from inside its directory without `--network`.
  */
 export function registerSessionCommand(program: Command): void {
   const session = new Command("session").description(
