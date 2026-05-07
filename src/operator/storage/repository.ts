@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 import type {
   AgentRecord,
   AllowlistEntry,
+  BlockRecord,
   DeliveryCursorRecord,
   EventRecord,
   Handle,
@@ -32,6 +33,7 @@ import type {
  */
 export class OperatorRepository {
   readonly agents: AgentsRepo;
+  readonly blocks: BlocksRepo;
   readonly sessions: SessionsRepo;
   readonly participants: ParticipantsRepo;
   readonly messages: MessagesRepo;
@@ -41,6 +43,7 @@ export class OperatorRepository {
 
   constructor(db: Database.Database) {
     this.agents = new AgentsRepo(db);
+    this.blocks = new BlocksRepo(db);
     this.sessions = new SessionsRepo(db);
     this.participants = new ParticipantsRepo(db);
     this.messages = new MessagesRepo(db);
@@ -173,6 +176,94 @@ export class AgentsRepo {
       .prepare("SELECT * FROM allowlist WHERE owner_handle = ? ORDER BY entry")
       .all(ownerHandle) as RawAllowlistRow[];
     return rows.map(rawToAllowlist);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Blocks                                                                      */
+/* -------------------------------------------------------------------------- */
+
+interface RawBlockRow {
+  readonly blocker_handle: string;
+  readonly blocked_handle: string;
+  readonly created_at_ms: number;
+}
+
+function rawToBlock(row: RawBlockRow): BlockRecord {
+  return {
+    blockerHandle: row.blocker_handle,
+    blockedHandle: row.blocked_handle,
+    createdAtMs: row.created_at_ms,
+  };
+}
+
+export class BlocksRepo {
+  readonly #db: Database.Database;
+
+  constructor(db: Database.Database) {
+    this.#db = db;
+  }
+
+  /**
+   * Idempotently record `blockerHandle` blocking `blockedHandle`. Re-issuing
+   * the same block is a no-op for the row but the returned record reflects
+   * the *original* `created_at_ms` so callers see a stable timestamp.
+   */
+  add(blockerHandle: Handle, blockedHandle: Handle): BlockRecord {
+    const now = Date.now();
+    this.#db
+      .prepare(
+        `INSERT INTO blocks (blocker_handle, blocked_handle, created_at_ms)
+         VALUES (?, ?, ?)
+         ON CONFLICT (blocker_handle, blocked_handle) DO NOTHING`,
+      )
+      .run(blockerHandle, blockedHandle, now);
+    const got = this.#db
+      .prepare(
+        `SELECT * FROM blocks WHERE blocker_handle = ? AND blocked_handle = ?`,
+      )
+      .get(blockerHandle, blockedHandle) as RawBlockRow | undefined;
+    if (got === undefined) {
+      throw new Error(
+        `internal: block row missing after upsert (${blockerHandle} → ${blockedHandle})`,
+      );
+    }
+    return rawToBlock(got);
+  }
+
+  remove(blockerHandle: Handle, blockedHandle: Handle): boolean {
+    return (
+      this.#db
+        .prepare(
+          `DELETE FROM blocks WHERE blocker_handle = ? AND blocked_handle = ?`,
+        )
+        .run(blockerHandle, blockedHandle).changes > 0
+    );
+  }
+
+  list(blockerHandle: Handle, opts: { readonly limit?: number; readonly offset?: number } = {}): readonly BlockRecord[] {
+    const limit = opts.limit ?? 100;
+    const offset = opts.offset ?? 0;
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM blocks
+         WHERE blocker_handle = ?
+         ORDER BY created_at_ms DESC, blocked_handle ASC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(blockerHandle, limit, offset) as RawBlockRow[];
+    return rows.map(rawToBlock);
+  }
+
+  /** True iff `blockerHandle` is blocking `blockedHandle`. Used by session eligibility checks. */
+  isBlocking(blockerHandle: Handle, blockedHandle: Handle): boolean {
+    return (
+      this.#db
+        .prepare(
+          `SELECT 1 FROM blocks WHERE blocker_handle = ? AND blocked_handle = ? LIMIT 1`,
+        )
+        .get(blockerHandle, blockedHandle) !== undefined
+    );
   }
 }
 

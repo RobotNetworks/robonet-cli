@@ -30,7 +30,7 @@
  * below the migration's version.
  */
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 interface Migration {
   readonly version: number;
@@ -175,6 +175,31 @@ export const MIGRATIONS: readonly Migration[] = [
         created_at_ms INTEGER NOT NULL,
         PRIMARY KEY (session_id, sender_handle, key)
       );
+    `,
+  },
+  {
+    version: 2,
+    sql: `
+      -- ── Blocks ────────────────────────────────────────────────────────
+      --
+      -- Per ASP §6.2, a block is a unilateral deny: the blocker no longer
+      -- receives sessions or messages from the blocked agent regardless of
+      -- the blocker's allowlist. The blocked side is not enumerated.
+      --
+      -- 'blocked_handle' is intentionally NOT a foreign key into agents:
+      -- a local network may block a handle owned by an agent that doesn't
+      -- exist on this operator (the protocol allows pre-emptive blocks),
+      -- and tracking off-network handles would still be valid.
+      CREATE TABLE blocks (
+        blocker_handle TEXT NOT NULL REFERENCES agents(handle) ON DELETE CASCADE,
+        blocked_handle TEXT NOT NULL,
+        created_at_ms INTEGER NOT NULL,
+        PRIMARY KEY (blocker_handle, blocked_handle)
+      );
+
+      CREATE INDEX blocks_by_blocked ON blocks (blocked_handle);
+
+      INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2');
     `,
   },
 ];

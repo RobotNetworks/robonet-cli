@@ -30,6 +30,12 @@ export interface AllowlistEntry {
   readonly createdAtMs: Timestamp;
 }
 
+export interface BlockRecord {
+  readonly blockerHandle: Handle;
+  readonly blockedHandle: Handle;
+  readonly createdAtMs: Timestamp;
+}
+
 export type SessionState = "active" | "ended";
 
 export interface SessionRecord {

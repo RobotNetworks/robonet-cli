@@ -208,6 +208,115 @@ describe("local operator /agents/me/allowlist", () => {
   });
 });
 
+describe("local operator /blocks", () => {
+  let h: Harness;
+
+  beforeEach(async () => {
+    h = await makeHarness();
+    await adminRegister(h, "@me.bot");
+    await adminRegister(h, "@noisy.bot");
+  });
+
+  afterEach(async () => {
+    await h.cleanup();
+  });
+
+  it("POST /blocks records a block and returns the row", async () => {
+    const res = await fetch(`${h.baseUrl}/blocks`, {
+      method: "POST",
+      headers: agentHeaders(h, "@me.bot", true),
+      body: JSON.stringify({ handle: "@noisy.bot" }),
+    });
+    assert.equal(res.status, 201);
+    const body = (await res.json()) as Record<string, unknown>;
+    assert.equal(body.blocked_handle, "@noisy.bot");
+    assert.equal(body.blocked_agent_id, "@noisy.bot");
+    assert.equal(typeof body.created_at, "number");
+  });
+
+  it("POST /blocks is idempotent — re-blocking is a no-op", async () => {
+    const headers = agentHeaders(h, "@me.bot", true);
+    const body = JSON.stringify({ handle: "@noisy.bot" });
+    await fetch(`${h.baseUrl}/blocks`, { method: "POST", headers, body });
+    const res = await fetch(`${h.baseUrl}/blocks`, { method: "POST", headers, body });
+    assert.equal(res.status, 201);
+
+    const list = (await (
+      await fetch(`${h.baseUrl}/blocks`, { headers: agentHeaders(h, "@me.bot") })
+    ).json()) as { blocks: unknown[] };
+    assert.equal(list.blocks.length, 1);
+  });
+
+  it("rejects blocking yourself", async () => {
+    const res = await fetch(`${h.baseUrl}/blocks`, {
+      method: "POST",
+      headers: agentHeaders(h, "@me.bot", true),
+      body: JSON.stringify({ handle: "@me.bot" }),
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("GET /blocks returns the calling agent's blocks", async () => {
+    await fetch(`${h.baseUrl}/blocks`, {
+      method: "POST",
+      headers: agentHeaders(h, "@me.bot", true),
+      body: JSON.stringify({ handle: "@noisy.bot" }),
+    });
+
+    const res = await fetch(`${h.baseUrl}/blocks`, {
+      headers: agentHeaders(h, "@me.bot"),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { blocks: Array<{ blocked_handle: string }>; next_cursor: string | null };
+    assert.equal(body.blocks.length, 1);
+    assert.equal(body.blocks[0].blocked_handle, "@noisy.bot");
+    assert.equal(body.next_cursor, null);
+  });
+
+  it("DELETE /blocks/{handle} removes the block", async () => {
+    await fetch(`${h.baseUrl}/blocks`, {
+      method: "POST",
+      headers: agentHeaders(h, "@me.bot", true),
+      body: JSON.stringify({ handle: "@noisy.bot" }),
+    });
+    const del = await fetch(
+      `${h.baseUrl}/blocks/${encodeURIComponent("@noisy.bot")}`,
+      { method: "DELETE", headers: agentHeaders(h, "@me.bot") },
+    );
+    assert.equal(del.status, 200);
+    const list = (await (
+      await fetch(`${h.baseUrl}/blocks`, { headers: agentHeaders(h, "@me.bot") })
+    ).json()) as { blocks: unknown[] };
+    assert.equal(list.blocks.length, 0);
+  });
+
+  it("DELETE /blocks/{handle} returns 404 when not blocking", async () => {
+    const del = await fetch(
+      `${h.baseUrl}/blocks/${encodeURIComponent("@noisy.bot")}`,
+      { method: "DELETE", headers: agentHeaders(h, "@me.bot") },
+    );
+    assert.equal(del.status, 404);
+  });
+
+  it("blocks are scoped to the calling agent", async () => {
+    // @me.bot blocks @noisy.bot — @noisy.bot's own block list should stay empty.
+    await fetch(`${h.baseUrl}/blocks`, {
+      method: "POST",
+      headers: agentHeaders(h, "@me.bot", true),
+      body: JSON.stringify({ handle: "@noisy.bot" }),
+    });
+    const noisyView = (await (
+      await fetch(`${h.baseUrl}/blocks`, { headers: agentHeaders(h, "@noisy.bot") })
+    ).json()) as { blocks: unknown[] };
+    assert.equal(noisyView.blocks.length, 0);
+  });
+
+  it("rejects unauthenticated requests", async () => {
+    const res = await fetch(`${h.baseUrl}/blocks`);
+    assert.equal(res.status, 401);
+  });
+});
+
 describe("local operator GET /agents/me", () => {
   let h: Harness;
 

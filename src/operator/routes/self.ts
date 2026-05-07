@@ -1,8 +1,8 @@
 import { requireAgent } from "../auth.js";
 import { BadRequestError, NotFoundError } from "../errors.js";
-import { assertAllowlistEntry } from "../handles.js";
+import { assertAllowlistEntry, assertHandle } from "../handles.js";
 import type { OperatorRepository } from "../storage/repository.js";
-import type { AgentRecord } from "../storage/types.js";
+import type { AgentRecord, BlockRecord } from "../storage/types.js";
 import { parseJsonBody, sendJson } from "./json.js";
 import type { Router } from "./router.js";
 
@@ -67,6 +67,50 @@ export function registerSelfRoutes(router: Router, ctx: SelfRoutesContext): void
     }
     sendJson(rc.res, 200, { entries: listEntries(ctx, agent.handle) });
   });
+
+  // ── /blocks (calling agent's block list) ────────────────────────────────
+
+  router.add("GET", "/blocks", (rc) => {
+    const agent = requireAgent(rc.req, ctx.repo.agents);
+    const limit = parseLimitParam(rc.url.searchParams.get("limit"));
+    const offset = parseOffsetCursor(rc.url.searchParams.get("cursor"));
+    const rows = ctx.repo.blocks.list(agent.handle, {
+      ...(limit !== undefined ? { limit } : {}),
+      ...(offset !== undefined ? { offset } : {}),
+    });
+    sendJson(rc.res, 200, {
+      blocks: rows.map(serializeBlock),
+      next_cursor:
+        rows.length === (limit ?? 100)
+          ? encodeOffsetCursor((offset ?? 0) + rows.length)
+          : null,
+    });
+  });
+
+  router.add("POST", "/blocks", async (rc) => {
+    const agent = requireAgent(rc.req, ctx.repo.agents);
+    const body = await parseJsonBody(rc.req);
+    const blockedHandle = assertHandle(body.handle, "handle");
+    if (blockedHandle === agent.handle) {
+      throw new BadRequestError(
+        "cannot block yourself",
+        "INVALID_BLOCK_TARGET",
+      );
+    }
+    const row = ctx.repo.blocks.add(agent.handle, blockedHandle);
+    sendJson(rc.res, 201, serializeBlock(row));
+  });
+
+  router.add("DELETE", "/blocks/:ref", (rc) => {
+    const agent = requireAgent(rc.req, ctx.repo.agents);
+    const blockedHandle = assertHandle(rc.params.ref, "path handle");
+    if (!ctx.repo.blocks.remove(agent.handle, blockedHandle)) {
+      throw new NotFoundError(
+        `not blocking ${blockedHandle}`,
+      );
+    }
+    sendJson(rc.res, 200, { unblocked: true });
+  });
 }
 
 function listEntries(
@@ -84,6 +128,51 @@ function parseEntriesArray(value: unknown): readonly string[] {
     );
   }
   return value.map((e, i) => assertAllowlistEntry(e, `entries[${i}]`));
+}
+
+function parseLimitParam(raw: string | null): number | undefined {
+  if (raw === null) return undefined;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isInteger(n) || n < 1 || n > 100) {
+    throw new BadRequestError(
+      `limit must be an integer between 1 and 100 (got ${JSON.stringify(raw)})`,
+      "INVALID_LIMIT",
+    );
+  }
+  return n;
+}
+
+/**
+ * Parse a base64-encoded offset cursor, or `null` for the first page.
+ *
+ * Cursors are opaque to clients but stable across paginated requests:
+ * the operator emits one in `next_cursor` whenever the page hits the
+ * limit, and clients echo it back on the next request via `?cursor=…`.
+ */
+function parseOffsetCursor(raw: string | null): number | undefined {
+  if (raw === null || raw.length === 0) return undefined;
+  try {
+    const decoded = Buffer.from(raw, "base64").toString("utf-8");
+    const parsed = JSON.parse(decoded) as { offset?: unknown };
+    if (typeof parsed.offset === "number" && Number.isInteger(parsed.offset) && parsed.offset >= 0) {
+      return parsed.offset;
+    }
+  } catch {
+    // fall through to the BadRequest below
+  }
+  throw new BadRequestError("invalid cursor", "INVALID_CURSOR");
+}
+
+function encodeOffsetCursor(offset: number): string {
+  return Buffer.from(JSON.stringify({ offset }), "utf-8").toString("base64");
+}
+
+function serializeBlock(row: BlockRecord): Record<string, unknown> {
+  return {
+    blocked_agent_id: row.blockedHandle,
+    blocked_handle: row.blockedHandle,
+    created_at: row.createdAtMs,
+  };
 }
 
 /**
