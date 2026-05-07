@@ -224,9 +224,9 @@ function makeLogoutCmd(): Command {
  *
  * `agent-token` networks (e.g. a local `robotnet network start` instance)
  * have no PKCE flow; the corresponding ceremony for minting an agent
- * bearer there is `robotnet agent create`. Surface a clear error rather
- * than letting the command fall through to whichever auth server the
- * profile's `endpoints` happen to point at.
+ * bearer there is `robotnet admin agent create`. Surface a clear error
+ * rather than letting the command fall through to whichever auth server
+ * the profile's `endpoints` happen to point at.
  *
  * Exported so the guard can be tested in isolation from the commander
  * action wrapper.
@@ -245,7 +245,7 @@ export function assertNetworkSupportsOAuthLogin(config: CLIConfig): void {
         : "";
   throw new RobotNetCLIError(
     `\`login\` requires an OAuth network, but the resolved network "${config.network.name}" uses ${config.network.authMode} auth. ` +
-      `For local networks, mint an agent bearer with \`robotnet agent create <handle>\` instead.${suggestion}`,
+      `For local networks, mint an agent bearer with \`robotnet admin agent create <handle>\` instead.${suggestion}`,
   );
 }
 

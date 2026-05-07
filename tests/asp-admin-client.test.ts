@@ -54,11 +54,18 @@ describe("AspAdminClient", () => {
     const client = new AspAdminClient("http://127.0.0.1:8723", "admin-tok");
     const agent = await client.registerAgent("@cli.bot");
 
+    // The client normalizes the wire response, filling in defaults for the
+    // v3-schema fields (display_name, description, card_body, visibility)
+    // when an older operator omits them.
     assert.deepEqual(agent, {
       handle: "@cli.bot",
       token: "tok-1",
       policy: "allowlist",
       allowlist: [],
+      display_name: "@cli.bot",
+      description: null,
+      card_body: null,
+      visibility: "private",
     });
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url, "http://127.0.0.1:8723/_admin/agents");

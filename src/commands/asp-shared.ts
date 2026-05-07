@@ -63,7 +63,8 @@ export async function loadConfigForAgentCommand(
 async function buildNoAgentError(config: CLIConfig): Promise<string> {
   const networkName = config.network.name;
   const baseHint =
-    `Pass --as <handle>, set ROBOTNET_AGENT, ` +
+    `Pass --as <handle> on the subcommand (e.g. \`robotnet me show --as <handle>\`), ` +
+    `set ROBOTNET_AGENT, ` +
     `or bind one with \`robotnet identity set\` (run inside the directory).`;
 
   // Detect the misalignment case: workspace has an agent bound to one
@@ -81,7 +82,8 @@ async function buildNoAgentError(config: CLIConfig): Promise<string> {
       `no agent specified for network "${networkName}".\n` +
       `  workspace at ${file.filePath} binds ${file.agent} on network "${file.network}", ` +
       `but the resolved network is "${networkName}" (${networkSourceLabel}).\n` +
-      `  fix: pass \`--as <handle>\` for "${networkName}", drop the network override to use the workspace's "${file.network}", ` +
+      `  fix: pass \`--as <handle>\` on the subcommand (e.g. \`robotnet me show --as <handle> --network ${networkName}\`), ` +
+      `drop the network override to use the workspace's "${file.network}", ` +
       `or run \`robotnet identity set <handle>\` after changing into a directory pinned to "${networkName}".`
     );
   }

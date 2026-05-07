@@ -56,7 +56,7 @@ describe("assertNetworkSupportsOAuthLogin", () => {
         err instanceof Error &&
         err.message.includes('"local" uses agent-token auth') &&
         err.message.includes("--network public") &&
-        err.message.includes("robotnet agent create"),
+        err.message.includes("robotnet admin agent create"),
     );
   });
 

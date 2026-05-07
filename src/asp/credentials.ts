@@ -29,7 +29,7 @@ export class CredentialNotFoundError extends RobotNetCLIError {
     super(
       `no stored token for ${handle} on network "${networkName}". ` +
         `Run \`robotnet login --agent ${handle} --network ${networkName}\` (remote) ` +
-        `or \`robotnet agent create ${handle} --network ${networkName}\` (local) first, ` +
+        `or \`robotnet admin agent create ${handle} --network ${networkName}\` (local) first, ` +
         `or pass --token.`,
     );
     this.name = "CredentialNotFoundError";
