@@ -9,11 +9,13 @@ import type { Duplex } from "node:stream";
 import type Database from "better-sqlite3";
 
 import type { OperatorConfig } from "./config.js";
+import { FileService } from "./domain/files.js";
 import { SessionService } from "./domain/sessions.js";
 import { ConnectionRegistry } from "./domain/transport.js";
 import { NotFoundError } from "./errors.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { buildConnectHandler } from "./routes/connect.js";
+import { registerFileRoutes } from "./routes/files.js";
 import { sendError, sendJson } from "./routes/json.js";
 import { Router, type RouteContext } from "./routes/router.js";
 import { registerSearchRoutes } from "./routes/search.js";
@@ -71,7 +73,12 @@ export function startOperatorServer(
   const registry = new ConnectionRegistry(
     deps.graceMs !== undefined ? { graceMs: deps.graceMs } : {},
   );
-  const service = new SessionService(deps.repo, deps.db, registry);
+  const fileService = new FileService(deps.repo, {
+    host: deps.config.host,
+    port: deps.config.port,
+    filesDir: deps.config.filesDir,
+  });
+  const service = new SessionService(deps.repo, deps.db, registry, fileService);
   // Wire the presence transitions so connection lifecycle drives
   // session.disconnected / session.reconnected / session.left{grace_expired}.
   registry.setHooks({
@@ -84,7 +91,7 @@ export function startOperatorServer(
     registry,
     service,
   });
-  const router = buildRouter(deps, service);
+  const router = buildRouter(deps, service, fileService);
   const startedAt = Date.now();
 
   const server = createServer((req, res) => {
@@ -123,6 +130,7 @@ export function startOperatorServer(
 function buildRouter(
   deps: OperatorServerDeps,
   service: SessionService,
+  fileService: FileService,
 ): Router {
   const router = new Router();
   registerAdminRoutes(router, {
@@ -133,6 +141,7 @@ function buildRouter(
   registerSelfRoutes(router, { repo: deps.repo });
   registerSessionRoutes(router, { repo: deps.repo, service });
   registerSearchRoutes(router, { repo: deps.repo, service });
+  registerFileRoutes(router, { repo: deps.repo, files: fileService });
   return router;
 }
 

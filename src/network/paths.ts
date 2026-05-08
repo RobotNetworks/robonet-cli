@@ -20,17 +20,18 @@ export interface NetworkPaths {
   readonly stateFile: string;
   readonly logFile: string;
   readonly databaseFile: string;
+  /** Per-network directory holding the bytes for every uploaded file.
+   *  Sibling to ``databaseFile`` under ``stateDir`` so ``network reset``
+   *  removes both the metadata and the bytes together. */
+  readonly filesDir: string;
 }
 
 export function networkPaths(config: CLIConfig, networkName: string): NetworkPaths {
+  const networkStateDir = path.join(config.paths.stateDir, "networks", networkName);
   return {
     stateFile: path.join(config.paths.runDir, "networks", networkName, "network.json"),
     logFile: path.join(config.paths.logsDir, "networks", networkName, "operator.log"),
-    databaseFile: path.join(
-      config.paths.stateDir,
-      "networks",
-      networkName,
-      "operator.sqlite",
-    ),
+    databaseFile: path.join(networkStateDir, "operator.sqlite"),
+    filesDir: path.join(networkStateDir, "files"),
   };
 }

@@ -30,7 +30,7 @@
  * below the migration's version.
  */
 
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 interface Migration {
   readonly version: number;
@@ -230,6 +230,47 @@ export const MIGRATIONS: readonly Migration[] = [
       UPDATE agents SET visibility = 'private' WHERE visibility IS NULL;
 
       INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '3');
+    `,
+  },
+  {
+    version: 4,
+    sql: `
+      -- ── Files ────────────────────────────────────────────────────────
+      --
+      -- v4 adds the operator-extension file upload + claim flow that the
+      -- production backend already implements. Mirrors the wire shape:
+      -- agents POST a file to /files (multipart), get back a file_id,
+      -- and reference it from a session message's content
+      -- ({type: "file", file_id: "..."}). The session-message path
+      -- claims pending files for the message id, and from then on the
+      -- file is deliverable to participants via GET /files/:id.
+      --
+      -- 'relative_path' is relative to the per-network filesDir
+      -- (<stateDir>/networks/<name>/files/) so a 'network reset' nukes
+      -- both the metadata and the bytes in one shot.
+      --
+      -- 'pending' files expire after 1h and are reaped by the upload
+      -- service on a schedule. 'attached' files have expires_at_ms
+      -- cleared and live for the message's lifetime.
+      CREATE TABLE files (
+        id TEXT NOT NULL PRIMARY KEY,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'attached'))
+          DEFAULT 'pending',
+        session_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+        uploader_handle TEXT NOT NULL REFERENCES agents(handle) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        relative_path TEXT NOT NULL,
+        created_at_ms INTEGER NOT NULL,
+        expires_at_ms INTEGER
+      );
+
+      CREATE INDEX files_by_message ON files (session_message_id);
+      CREATE INDEX files_by_uploader ON files (uploader_handle);
+      CREATE INDEX files_by_pending ON files (status, expires_at_ms);
+
+      INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '4');
     `,
   },
 ];

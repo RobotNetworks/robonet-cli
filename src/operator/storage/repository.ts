@@ -7,9 +7,12 @@ import type {
   BlockRecord,
   DeliveryCursorRecord,
   EventRecord,
+  FileRecord,
+  FileStatus,
   Handle,
   IdempotencyRecord,
   InboundPolicy,
+  MessageId,
   MessageRecord,
   ParticipantRecord,
   ParticipantStatus,
@@ -41,6 +44,7 @@ export class OperatorRepository {
   readonly events: EventsRepo;
   readonly cursors: DeliveryCursorsRepo;
   readonly idempotency: IdempotencyRepo;
+  readonly files: FilesRepo;
 
   constructor(db: Database.Database) {
     this.agents = new AgentsRepo(db);
@@ -51,6 +55,7 @@ export class OperatorRepository {
     this.events = new EventsRepo(db);
     this.cursors = new DeliveryCursorsRepo(db);
     this.idempotency = new IdempotencyRepo(db);
+    this.files = new FilesRepo(db);
   }
 }
 
@@ -839,6 +844,126 @@ export class IdempotencyRepo {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Files                                                                       */
+/* -------------------------------------------------------------------------- */
+
+export interface RegisterFileInput {
+  readonly id: string;
+  readonly uploaderHandle: Handle;
+  readonly filename: string;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+  readonly relativePath: string;
+  /** Pending TTL — when ``null``, the row is created already-attached
+   *  (not used today; reserved for inline create-and-claim flows). */
+  readonly expiresAtMs: number | null;
+}
+
+export class FilesRepo {
+  readonly #db: Database.Database;
+
+  constructor(db: Database.Database) {
+    this.#db = db;
+  }
+
+  register(input: RegisterFileInput): FileRecord {
+    const now = Date.now();
+    this.#db
+      .prepare(
+        `INSERT INTO files (
+          id, status, session_message_id, uploader_handle,
+          filename, content_type, size_bytes, relative_path,
+          created_at_ms, expires_at_ms
+        ) VALUES (?, 'pending', NULL, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.id,
+        input.uploaderHandle,
+        input.filename,
+        input.contentType,
+        input.sizeBytes,
+        input.relativePath,
+        now,
+        input.expiresAtMs,
+      );
+    const got = this.byId(input.id);
+    if (got === null) {
+      throw new Error(`internal: file row missing after insert (${input.id})`);
+    }
+    return got;
+  }
+
+  /** Look up a row by id without ownership check. Used by the download
+   *  route after the eligibility check (caller is a session participant
+   *  on the message that owns this file). */
+  byId(id: string): FileRecord | null {
+    const row = this.#db
+      .prepare("SELECT * FROM files WHERE id = ?")
+      .get(id) as RawFileRow | undefined;
+    return row === undefined ? null : rawToFile(row);
+  }
+
+  /** Fetch a pending row only if owned by ``uploaderHandle``. The
+   *  ownership check is the non-enumeration boundary for the upload
+   *  → claim flow: callers can't probe other agents' uploads. */
+  pendingForUploader(id: string, uploaderHandle: Handle): FileRecord | null {
+    const row = this.#db
+      .prepare(
+        `SELECT * FROM files
+         WHERE id = ? AND uploader_handle = ? AND status = 'pending'`,
+      )
+      .get(id, uploaderHandle) as RawFileRow | undefined;
+    return row === undefined ? null : rawToFile(row);
+  }
+
+  /** Flip ``pending`` → ``attached`` for the given ids, only when each
+   *  is still owned by ``uploaderHandle`` and pending. Returns the
+   *  count of rows actually claimed. */
+  claimMany(
+    ids: readonly string[],
+    sessionMessageId: MessageId,
+    uploaderHandle: Handle,
+  ): number {
+    if (ids.length === 0) return 0;
+    const stmt = this.#db.prepare(
+      `UPDATE files
+         SET status = 'attached',
+             session_message_id = ?,
+             expires_at_ms = NULL
+       WHERE id = ?
+         AND uploader_handle = ?
+         AND status = 'pending'`,
+    );
+    let count = 0;
+    for (const id of ids) {
+      const result = stmt.run(sessionMessageId, id, uploaderHandle);
+      count += result.changes;
+    }
+    return count;
+  }
+
+  /** Returns the rows that should be deleted from disk + DB by the
+   *  background sweeper. */
+  expiredPending(now: number): readonly FileRecord[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM files
+         WHERE status = 'pending' AND expires_at_ms IS NOT NULL AND expires_at_ms < ?`,
+      )
+      .all(now) as RawFileRow[];
+    return rows.map(rawToFile);
+  }
+
+  /** Delete a pending row by id; returns true if a row was removed. */
+  removePending(id: string): boolean {
+    const result = this.#db
+      .prepare("DELETE FROM files WHERE id = ? AND status = 'pending'")
+      .run(id);
+    return result.changes > 0;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
 /* Raw row → domain mappers                                                    */
 /* -------------------------------------------------------------------------- */
 
@@ -912,6 +1037,19 @@ interface RawIdempotencyRow {
   message_id: string;
   sequence: number;
   created_at_ms: number;
+}
+
+interface RawFileRow {
+  id: string;
+  status: FileStatus;
+  session_message_id: string | null;
+  uploader_handle: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  relative_path: string;
+  created_at_ms: number;
+  expires_at_ms: number | null;
 }
 
 function parseJsonObject(json: string): Readonly<Record<string, unknown>> {
@@ -1025,5 +1163,20 @@ function rawToIdempotency(row: RawIdempotencyRow): IdempotencyRecord {
     messageId: row.message_id,
     sequence: row.sequence,
     createdAtMs: row.created_at_ms,
+  };
+}
+
+function rawToFile(row: RawFileRow): FileRecord {
+  return {
+    id: row.id,
+    status: row.status,
+    sessionMessageId: row.session_message_id,
+    uploaderHandle: row.uploader_handle,
+    filename: row.filename,
+    contentType: row.content_type,
+    sizeBytes: row.size_bytes,
+    relativePath: row.relative_path,
+    createdAtMs: row.created_at_ms,
+    expiresAtMs: row.expires_at_ms,
   };
 }

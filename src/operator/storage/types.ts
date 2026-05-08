@@ -105,3 +105,25 @@ export interface IdempotencyRecord {
   readonly sequence: Sequence;
   readonly createdAtMs: Timestamp;
 }
+
+export type FileStatus = "pending" | "attached";
+
+/**
+ * A file uploaded to the operator's `POST /files` endpoint.
+ *
+ * `relative_path` is relative to the per-network filesDir
+ * (`<stateDir>/networks/<name>/files/`), so a `network reset` removes
+ * both the metadata and the bytes together.
+ */
+export interface FileRecord {
+  readonly id: string;
+  readonly status: FileStatus;
+  readonly sessionMessageId: MessageId | null;
+  readonly uploaderHandle: Handle;
+  readonly filename: string;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+  readonly relativePath: string;
+  readonly createdAtMs: Timestamp;
+  readonly expiresAtMs: Timestamp | null;
+}

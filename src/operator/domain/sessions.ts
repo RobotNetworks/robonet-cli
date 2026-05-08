@@ -19,6 +19,7 @@ import type {
 } from "../storage/types.js";
 import type { ConnectionRegistry } from "./transport.js";
 import { isEligible } from "./eligibility.js";
+import { containsFileId, type FileService, resolveContentFiles } from "./files.js";
 import { mintId } from "./ids.js";
 import { isReachable } from "./policy.js";
 
@@ -89,15 +90,21 @@ export class SessionService {
   readonly #repo: OperatorRepository;
   readonly #db: Database.Database;
   readonly #transport: ConnectionRegistry;
+  readonly #files: FileService | null;
 
   constructor(
     repo: OperatorRepository,
     db: Database.Database,
     transport: ConnectionRegistry,
+    files: FileService | null = null,
   ) {
     this.#repo = repo;
     this.#db = db;
     this.#transport = transport;
+    // Optional only because read-paths (replay) construct the service
+    // without files. Inbound writes that carry ``file_id`` parts fail
+    // closed when ``files`` is missing — same posture as the trust hooks.
+    this.#files = files;
   }
 
   /* -- create_session ----------------------------------------------------- */
@@ -143,13 +150,20 @@ export class SessionService {
         let initialMessage: MessageRecord | null = null;
         let initialSeq: Sequence | null = null;
         if (input.initialMessage != null) {
+          const { content: durable, fileIds } = this.#resolveFiles(
+            input.initialMessage.content,
+            creator,
+          );
           initialMessage = this.#insertMessage({
             sender: creator,
             sessionId,
-            content: input.initialMessage.content,
+            content: durable,
             metadata: input.initialMessage.metadata ?? null,
             idempotencyKey: null,
           });
+          if (fileIds.length > 0 && this.#files !== null) {
+            this.#files.claimForMessage(fileIds, initialMessage.id, creator);
+          }
           initialSeq = initialMessage.sequence;
         }
 
@@ -263,6 +277,9 @@ export class SessionService {
           input.idempotencyKey,
         );
         if (cached !== null) {
+          // Idempotency replay short-circuits BEFORE file_id resolution
+          // so a retry does not re-claim files (already claimed on the
+          // first call).
           return {
             messageId: cached.messageId,
             sequence: cached.sequence,
@@ -271,13 +288,21 @@ export class SessionService {
         }
       }
 
+      const { content: durableContent, fileIds } = this.#resolveFiles(
+        input.content,
+        input.sender,
+      );
+
       const message = this.#insertMessage({
         sender: input.sender,
         sessionId: input.sessionId,
-        content: input.content,
+        content: durableContent,
         idempotencyKey: input.idempotencyKey ?? null,
         metadata: input.metadata ?? null,
       });
+      if (fileIds.length > 0 && this.#files !== null) {
+        this.#files.claimForMessage(fileIds, message.id, input.sender);
+      }
       this.#appendEvent(input.sessionId, "session.message", wireMessage(message));
 
       if (input.idempotencyKey != null) {
@@ -299,6 +324,21 @@ export class SessionService {
     })();
     this.#dispatch(result.dispatches);
     return { messageId: result.messageId, sequence: result.sequence };
+  }
+
+  #resolveFiles(
+    content: unknown,
+    senderHandle: Handle,
+  ): { content: unknown; fileIds: readonly string[] } {
+    if (this.#files === null) {
+      if (containsFileId(content)) {
+        throw new Error(
+          "SessionService instantiated without files dep, but request carries file_id",
+        );
+      }
+      return { content, fileIds: [] };
+    }
+    return resolveContentFiles(content, this.#files, senderHandle);
   }
 
   /* -- leave_session ------------------------------------------------------ */
@@ -381,13 +421,20 @@ export class SessionService {
       }
 
       if (args.initialMessage != null) {
+        const { content: durable, fileIds } = this.#resolveFiles(
+          args.initialMessage.content,
+          handle,
+        );
         const message = this.#insertMessage({
           sender: handle,
           sessionId: args.sessionId,
-          content: args.initialMessage.content,
+          content: durable,
           metadata: args.initialMessage.metadata ?? null,
           idempotencyKey: null,
         });
+        if (fileIds.length > 0 && this.#files !== null) {
+          this.#files.claimForMessage(fileIds, message.id, handle);
+        }
         this.#appendEvent(args.sessionId, "session.message", wireMessage(message));
       }
 

@@ -18,6 +18,10 @@ export interface OperatorConfig {
   readonly port: number;
   /** Absolute path to the operator's SQLite database. Created on first start. */
   readonly databasePath: string;
+  /** Absolute path to the per-network files directory. The bytes for
+   *  every uploaded file live under this directory; ``network reset``
+   *  removes both the SQLite DB and this tree together. */
+  readonly filesDir: string;
   /**
    * sha256 hex digest of the admin bearer token. The plaintext lives only in
    * the CLI's encrypted credential store; the operator stores the hash and
@@ -74,6 +78,7 @@ export function operatorConfigFromEnv(): OperatorConfig {
     host: readVar("HOST"),
     port: readPort(),
     databasePath: readVar("DATABASE_PATH"),
+    filesDir: readVar("FILES_DIR"),
     adminTokenHash: readHash("ADMIN_TOKEN_HASH"),
     operatorVersion: readVar("VERSION"),
   };
@@ -86,6 +91,7 @@ export function operatorConfigToEnv(config: OperatorConfig): NodeJS.ProcessEnv {
     [`${ENV_PREFIX}HOST`]: config.host,
     [`${ENV_PREFIX}PORT`]: String(config.port),
     [`${ENV_PREFIX}DATABASE_PATH`]: config.databasePath,
+    [`${ENV_PREFIX}FILES_DIR`]: config.filesDir,
     [`${ENV_PREFIX}ADMIN_TOKEN_HASH`]: config.adminTokenHash,
     [`${ENV_PREFIX}VERSION`]: config.operatorVersion,
   };

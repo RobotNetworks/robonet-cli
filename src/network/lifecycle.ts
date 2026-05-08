@@ -130,6 +130,7 @@ export async function startNetwork(
 
   mkdirSync(dirname(paths.logFile), { recursive: true });
   mkdirSync(dirname(paths.databaseFile), { recursive: true });
+  mkdirSync(paths.filesDir, { recursive: true });
   // Append-mode FD: keeps the log file mode 0600 + survives operator restarts.
   // Closed on the parent side after spawn — the child inherits a duped FD.
   const logFd = openSync(paths.logFile, "a", 0o600);
@@ -142,6 +143,7 @@ export async function startNetwork(
         host,
         port,
         databasePath: paths.databaseFile,
+        filesDir: paths.filesDir,
         adminTokenHash,
         operatorVersion: CLI_VERSION,
       }),

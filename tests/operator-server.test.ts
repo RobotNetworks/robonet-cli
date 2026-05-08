@@ -48,6 +48,7 @@ async function makeHarness(): Promise<Harness> {
     host: "127.0.0.1",
     port,
     databasePath: dbPath,
+    filesDir: path.join(path.dirname(dbPath), "files"),
     adminTokenHash: sha256Hex(adminToken),
     operatorVersion: "0.0.0-test",
   };

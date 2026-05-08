@@ -56,6 +56,6 @@ function ulidString(now: number = Date.now()): string {
 }
 
 /** Mint a fresh prefixed ULID-ish identifier (e.g. `sess_01HXY…`). */
-export function mintId(prefix: "sess" | "msg" | "evt"): string {
+export function mintId(prefix: "sess" | "msg" | "evt" | "file"): string {
   return `${prefix}_${ulidString()}`;
 }
