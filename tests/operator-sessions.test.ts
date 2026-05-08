@@ -447,6 +447,32 @@ describe("operator sessions — join + send_message", () => {
     assert.equal(r2.message_id, r1.message_id);
     assert.equal(r2.sequence, r1.sequence);
   });
+
+  it("rejects empty content with 400 INVALID_CONTENT", async () => {
+    await adminRegister(h, "@alice.bot");
+
+    const create = await fetch(`${h.baseUrl}/sessions`, {
+      method: "POST",
+      headers: agentHeaders(h, "@alice.bot"),
+      body: JSON.stringify({ invite: [] }),
+    });
+    const { session_id } = (await create.json()) as { session_id: string };
+
+    const cases: { name: string; body: unknown }[] = [
+      { name: "empty string", body: { content: "" } },
+      { name: "empty array", body: { content: [] } },
+    ];
+    for (const { name, body } of cases) {
+      const res = await fetch(`${h.baseUrl}/sessions/${session_id}/messages`, {
+        method: "POST",
+        headers: agentHeaders(h, "@alice.bot"),
+        body: JSON.stringify(body),
+      });
+      assert.equal(res.status, 400, `${name}: expected 400`);
+      const err = (await res.json()) as { error?: { code?: string } };
+      assert.equal(err.error?.code, "INVALID_CONTENT", `${name}: error code`);
+    }
+  });
 });
 
 describe("operator sessions — leave + end + history", () => {

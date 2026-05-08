@@ -96,7 +96,12 @@ export function registerNetworkCommand(program: Command): void {
         if (opts.json) {
           console.log(renderJson(payload));
         } else {
-          console.log(`Network "${config.network.name}" is not running.`);
+          console.log(
+            renderKeyValues(
+              profileTitle("Local operator status", config),
+              payload,
+            ),
+          );
         }
         return;
       }

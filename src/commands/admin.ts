@@ -362,9 +362,13 @@ function renderLocalAgent(agent: AgentWire | AgentWithTokenWire): void {
   if ("token" in agent && typeof agent.token === "string") {
     out(`  ${"token".padEnd(pad)} ${agent.token}`);
   }
-  if (agent.allowlist.length > 0) {
-    out(`  ${"allowlist".padEnd(pad)} ${[...agent.allowlist].join(", ")}`);
-  }
+  out(
+    `  ${"allowlist".padEnd(pad)} ${
+      agent.allowlist.length === 0
+        ? "(empty)"
+        : `${agent.allowlist.length} — ${[...agent.allowlist].join(", ")}`
+    }`,
+  );
   if (agent.card_body !== null && agent.card_body.length > 0) {
     out("  card");
     for (const line of agent.card_body.split("\n")) {

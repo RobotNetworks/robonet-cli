@@ -78,10 +78,7 @@ export function registerSessionRoutes(router: Router, ctx: SessionRoutesContext)
   router.add("POST", "/sessions/:id/messages", async (rc) => {
     const agent = requireAgent(rc.req, ctx.repo.agents);
     const body = await parseJsonBody(rc.req);
-    const content = body.content;
-    if (content === undefined || content === null) {
-      throw new BadRequestError("content is required", "INVALID_CONTENT");
-    }
+    const content = requireNonEmptyContent(body.content, "content");
     const idempotencyKey = parseOptionalString(body.idempotency_key, "idempotency_key");
     const metadata = parseOptionalObject(body.metadata, "metadata");
     const result = ctx.service.sendMessage({
@@ -182,16 +179,53 @@ function parseInitialMessage(raw: unknown): { readonly content: unknown; readonl
     );
   }
   const o = raw as Record<string, unknown>;
-  if (o.content === undefined) {
-    throw new BadRequestError(
-      "initial_message.content is required",
-      "INVALID_REQUEST",
-    );
-  }
+  const content = requireNonEmptyContent(o.content, "initial_message.content");
   const metadata = parseOptionalObject(o.metadata, "initial_message.metadata");
   return metadata === undefined
-    ? { content: o.content }
-    : { content: o.content, metadata };
+    ? { content }
+    : { content, metadata };
+}
+
+function requireNonEmptyContent(raw: unknown, field: string): unknown {
+  // Mirrors the ASP schema (common.json#/$defs/Content): empty payloads
+  // are rejected. String form `minLength: 1`, array form `minItems: 1`,
+  // and `TextPart.text` is itself `minLength: 1`.
+  if (raw === undefined || raw === null) {
+    throw new BadRequestError(`${field} is required`, "INVALID_CONTENT");
+  }
+  if (typeof raw === "string") {
+    if (raw.length === 0) {
+      throw new BadRequestError(`${field} must not be empty`, "INVALID_CONTENT");
+    }
+    return raw;
+  }
+  if (Array.isArray(raw)) {
+    if (raw.length === 0) {
+      throw new BadRequestError(
+        `${field} must contain at least one part`,
+        "INVALID_CONTENT",
+      );
+    }
+    for (const part of raw) {
+      if (
+        typeof part === "object" &&
+        part !== null &&
+        (part as { type?: unknown }).type === "text" &&
+        typeof (part as { text?: unknown }).text === "string" &&
+        ((part as { text: string }).text.length === 0)
+      ) {
+        throw new BadRequestError(
+          `${field} text part must not be empty`,
+          "INVALID_CONTENT",
+        );
+      }
+    }
+    return raw;
+  }
+  throw new BadRequestError(
+    `${field} must be a string or an array of parts`,
+    "INVALID_CONTENT",
+  );
 }
 
 function parseAfterSequence(url: URL): number {
