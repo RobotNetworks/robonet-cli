@@ -136,6 +136,45 @@ describe("AgentsRepo", () => {
     h.repo.agents.setInboundPolicy("@a.b", "open");
     assert.equal(h.repo.agents.byHandle("@a.b")?.inboundPolicy, "open");
   });
+
+  it("remove cascades through sessions, participants, and delivery cursors", () => {
+    // Regression: pre-fix, removing an agent that had ever created a
+    // session raised `SqliteError: FOREIGN KEY constraint failed` because
+    // sessions.creator_handle is a non-cascading FK. The repo now deletes
+    // dependents in a transaction.
+    h.repo.agents.register({ handle: "@creator.bot", bearerTokenHash: "c".repeat(64) });
+    h.repo.agents.register({ handle: "@peer.bot", bearerTokenHash: "p".repeat(64) });
+    h.repo.sessions.create({ id: "sess_01", creatorHandle: "@creator.bot" });
+    h.repo.participants.add("sess_01", "@creator.bot", "joined");
+    h.repo.participants.add("sess_01", "@peer.bot", "invited");
+
+    assert.equal(h.repo.agents.remove("@creator.bot"), true);
+
+    // Agent is gone.
+    assert.equal(h.repo.agents.byHandle("@creator.bot"), null);
+    // Session created by them is cascaded out.
+    assert.equal(h.repo.sessions.byId("sess_01"), null);
+    // The peer agent (unrelated) is untouched.
+    assert.notEqual(h.repo.agents.byHandle("@peer.bot"), null);
+  });
+
+  it("remove also clears participation rows in OTHER agents' sessions", () => {
+    h.repo.agents.register({ handle: "@host.bot", bearerTokenHash: "h".repeat(64) });
+    h.repo.agents.register({ handle: "@guest.bot", bearerTokenHash: "g".repeat(64) });
+    h.repo.sessions.create({ id: "sess_01", creatorHandle: "@host.bot" });
+    h.repo.participants.add("sess_01", "@host.bot", "joined");
+    h.repo.participants.add("sess_01", "@guest.bot", "joined");
+
+    assert.equal(h.repo.agents.remove("@guest.bot"), true);
+
+    // The host's session survives; the guest's participation row is gone.
+    assert.notEqual(h.repo.sessions.byId("sess_01"), null);
+    const ps = h.repo.participants.listForSession("sess_01");
+    assert.deepEqual(
+      ps.map((p) => p.handle),
+      ["@host.bot"],
+    );
+  });
 });
 
 describe("AgentsRepo — allowlist", () => {

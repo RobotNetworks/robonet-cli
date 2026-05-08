@@ -213,10 +213,33 @@ export class AgentsRepo {
     return rows.map(rawToAgent);
   }
 
+  /**
+   * Remove an agent and all rows that reference it.
+   *
+   * The schema cascades from `agents(handle)` for allowlist and blocks
+   * but NOT for `sessions(creator_handle)`, so a naive `DELETE FROM
+   * agents` raises a foreign-key error whenever the agent has ever
+   * created a session. Cascade through the dependent rows explicitly:
+   *
+   *   1. Sessions the agent created — cascade chains down to
+   *      participants, messages, events, delivery_cursors,
+   *      session_sequences, idempotency via their `sessions(id)` FKs.
+   *   2. Participant rows where the agent is a member of someone
+   *      else's session (no FK from `participants.handle` to agents).
+   *   3. Delivery cursors keyed on the agent's handle (no FK).
+   *   4. The agent row itself.
+   *
+   * Wrapped in a transaction so a partial failure rolls back. Returns
+   * true iff the agent existed.
+   */
   remove(handle: Handle): boolean {
-    return (
-      this.#db.prepare("DELETE FROM agents WHERE handle = ?").run(handle).changes > 0
-    );
+    const txn = this.#db.transaction((h: Handle) => {
+      this.#db.prepare("DELETE FROM sessions WHERE creator_handle = ?").run(h);
+      this.#db.prepare("DELETE FROM participants WHERE handle = ?").run(h);
+      this.#db.prepare("DELETE FROM delivery_cursors WHERE handle = ?").run(h);
+      return this.#db.prepare("DELETE FROM agents WHERE handle = ?").run(h).changes;
+    });
+    return (txn(handle) as number) > 0;
   }
 
   rotateBearerHash(handle: Handle, newHash: string): boolean {
