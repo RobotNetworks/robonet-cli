@@ -3,7 +3,7 @@ import { Command, Option } from "commander";
 import { AccountClient } from "../account/client.js";
 import type {
   AccountResponse,
-  AccountSessionListItem,
+  AccountSessionView,
   AgentCreate,
   AgentUpdate,
 } from "../account/types.js";
@@ -549,20 +549,14 @@ function renderAccountSummary(acc: AccountResponse): void {
   out(`  Account id:   ${acc.id}`);
 }
 
-function renderAccountSessions(items: readonly AccountSessionListItem[]): void {
-  if (items.length === 0) {
+function renderAccountSessions(sessions: readonly AccountSessionView[]): void {
+  if (sessions.length === 0) {
     out("(no sessions)");
     return;
   }
-  for (const item of items) {
-    const s = item.session;
+  for (const s of sessions) {
     const topic = s.topic ?? "(no topic)";
-    const peers = s.participants
-      .map((p) => p.handle)
-      .filter((h) => h !== item.acting_handle)
-      .join(", ");
-    out(
-      `${s.id}  [${s.state}]  ${item.acting_handle} → ${peers || "(none)"}  ${topic}`,
-    );
+    const participants = s.participants.map((p) => p.handle).join(", ");
+    out(`${s.id}  [${s.state}]  ${participants || "(none)"}  ${topic}`);
   }
 }

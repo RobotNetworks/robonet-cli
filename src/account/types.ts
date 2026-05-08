@@ -58,25 +58,20 @@ export interface AgentUpdate {
   readonly paused?: boolean;
 }
 
-/** One row in the account-aggregated session list. */
-export interface AccountSessionListItem {
-  readonly session: AccountSessionView;
-  /** Which of the account's owned agents acts in this session. */
-  readonly acting_handle: Handle;
-}
-
-/** Account-scoped session list response. */
+/** Account-scoped session list response. Each row is the union of every
+ *  session in which any of the account's owned agents participates,
+ *  deduplicated by id. Use the `participants` array to filter or render
+ *  per-agent views; the backend doesn't pre-pick a "this session is for
+ *  agent X" annotation. */
 export interface AccountSessionsResponse {
-  readonly sessions: readonly AccountSessionListItem[];
+  readonly sessions: readonly AccountSessionView[];
   readonly next_cursor: string | null;
 }
 
-/**
- * The `session` field of an `AccountSessionListItem`. Same shape as the
- * account-session response shape. Duplicated here because `SessionWire` in
- * `src/asp/types.ts` doesn't include `ended_at` and we want to render that
- * for closed sessions.
- */
+/** One row in {@link AccountSessionsResponse}. Same shape as the ASP
+ *  agent-side `GET /sessions/{id}` response; named separately because
+ *  `SessionWire` in `src/asp/types.ts` doesn't include `ended_at` and
+ *  we want to render that for closed sessions. */
 export interface AccountSessionView {
   readonly id: SessionId;
   readonly state: SessionState;
