@@ -32,6 +32,14 @@ export interface AspListener {
 }
 
 /**
+ * Heartbeat cadence. The backend stamps presence on every authenticated
+ * inbound frame; without a heartbeat a long-lived listener silently
+ * stops looking "online" even though it's still receiving events.
+ * Mirrors the Fargate agents runtime (`ws_connection.py`) at 30s.
+ */
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
+/**
  * Open a WebSocket against the network's `/connect` endpoint and dispatch
  * inbound session events to typed callbacks.
  *
@@ -39,13 +47,30 @@ export interface AspListener {
  * {@link AspListenerOptions.onClose} and rebuild the listener. Keeping
  * reconnect out of the primitive lets command code own the policy
  * (e.g. exit on close vs. backoff-and-retry).
+ *
+ * Sends a `{"type":"ping"}` frame every {@link HEARTBEAT_INTERVAL_MS} so
+ * the agent stays marked online while idle. Server pongs are dispatched
+ * through the same parser as any other frame; callers can ignore them
+ * via {@link narrowEvent} returning `null` for non-session frames.
  */
 export function startAspListener(opts: AspListenerOptions): AspListener {
   const ws = new WebSocket(opts.wsUrl, {
     headers: { Authorization: `Bearer ${opts.token}` },
   });
 
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+
   ws.on("open", () => {
+    heartbeat = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ type: "ping" }));
+        } catch {
+          // Send-after-close races can throw — the close handler will
+          // clear the interval; ignore here.
+        }
+      }
+    }, HEARTBEAT_INTERVAL_MS);
     opts.onOpen?.();
   });
 
@@ -56,6 +81,14 @@ export function startAspListener(opts: AspListenerOptions): AspListener {
       parsed = JSON.parse(raw);
     } catch {
       opts.onUnparseable?.(raw);
+      return;
+    }
+    // Heartbeat replies are protocol-level, not application events.
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      (parsed as { type?: unknown }).type === "pong"
+    ) {
       return;
     }
     const event = narrowEvent(parsed);
@@ -71,11 +104,21 @@ export function startAspListener(opts: AspListenerOptions): AspListener {
   });
 
   ws.on("close", (code, reason) => {
+    if (heartbeat !== null) {
+      clearInterval(heartbeat);
+      heartbeat = null;
+    }
     opts.onClose?.(code, reason.toString());
   });
 
   return {
-    close: () => ws.close(),
+    close: () => {
+      if (heartbeat !== null) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
+      ws.close();
+    },
   };
 }
 
