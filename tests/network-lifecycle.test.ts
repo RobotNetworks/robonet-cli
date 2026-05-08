@@ -3,6 +3,7 @@ import * as assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { loadConfig, type CLIConfig, type NetworkConfig } from "../src/config.js";
 import { UnsafePlaintextEncryptor } from "../src/credentials/crypto.js";
@@ -73,16 +74,26 @@ async function bestEffortStop(config: CLIConfig): Promise<void> {
   }
 }
 
-/** Path to the operator src so tests fork it directly via tsx (no build step). */
+/** Path to the operator src so tests fork it directly via tsx (no build step).
+ *
+ * Use `fileURLToPath` rather than `URL.pathname` — on Windows, `pathname`
+ * returns `/D:/a/...` (with a leading slash and drive letter), which
+ * `path.resolve` mishandles.
+ */
 const OPERATOR_TS_ENTRYPOINT = path.resolve(
-  new URL(".", import.meta.url).pathname,
+  fileURLToPath(new URL(".", import.meta.url)),
   "../src/operator/main.ts",
 );
 
 const TEST_START_OPTS = {
   operatorEntrypoint: OPERATOR_TS_ENTRYPOINT,
   nodeArgs: ["--import", "tsx"] as const,
-  readinessTimeoutMs: 8_000,
+  // Windows GitHub runners are noticeably slower at child-process spawn
+  // + first `better-sqlite3` native binding load — 8s flakes on a cold
+  // start. Give the operator a generous window; the test still fails
+  // fast for genuine startup failures (synchronous spawn errors throw
+  // before the readiness wait).
+  readinessTimeoutMs: process.platform === "win32" ? 30_000 : 10_000,
 };
 
 /* -------------------------------------------------------------------------- */

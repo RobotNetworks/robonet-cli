@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
+import * as path from "node:path";
 
 import {
   InvalidNetworkNameError,
@@ -27,14 +28,22 @@ describe("assertValidNetworkName", () => {
 
 describe("networkStatePaths", () => {
   it("nests every artifact under <stateDir>/networks/<name>/", () => {
-    const p = networkStatePaths("/tmp/rbnx-state", "local");
-    assert.equal(p.networkDir, "/tmp/rbnx-state/networks/local");
-    assert.equal(p.adminTokenFile, "/tmp/rbnx-state/networks/local/admin.token");
-    assert.equal(p.credentialsDir, "/tmp/rbnx-state/networks/local/credentials");
-    assert.equal(p.networkInfoFile, "/tmp/rbnx-state/networks/local/network.json");
-    assert.equal(p.pidFile, "/tmp/rbnx-state/networks/local/asp.pid");
-    assert.equal(p.sqliteFile, "/tmp/rbnx-state/networks/local/asp.sqlite");
-    assert.equal(p.serverLogFile, "/tmp/rbnx-state/networks/local/logs/server.log");
+    // The implementation joins via `node:path`, which is platform-native:
+    // forward slashes on POSIX, backslashes on Windows. Build the
+    // expected paths the same way so the test is cross-platform.
+    const stateDir = path.join(path.sep, "tmp", "rbnx-state");
+    const networkDir = path.join(stateDir, "networks", "local");
+    const p = networkStatePaths(stateDir, "local");
+    assert.equal(p.networkDir, networkDir);
+    assert.equal(p.adminTokenFile, path.join(networkDir, "admin.token"));
+    assert.equal(p.credentialsDir, path.join(networkDir, "credentials"));
+    assert.equal(p.networkInfoFile, path.join(networkDir, "network.json"));
+    assert.equal(p.pidFile, path.join(networkDir, "asp.pid"));
+    assert.equal(p.sqliteFile, path.join(networkDir, "asp.sqlite"));
+    assert.equal(
+      p.serverLogFile,
+      path.join(networkDir, "logs", "server.log"),
+    );
   });
 
   it("rejects invalid network names early", () => {
