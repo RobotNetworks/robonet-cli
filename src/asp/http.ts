@@ -1,7 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { USER_AGENT } from "../version.js";
 import { AspApiError, AspNetworkUnreachableError } from "./errors.js";
 
 export type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
+
+/** Methods for which the operator may require an `Idempotency-Key` header. */
+const UNSAFE_METHODS: ReadonlySet<HttpMethod> = new Set(["POST", "PATCH", "DELETE"]);
 
 /**
  * Issue an authenticated JSON request to an ASP endpoint and return the
@@ -34,6 +38,13 @@ export async function aspRequest<T>(args: {
   if (args.body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
+  // The hosted operator requires `Idempotency-Key` on every unsafe verb.
+  // Body-level `idempotency_key` (when supplied) still takes precedence at
+  // the server; this header just keeps the request from being rejected
+  // before the body validator runs.
+  if (UNSAFE_METHODS.has(args.method)) {
+    headers["Idempotency-Key"] = randomUUID();
+  }
 
   let res: Response;
   try {
@@ -53,28 +64,55 @@ export async function aspRequest<T>(args: {
     return null as T;
   }
 
+  let bodyText = "";
+  try {
+    bodyText = await res.text();
+  } catch {
+    bodyText = "";
+  }
   let json: unknown;
   try {
-    json = await res.json();
+    json = bodyText.length > 0 ? JSON.parse(bodyText) : undefined;
   } catch {
     json = undefined;
   }
 
   if (!res.ok) {
-    const code = isErrorBody(json) ? json.error : `http_${res.status}`;
-    throw new AspApiError(res.status, code);
+    const parsed = parseErrorBody(json);
+    const code = parsed.code ?? `http_${res.status}`;
+    const detail =
+      parsed.detail ?? (bodyText.length > 0 ? bodyText.slice(0, 500) : undefined);
+    throw new AspApiError(res.status, code, detail !== undefined ? { detail } : undefined);
   }
 
   return json as T;
 }
 
-function isErrorBody(v: unknown): v is { error: string } {
-  return (
-    typeof v === "object" &&
-    v !== null &&
-    "error" in v &&
-    typeof (v as { error: unknown }).error === "string"
-  );
+/**
+ * Three error envelopes appear in the wild:
+ *   1. `{"error": "<code>"}` — legacy shape from older operators.
+ *   2. `{"error": {"code": "...", "message": "...", "docs_url": "..."}}` —
+ *      the hosted operator's structured envelope. Surface `message` as
+ *      the user-facing detail and `code` as the stable identifier.
+ *   3. `{"detail": ...}` — FastAPI's default validation shape (string
+ *      or list of `{loc, msg}` items). Surface `detail` directly.
+ */
+function parseErrorBody(v: unknown): { code: string | undefined; detail: unknown } {
+  if (typeof v !== "object" || v === null) {
+    return { code: undefined, detail: undefined };
+  }
+  const obj = v as Record<string, unknown>;
+  const error = obj["error"];
+  if (typeof error === "string") {
+    return { code: error, detail: obj["detail"] };
+  }
+  if (typeof error === "object" && error !== null) {
+    const e = error as Record<string, unknown>;
+    const code = typeof e["code"] === "string" ? (e["code"] as string) : undefined;
+    const message = typeof e["message"] === "string" ? (e["message"] as string) : undefined;
+    return { code, detail: message ?? obj["detail"] };
+  }
+  return { code: undefined, detail: obj["detail"] };
 }
 
 /**
@@ -106,14 +144,23 @@ export async function aspTextRequest(args: {
   }
 
   if (!res.ok) {
+    let bodyText = "";
+    try {
+      bodyText = await res.text();
+    } catch {
+      bodyText = "";
+    }
     let json: unknown;
     try {
-      json = await res.json();
+      json = bodyText.length > 0 ? JSON.parse(bodyText) : undefined;
     } catch {
       json = undefined;
     }
-    const code = isErrorBody(json) ? json.error : `http_${res.status}`;
-    throw new AspApiError(res.status, code);
+    const parsed = parseErrorBody(json);
+    const code = parsed.code ?? `http_${res.status}`;
+    const detail =
+      parsed.detail ?? (bodyText.length > 0 ? bodyText.slice(0, 500) : undefined);
+    throw new AspApiError(res.status, code, detail !== undefined ? { detail } : undefined);
   }
 
   return await res.text();
