@@ -93,7 +93,13 @@ export class AccountClient {
     return await this.#guarded("agent show", async () =>
       aspRequest<AgentDetailResponse>({
         baseUrl: this.#baseUrl,
-        path: agentPath(handle),
+        // The viewer-aware lookup at the public path (no /account/
+        // prefix) is the only GET the backend mounts for an agent
+        // detail response. PATCH/DELETE on /account/agents/... exist
+        // for the management surface, but there is no GET there.
+        // For an account-OAuth principal asking about an agent it
+        // owns, the public path returns the same payload.
+        path: publicAgentPath(handle),
         method: "GET",
         token: this.#token,
       }),
@@ -177,20 +183,32 @@ export interface ListSessionsOptions {
   readonly cursor?: string;
 }
 
-function agentPath(handle: Handle): string {
+function splitHandle(handle: Handle): { owner: string; name: string } {
   // Handle is already validated as `@<owner>.<name>` by assertValidHandle.
   // Use indexOf+slice rather than split(".", 2) — the latter limits the
   // result count rather than the split count, dropping trailing segments.
   const stripped = handle.slice(1);
   const dot = stripped.indexOf(".");
   if (dot < 0) {
-    throw new Error(`agentPath: handle missing '.' separator: ${handle}`);
+    throw new Error(`splitHandle: handle missing '.' separator: ${handle}`);
   }
-  const owner = stripped.slice(0, dot);
-  const name = stripped.slice(dot + 1);
-  // Account-side admin path. The bare /agents/{owner}/{name} (without
-  // /account/) is the public AgentViewer-authed lookup; this client uses
-  // the account-scoped variant for show/update/delete on agents the
-  // calling account owns.
+  return {
+    owner: stripped.slice(0, dot),
+    name: stripped.slice(dot + 1),
+  };
+}
+
+/** PATCH/DELETE go to the account-scoped admin path. */
+function agentPath(handle: Handle): string {
+  const { owner, name } = splitHandle(handle);
   return `/account/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+}
+
+/** GET goes to the bare public viewer path — the only route the
+ *  backend mounts for agent-detail reads. The viewer endpoint is
+ *  account-aware (returns full ownership/management info when the
+ *  caller owns the agent). */
+function publicAgentPath(handle: Handle): string {
+  const { owner, name } = splitHandle(handle);
+  return `/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
 }

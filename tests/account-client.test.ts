@@ -177,7 +177,11 @@ describe("AccountClient.getAgent", () => {
     const detail = await makeClient().getAgent("@owner.cli");
     assert.equal(detail.agent.canonical_handle, "@owner.cli");
     assert.equal(detail.viewer.relationship, "owner");
-    assert.equal(calls[0]!.url, `${BASE}/account/agents/owner/cli`);
+    // Hits the public viewer endpoint (no /account/ prefix) — the
+    // backend doesn't mount a GET at /account/agents/{owner}/{name},
+    // only PATCH/DELETE for the management surface. The viewer
+    // endpoint is account-aware and returns the same shape.
+    assert.equal(calls[0]!.url, `${BASE}/agents/owner/cli`);
     assert.equal(calls[0]!.init?.method, "GET");
   });
 
