@@ -248,7 +248,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
     assert.equal(row?.bearer, "fresh-bearer");
   });
 
-  it("self-heals when the keychain key has changed: purges + emits a clear error", async () => {
+  it("self-heals when the credential-store key has rotated: purges + emits a clear error", async () => {
     const { AesGcmEncryptor } = await import(
       "../src/credentials/aes-encryptor.js"
     );
@@ -275,7 +275,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
       bearer: "agent-tok",
     });
 
-    // Phase 2: rotate to encryptor B (simulating "keychain key was reset").
+    // Phase 2: rotate to encryptor B (simulating "credential-store key rotated").
     _setEncryptorForTests(AesGcmEncryptor.fromKey(AesGcmEncryptor.generateKey()));
 
     await assert.rejects(
@@ -283,7 +283,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
       (err: unknown) =>
         err instanceof RobotNetCLIError &&
         err.message.includes("cannot decrypt") &&
-        err.message.includes("keychain key was likely reset") &&
+        err.message.includes("credential-store key was likely rotated") &&
         err.message.includes("re-register"),
     );
 

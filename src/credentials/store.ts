@@ -422,7 +422,7 @@ export class CredentialStore {
     return row.n;
   }
 
-  // ── recovery from a key change (e.g. OS keychain reset) ───────────────────
+  // ── recovery from a key change (e.g. credential-store key rotated) ────────
 
   /**
    * Walk every secret-bearing row and delete the ones whose ciphertext fails

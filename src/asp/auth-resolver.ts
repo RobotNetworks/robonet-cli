@@ -281,13 +281,11 @@ export async function resolveUserToken(config: CLIConfig): Promise<ResolvedToken
 }
 
 /**
- * Wipe every row whose ciphertext can no longer be decrypted (typical cause:
- * the OS keychain key was reset) and throw a clean, actionable error.
- *
- * Without this, a key reset leaves the user with `CredentialDecryptionError`
- * thrown from every CLI invocation forever — an obscure failure mode they
- * can't recover from short of `rm credentials.sqlite`. This way they see
- * one clear message and a clean store to re-register against.
+ * Wipe every row whose ciphertext can no longer be decrypted (typical
+ * cause: the credential-store key file was rotated or replaced) and
+ * throw a clean, actionable error. Without this, a key change leaves
+ * the user with `CredentialDecryptionError` thrown from every CLI
+ * invocation forever; one clear message + a clean store is much better.
  */
 function handleKeyChangeRecovery(
   store: CredentialStore,
@@ -297,7 +295,7 @@ function handleKeyChangeRecovery(
   const purged = store.purgeUnreadableRows();
   throw new RobotNetCLIError(
     `cannot decrypt the stored ${whatWeWereReading} on network "${networkName}". ` +
-      `The OS keychain key was likely reset since these credentials were stored. ` +
+      `The credential-store key was likely rotated since these credentials were stored. ` +
       `Cleared ${purged.localAdminTokens} local admin token(s) and ${purged.agentCredentials} agent credential(s) ` +
       `that were no longer readable — re-register agents and re-login to restore access.`,
   );

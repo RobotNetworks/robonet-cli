@@ -1,10 +1,6 @@
 import type { CLIConfig } from "../config.js";
 import type { Encryptor } from "./crypto.js";
-import {
-  buildFileBackedEncryptor,
-  migrateLegacyKeychainStoreIfPresent,
-} from "./file-key.js";
-import { buildProductionEncryptor } from "./keychain.js";
+import { buildFileBackedEncryptor } from "./file-key.js";
 import { migrateLegacyCredentials } from "./migration.js";
 import { credentialKeyFilePath, credentialsStorePath } from "./paths.js";
 import { CredentialStore } from "./store.js";
@@ -18,14 +14,12 @@ import { CredentialStore } from "./store.js";
  * caller's `CLIConfig` object identity. Several command handlers load the
  * config more than once per invocation (e.g. via
  * `loadConfigForAgentCommand` followed by `loadConfigFromRoot`); each call
- * builds a fresh `CLIConfig` object, so an object-identity cache key would
- * miss every time and (under the keychain backend) surface as a second
- * macOS prompt. Two configs that resolve to the same profile and db path
- * are functionally equivalent and must share the underlying store.
+ * builds a fresh `CLIConfig` object. Two configs that resolve to the same
+ * profile and db path are functionally equivalent and must share the
+ * underlying store.
  *
- * Tests should call {@link _setEncryptorForTests} with a plaintext encryptor
- * so they never touch the real OS keychain or write a key file under
- * `~/.config/robotnet/`.
+ * Tests should call {@link _setEncryptorForTests} with a plaintext
+ * encryptor so they never write a key file under `~/.config/robotnet/`.
  */
 interface CachedStore {
   readonly key: string;
@@ -38,30 +32,6 @@ let encryptorOverride: Encryptor | null = null;
 
 function cacheKey(config: CLIConfig): string {
   return `${config.profile} ${credentialsStorePath(config)}`;
-}
-
-/**
- * Pick the production credential-store encryptor. Default is the
- * file-backed key (matches gh, aws, gcloud, npm — every unsigned
- * npm/Homebrew CLI). Users who specifically want the OS keychain can
- * opt in with `ROBOTNET_USE_KEYCHAIN=1`; that's a one-line change to
- * accept the path-pinned ACL prompt that macOS triggers on every
- * Homebrew upgrade.
- */
-async function buildDefaultEncryptor(config: CLIConfig): Promise<Encryptor> {
-  const useKeychain =
-    (process.env["ROBOTNET_USE_KEYCHAIN"] ?? "").trim() === "1";
-  if (useKeychain) {
-    return await buildProductionEncryptor({ accountName: config.profile });
-  }
-  // File-backed default. Run the keychain-era one-time migration first so
-  // we don't try to read a credential store encrypted with a key we no
-  // longer have access to.
-  migrateLegacyKeychainStoreIfPresent({
-    storePath: credentialsStorePath(config),
-    keyFilePath: credentialKeyFilePath(config),
-  });
-  return buildFileBackedEncryptor({ keyFilePath: credentialKeyFilePath(config) });
 }
 
 export async function openProcessCredentialStore(
@@ -77,7 +47,9 @@ export async function openProcessCredentialStore(
     cached = null;
   }
 
-  const encryptor = encryptorOverride ?? (await buildDefaultEncryptor(config));
+  const encryptor =
+    encryptorOverride ??
+    buildFileBackedEncryptor({ keyFilePath: credentialKeyFilePath(config) });
   const store = CredentialStore.open(credentialsStorePath(config), { encryptor });
   const migration = migrateLegacyCredentials({
     store,
@@ -98,8 +70,6 @@ export async function openProcessCredentialStore(
  */
 export function _setEncryptorForTests(encryptor: Encryptor | null): void {
   encryptorOverride = encryptor;
-  // The cached store keeps its existing encryptor; reset so the next
-  // open() picks up the override.
   if (cached !== null) {
     cached.store.close();
     cached = null;

@@ -40,7 +40,7 @@ export async function migrateLegacyCredentials(args: {
   for (const network of args.networkNames) {
     const paths = networkStatePaths(args.profileStateDir, network);
 
-    // Decryption errors here mean the keychain key has been rotated and the
+    // Decryption errors here mean the credential-store key was rotated and the
     // existing rows are unreadable. Don't fail migration — the per-command
     // self-heal path in `resolveAgentToken` / `resolveAdminToken` is what
     // surfaces the friendly recovery message and purges the bad rows. We
