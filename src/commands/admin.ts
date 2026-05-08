@@ -156,8 +156,11 @@ function makeListCmd(): Command {
         return;
       }
       for (const a of agents) {
+        // Skip display_name when it's the handle fallback (operator omitted
+        // it and the client normalized to handle). Avoids `@x.bot @x.bot ...`.
+        const name = a.display_name === a.handle ? "" : `  ${a.display_name}`;
         out(
-          `${a.handle}  ${a.display_name}  ` +
+          `${a.handle}${name}  ` +
             `[${a.visibility}, ${a.policy}]  ` +
             `allowlist=${a.allowlist.length}`,
         );
@@ -347,7 +350,10 @@ function parseVisibilityArg(value: string): AgentVisibility {
 function renderLocalAgent(agent: AgentWire | AgentWithTokenWire): void {
   const pad = 13;
   out(`  ${"handle".padEnd(pad)} ${agent.handle}`);
-  out(`  ${"display name".padEnd(pad)} ${agent.display_name}`);
+  // Skip display_name when it's the handle fallback (see normalizeAgentWire).
+  if (agent.display_name !== agent.handle) {
+    out(`  ${"display name".padEnd(pad)} ${agent.display_name}`);
+  }
   out(`  ${"policy".padEnd(pad)} ${agent.policy}`);
   out(`  ${"visibility".padEnd(pad)} ${agent.visibility}`);
   if (agent.description !== null && agent.description.length > 0) {
