@@ -1,16 +1,23 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+
 import { Command } from "commander";
 
-import { resolveSessionClient } from "../asp/auth-resolver.js";
+import { resolveAgentBearer, resolveSessionClient } from "../asp/auth-resolver.js";
 import { AspApiError } from "../asp/errors.js";
+import { AspFilesClient } from "../asp/files-client.js";
 import {
   assertValidHandle,
   handleArg,
   handlesArg,
 } from "../asp/handles.js";
 import type {
+  ContentRequest,
+  ContentPartRequest,
   SessionWire,
   UnknownSessionEvent,
 } from "../asp/types.js";
+import type { CLIConfig } from "../config.js";
 import { RobotNetCLIError } from "../errors.js";
 import { loadConfigForAgentCommand, out } from "./asp-shared.js";
 
@@ -243,22 +250,54 @@ async function inviteWith404Hint<T>(
 
 function makeSendCmd(): Command {
   return new Command("send")
-    .description("Send a message to a session")
+    .description(
+      "Send a message to a session. Optional positional <message> is a plain text part; combine with --file/--image/--data flags for multipart content.",
+    )
     .argument("<session-id>", "Session ID")
-    .argument("<message>", "Message content (a plain string text part)")
+    .argument("[message]", "Plain text part (optional when using --file/--image/--data/--content)")
     .option("--as <handle>", "Act as this agent handle", handleArg)
+    .option(
+      "--file <path>",
+      "Upload <path> to the network and reference it as a file part (repeatable)",
+      collectRepeatable,
+      [] as string[],
+    )
+    .option(
+      "--image <path>",
+      "Upload <path> as an image part (repeatable)",
+      collectRepeatable,
+      [] as string[],
+    )
+    .option(
+      "--data <json-or-@file>",
+      "Add a `data` part. Either inline JSON object literal or `@<path>` to read from a file.",
+    )
+    .option(
+      "--content <@file.json>",
+      "Read the entire `Content` value from a file (mutually exclusive with --file/--image/--data and the positional message).",
+    )
+    .option(
+      "--content-stdin",
+      "Read the entire `Content` value from stdin (mutually exclusive with --content / --file / --image / --data / message).",
+      false,
+    )
     .addOption(tokenOption())
     .option("--json", "Emit machine-readable JSON", false)
     .action(
       async (
         sessionId: string,
-        message: string,
-        opts: AgentLeafOpts,
+        message: string | undefined,
+        opts: SendOpts,
         cmd: Command,
       ) => {
         const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+        const content = await buildContent(
+          { ...opts, message },
+          config,
+          identity.handle,
+        );
         const client = await resolveSessionClient(config, identity.handle, opts.token);
-        const result = await client.sendMessage(sessionId, message);
+        const result = await client.sendMessage(sessionId, content);
         if (opts.json) {
           out(JSON.stringify(result, null, 2));
           return;
@@ -266,6 +305,215 @@ function makeSendCmd(): Command {
         out(`Message sent (id=${result.message_id}, seq=${result.sequence}).`);
       },
     );
+}
+
+interface SendOpts {
+  readonly as?: string;
+  readonly token?: string;
+  readonly json: boolean;
+  readonly file: string[];
+  readonly image: string[];
+  readonly data?: string;
+  readonly content?: string;
+  readonly contentStdin: boolean;
+  readonly message?: string;
+}
+
+function collectRepeatable(value: string, prev: string[]): string[] {
+  return [...prev, value];
+}
+
+/** Build a ``ContentRequest`` from the send-command flag combination.
+ *
+ *  Precedence (mutually exclusive):
+ *    1. ``--content-stdin`` — read entire Content from stdin.
+ *    2. ``--content @file`` — read entire Content from a file.
+ *    3. positional ``<message>`` and/or ``--file/--image/--data`` — assemble parts.
+ *
+ *  Within (3), parts are emitted in this order: text (positional),
+ *  files (in flag order), images (in flag order), data. If only the
+ *  positional is supplied, the result is a plain string (one text part)
+ *  to keep simple sends compact on the wire.
+ */
+async function buildContent(
+  opts: {
+    readonly message?: string;
+    readonly file: readonly string[];
+    readonly image: readonly string[];
+    readonly data?: string;
+    readonly content?: string;
+    readonly contentStdin: boolean;
+    readonly token?: string;
+  },
+  config: CLIConfig,
+  callerHandle: string,
+): Promise<ContentRequest> {
+  const usingExplicitContent = opts.contentStdin || opts.content !== undefined;
+  const usingPartFlags =
+    opts.file.length > 0 ||
+    opts.image.length > 0 ||
+    opts.data !== undefined ||
+    opts.message !== undefined;
+
+  if (usingExplicitContent && usingPartFlags) {
+    throw new RobotNetCLIError(
+      "--content / --content-stdin is mutually exclusive with --file, --image, --data, and the positional message.",
+    );
+  }
+  if (opts.contentStdin && opts.content !== undefined) {
+    throw new RobotNetCLIError(
+      "Use --content OR --content-stdin, not both.",
+    );
+  }
+
+  if (opts.contentStdin) {
+    return parseContentJson(await readStdin(), "<stdin>");
+  }
+  if (opts.content !== undefined) {
+    const trimmed = opts.content.startsWith("@")
+      ? opts.content.slice(1)
+      : opts.content;
+    const json = await fs.promises.readFile(trimmed, "utf8");
+    return parseContentJson(json, trimmed);
+  }
+
+  if (
+    opts.message === undefined &&
+    opts.file.length === 0 &&
+    opts.image.length === 0 &&
+    opts.data === undefined
+  ) {
+    throw new RobotNetCLIError(
+      "session send needs a message argument or --file/--image/--data/--content[-stdin].",
+    );
+  }
+
+  // Simple text-only path: keep the wire compact.
+  if (
+    opts.message !== undefined &&
+    opts.file.length === 0 &&
+    opts.image.length === 0 &&
+    opts.data === undefined
+  ) {
+    return opts.message;
+  }
+
+  // Mixed-part assembly. Need a files-client to upload --file/--image inputs.
+  const parts: ContentPartRequest[] = [];
+  if (opts.message !== undefined) {
+    parts.push({ type: "text", text: opts.message });
+  }
+
+  if (opts.file.length > 0 || opts.image.length > 0) {
+    const { token, baseUrl } = await resolveAgentBearer(
+      config,
+      callerHandle,
+      opts.token,
+    );
+    const files = new AspFilesClient(baseUrl, token);
+    for (const filePath of opts.file) {
+      const id = await uploadAndId(files, filePath);
+      parts.push({ type: "file", file_id: id });
+    }
+    for (const imgPath of opts.image) {
+      const id = await uploadAndId(files, imgPath);
+      parts.push({ type: "image", file_id: id });
+    }
+  }
+
+  if (opts.data !== undefined) {
+    parts.push({ type: "data", data: parseDataLiteral(opts.data) });
+  }
+  return parts;
+}
+
+async function uploadAndId(client: AspFilesClient, filePath: string): Promise<string> {
+  let bytes: Uint8Array;
+  try {
+    bytes = await fs.promises.readFile(filePath);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new RobotNetCLIError(`Could not read ${filePath}: ${detail}`);
+  }
+  const filename = path.basename(filePath);
+  const contentType = guessContentType(filename);
+  const result = await client.upload({ bytes, filename, contentType });
+  return result.id;
+}
+
+function parseContentJson(text: string, source: string): ContentRequest {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new RobotNetCLIError(
+      `Failed to parse JSON from ${source}: ${detail}`,
+    );
+  }
+  if (typeof parsed === "string") return parsed;
+  if (Array.isArray(parsed)) return parsed as ContentPartRequest[];
+  throw new RobotNetCLIError(
+    `Content from ${source} must be a string or an array of parts.`,
+  );
+}
+
+function parseDataLiteral(raw: string): Readonly<Record<string, unknown>> {
+  let text = raw;
+  if (raw.startsWith("@")) {
+    const filePath = raw.slice(1);
+    try {
+      text = fs.readFileSync(filePath, "utf8");
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new RobotNetCLIError(
+        `Could not read --data file ${filePath}: ${detail}`,
+      );
+    }
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new RobotNetCLIError(`--data must be valid JSON: ${detail}`);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new RobotNetCLIError(
+      "--data must be a JSON object (DataPart.data is `{...}`).",
+    );
+  }
+  return parsed as Readonly<Record<string, unknown>>;
+}
+
+function readStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => {
+      data += chunk;
+    });
+    process.stdin.on("end", () => resolve(data));
+    process.stdin.on("error", reject);
+  });
+}
+
+const CONTENT_TYPE_BY_EXT: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".pdf": "application/pdf",
+  ".json": "application/json",
+  ".csv": "text/csv",
+  ".md": "text/markdown",
+  ".markdown": "text/markdown",
+  ".txt": "text/plain",
+};
+
+function guessContentType(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  return CONTENT_TYPE_BY_EXT[ext] ?? "application/octet-stream";
 }
 
 // ── leave ─────────────────────────────────────────────────────────────────────

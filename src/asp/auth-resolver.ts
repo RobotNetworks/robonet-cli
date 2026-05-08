@@ -158,6 +158,18 @@ export async function resolveSessionClient(
   return new AspSessionClient(config.network.url, websocketUrlFor(config), token);
 }
 
+/** Resolve the agent's bearer + the network's REST URL. Used by
+ *  callers that need a different client (e.g. `AspFilesClient`)
+ *  against the same network. */
+export async function resolveAgentBearer(
+  config: CLIConfig,
+  handle: string,
+  override?: string,
+): Promise<{ readonly token: string; readonly baseUrl: string }> {
+  const { token } = await resolveAgentToken(config, handle, override);
+  return { token, baseUrl: config.network.url };
+}
+
 /**
  * Resolve the WebSocket handshake URL for the active network.
  *

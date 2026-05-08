@@ -71,8 +71,65 @@ export interface DataPart {
 
 export type ContentPart = TextPart | ImagePart | FilePart | DataPart;
 
-/** Either a plain string (shorthand for one text part) or an array of typed parts. */
+/** Either a plain string (shorthand for one text part) or an array of typed parts.
+ *  This is the durable / outbound shape — `FilePart` carries `url`,
+ *  `ImagePart` carries `url` or `data_uri`. The request-side
+ *  ``ContentRequest`` adds an `file_id` alternative for file/image. */
 export type Content = string | readonly ContentPart[];
+
+/* -------------------------------------------------------------------------- */
+/* Request-side parts (operator extension: accept ``file_id``)                */
+/* -------------------------------------------------------------------------- */
+
+/** Request shape for a `file` part — exactly one of `url` or `file_id`. */
+export type FilePartRequest =
+  | {
+      readonly type: "file";
+      readonly url: string;
+      readonly name?: string;
+      readonly mime_type?: string;
+      readonly size?: number;
+    }
+  | {
+      readonly type: "file";
+      readonly file_id: string;
+      readonly name?: string;
+      readonly mime_type?: string;
+      readonly size?: number;
+    };
+
+/** Request shape for an `image` part — exactly one of `url`, `data_uri`,
+ *  or `file_id`. */
+export type ImagePartRequest =
+  | {
+      readonly type: "image";
+      readonly url: string;
+      readonly mime_type?: string;
+      readonly name?: string;
+    }
+  | {
+      readonly type: "image";
+      readonly data_uri: string;
+      readonly mime_type?: string;
+      readonly name?: string;
+    }
+  | {
+      readonly type: "image";
+      readonly file_id: string;
+      readonly mime_type?: string;
+      readonly name?: string;
+    };
+
+export type ContentPartRequest =
+  | TextPart
+  | ImagePartRequest
+  | FilePartRequest
+  | DataPart;
+
+/** Either a plain string or an array of request-side parts. The
+ *  operator rewrites ``file_id`` parts to ``url`` form before storage,
+ *  so the durable Message returned by reads still uses ``Content``. */
+export type ContentRequest = string | readonly ContentPartRequest[];
 
 export interface Message {
   readonly id: MessageId;

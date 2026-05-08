@@ -1,6 +1,6 @@
 import { aspRequest } from "./http.js";
 import type {
-  Content,
+  ContentRequest,
   Handle,
   IdempotencyKey,
   MessageId,
@@ -13,7 +13,10 @@ import type {
 export interface CreateSessionOptions {
   readonly invite?: readonly Handle[];
   readonly topic?: string;
-  readonly initialMessage?: { readonly content: Content; readonly metadata?: Metadata };
+  readonly initialMessage?: {
+    readonly content: ContentRequest;
+    readonly metadata?: Metadata;
+  };
   readonly endAfterSend?: boolean;
   readonly idempotencyKey?: IdempotencyKey;
 }
@@ -25,7 +28,10 @@ export interface SendMessageOptions {
 
 export interface ReopenSessionOptions {
   readonly invite?: readonly Handle[];
-  readonly initialMessage?: { readonly content: Content; readonly metadata?: Metadata };
+  readonly initialMessage?: {
+    readonly content: ContentRequest;
+    readonly metadata?: Metadata;
+  };
 }
 
 export interface CreateSessionResponse {
@@ -120,7 +126,7 @@ export class AspSessionClient {
 
   sendMessage(
     sessionId: SessionId,
-    content: Content,
+    content: ContentRequest,
     opts: SendMessageOptions = {},
   ): Promise<SendMessageResponse> {
     return this.#post<SendMessageResponse>(
