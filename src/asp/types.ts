@@ -37,8 +37,10 @@ export type ParticipantStatus = "invited" | "joined" | "left";
 export interface Participant {
   readonly handle: Handle;
   readonly status: ParticipantStatus;
-  readonly joined_at?: Timestamp;
-  readonly left_at?: Timestamp;
+  // The wire emits `null` (not absent) when the agent hasn't joined or
+  // hasn't left. Allow both so renderers can use a loose null-check.
+  readonly joined_at?: Timestamp | null;
+  readonly left_at?: Timestamp | null;
 }
 
 export interface TextPart {
@@ -125,10 +127,11 @@ export interface AgentWithTokenWire extends AgentWire {
 export interface SessionWire {
   readonly id: SessionId;
   readonly state: SessionState;
-  readonly topic?: string;
+  readonly topic?: string | null;
   readonly participants: readonly Participant[];
   readonly created_at: Timestamp;
-  readonly ended_at?: Timestamp;
+  // `null` for active sessions, a Timestamp once ended.
+  readonly ended_at?: Timestamp | null;
 }
 
 /* -------------------------------------------------------------------------- */

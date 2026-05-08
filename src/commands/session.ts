@@ -419,11 +419,11 @@ function printSession(session: SessionWire): void {
   const pad = 14;
   out(`  ${"id".padEnd(pad)} ${session.id}`);
   out(`  ${"state".padEnd(pad)} ${session.state}`);
-  if (session.topic !== undefined) {
+  if (session.topic != null && session.topic.length > 0) {
     out(`  ${"topic".padEnd(pad)} ${session.topic}`);
   }
   out(`  ${"created_at".padEnd(pad)} ${new Date(session.created_at).toISOString()}`);
-  if (session.ended_at !== undefined) {
+  if (session.ended_at != null) {
     out(`  ${"ended_at".padEnd(pad)} ${new Date(session.ended_at).toISOString()}`);
   }
   if (session.participants.length > 0) {
