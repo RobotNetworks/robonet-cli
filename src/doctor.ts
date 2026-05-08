@@ -6,7 +6,7 @@ import { discoverOAuth } from "./auth/discovery.js";
 import { findDirectoryIdentityFile } from "./asp/identity.js";
 import type { CLIConfig } from "./config.js";
 import { UnsafePlaintextEncryptor } from "./credentials/crypto.js";
-import { credentialsStorePath } from "./credentials/paths.js";
+import { credentialKeyFilePath, credentialsStorePath } from "./credentials/paths.js";
 import { CredentialStore } from "./credentials/store.js";
 import { DISCOVERY_TIMEOUT_MS } from "./endpoints.js";
 
@@ -31,7 +31,7 @@ export async function runDoctor(config: CLIConfig): Promise<DoctorCheck[]> {
   checks.push(networkInfoCheck(config));
   checks.push(await networkReachabilityCheck(config));
   checks.push(credentialStoreCheck(config));
-  checks.push(keychainCheck(config));
+  checks.push(credentialKeyBackendCheck(config));
   checks.push(await directoryIdentityCheck());
   if (config.network.authMode === "oauth") {
     checks.push(await oauthDiscoveryCheck(config));
@@ -125,26 +125,62 @@ function credentialStoreCheck(config: CLIConfig): DoctorCheck {
   }
 }
 
-function keychainCheck(config: CLIConfig): DoctorCheck {
-  try {
-    const entry = new Entry("com.robotnet.cli", config.profile);
-    const present = entry.getPassword() !== null;
+function credentialKeyBackendCheck(config: CLIConfig): DoctorCheck {
+  const useKeychain =
+    (process.env["ROBOTNET_USE_KEYCHAIN"] ?? "").trim() === "1";
+
+  if (useKeychain) {
+    try {
+      const entry = new Entry("com.robotnet.cli", config.profile);
+      const present = entry.getPassword() !== null;
+      return {
+        name: "credential_key",
+        ok: true,
+        detail:
+          `backend=keychain (ROBOTNET_USE_KEYCHAIN=1) ` +
+          `service=com.robotnet.cli account=${config.profile} ` +
+          (present
+            ? `key=present`
+            : `key=not yet minted (next login/agent create will create it)`),
+      };
+    } catch (err) {
+      return {
+        name: "credential_key",
+        ok: false,
+        detail:
+          `backend=keychain (ROBOTNET_USE_KEYCHAIN=1) ` +
+          `unavailable: ${err instanceof Error ? err.message : String(err)}.`,
+      };
+    }
+  }
+
+  const keyFile = credentialKeyFilePath(config);
+  const exists = fs.existsSync(keyFile);
+  if (!exists) {
     return {
-      name: "keychain",
+      name: "credential_key",
       ok: true,
-      detail: present
-        ? `key present (service=com.robotnet.cli account=${config.profile})`
-        : `keychain accessible; no key yet — minted on first \`admin agent create\` or \`login\``,
-    };
-  } catch (err) {
-    return {
-      name: "keychain",
-      ok: false,
       detail:
-        `keychain unavailable: ${err instanceof Error ? err.message : String(err)}. ` +
-        `Secrets fall back to plaintext (file mode 0600).`,
+        `backend=file path=${keyFile} key=not yet minted ` +
+        `(next login/agent create will create at mode 0600)`,
     };
   }
+  let modeOctal = "?";
+  try {
+    const stat = fs.statSync(keyFile);
+    modeOctal = (stat.mode & 0o777).toString(8).padStart(4, "0");
+  } catch {
+    // best-effort
+  }
+  const ok = modeOctal === "0600";
+  return {
+    name: "credential_key",
+    ok,
+    detail: ok
+      ? `backend=file path=${keyFile} mode=${modeOctal}`
+      : `backend=file path=${keyFile} mode=${modeOctal} (expected 0600 — ` +
+        `run \`chmod 600 ${keyFile}\` to lock down)`,
+  };
 }
 
 async function directoryIdentityCheck(): Promise<DoctorCheck> {
