@@ -130,13 +130,15 @@ export class FileService {
   /** Resolve a file_id reference against the sender's uploads.
    *
    *  Returns the file row when the requester owns a still-pending
-   *  upload with that id. Throws ``NotFoundError`` otherwise — the
-   *  same posture as cross-agent allowlist denials so callers can't
-   *  enumerate other agents' uploads. */
+   *  upload with that id. Throws ``NotFoundError`` with message
+   *  ``"session not found"`` otherwise — the cross-uploader 404 must
+   *  be indistinguishable from "this session doesn't exist for you"
+   *  so callers can't probe other agents' uploads (mirrors the hosted
+   *  RobotNet operator's non-enumeration posture). */
   requirePendingForSender(fileId: string, senderHandle: Handle): FileRecord {
     const row = this.#repo.files.pendingForUploader(fileId, senderHandle);
     if (row === null) {
-      throw new NotFoundError("not found");
+      throw new NotFoundError("session not found");
     }
     return row;
   }
