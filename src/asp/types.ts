@@ -48,17 +48,27 @@ export interface TextPart {
   readonly text: string;
 }
 
+/** ASP image part. RobotNet adds ``file_id`` as an operator-extension
+ *  third source alongside vanilla ``url`` and ``data_uri``. Receivers
+ *  resolve ``file_id`` by calling the operator's
+ *  ``GET /files/{file_id}`` endpoint to mint a fresh signed URL. */
 export interface ImagePart {
   readonly type: "image";
   readonly url?: string;
   readonly data_uri?: string;
+  readonly file_id?: string;
   readonly mime_type?: string;
   readonly name?: string;
 }
 
+/** ASP file part. Vanilla ASP requires ``url``; RobotNet adds
+ *  ``file_id`` as an operator-extension alternative. The durable
+ *  transcript carries whichever form the sender used; nothing in the
+ *  transcript expires, because URL minting happens at fetch time. */
 export interface FilePart {
   readonly type: "file";
-  readonly url: string;
+  readonly url?: string;
+  readonly file_id?: string;
   readonly name?: string;
   readonly mime_type?: string;
   readonly size?: number;
@@ -71,65 +81,30 @@ export interface DataPart {
 
 export type ContentPart = TextPart | ImagePart | FilePart | DataPart;
 
-/** Either a plain string (shorthand for one text part) or an array of typed parts.
- *  This is the durable / outbound shape — `FilePart` carries `url`,
- *  `ImagePart` carries `url` or `data_uri`. The request-side
- *  ``ContentRequest`` adds an `file_id` alternative for file/image. */
+/** Either a plain string (shorthand for one text part) or an array of
+ *  typed parts. The same shape works for both write (request body) and
+ *  read (durable transcript / outbound events): `file_id` references
+ *  pass through unchanged on the way in, and receivers resolve them
+ *  to a fresh URL via the operator's `GET /files/{file_id}` endpoint
+ *  on demand. */
 export type Content = string | readonly ContentPart[];
 
-/* -------------------------------------------------------------------------- */
-/* Request-side parts (operator extension: accept ``file_id``)                */
-/* -------------------------------------------------------------------------- */
-
-/** Request shape for a `file` part — exactly one of `url` or `file_id`. */
-export type FilePartRequest =
-  | {
-      readonly type: "file";
-      readonly url: string;
-      readonly name?: string;
-      readonly mime_type?: string;
-      readonly size?: number;
-    }
-  | {
-      readonly type: "file";
-      readonly file_id: string;
-      readonly name?: string;
-      readonly mime_type?: string;
-      readonly size?: number;
-    };
-
-/** Request shape for an `image` part — exactly one of `url`, `data_uri`,
- *  or `file_id`. */
-export type ImagePartRequest =
-  | {
-      readonly type: "image";
-      readonly url: string;
-      readonly mime_type?: string;
-      readonly name?: string;
-    }
-  | {
-      readonly type: "image";
-      readonly data_uri: string;
-      readonly mime_type?: string;
-      readonly name?: string;
-    }
-  | {
-      readonly type: "image";
-      readonly file_id: string;
-      readonly mime_type?: string;
-      readonly name?: string;
-    };
-
+// Aliases for callers that still import the request-side names. The
+// shape is identical to the durable side after the operator-extension
+// landed (`file_id` is accepted on both write and read). Kept as
+// aliases for drop-in source compatibility.
+export type FilePartRequest = FilePart;
+export type ImagePartRequest = ImagePart;
 export type ContentPartRequest =
   | TextPart
-  | ImagePartRequest
-  | FilePartRequest
+  | ImagePart
+  | FilePart
   | DataPart;
 
-/** Either a plain string or an array of request-side parts. The
- *  operator rewrites ``file_id`` parts to ``url`` form before storage,
- *  so the durable Message returned by reads still uses ``Content``. */
-export type ContentRequest = string | readonly ContentPartRequest[];
+/** Alias for {@link Content}. Kept for source compatibility — the
+ *  request and durable shapes are now identical (``file_id`` passes
+ *  through unchanged). */
+export type ContentRequest = Content;
 
 export interface Message {
   readonly id: MessageId;

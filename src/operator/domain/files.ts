@@ -198,18 +198,23 @@ export class FileService {
 /* ------------------------------------------------------------------ */
 
 export interface ResolvedContent {
-  /** Content with all ``file_id`` references resolved to ``url``. */
+  /** Content as the caller will see it stored — the same shape they
+   *  sent. ``file_id`` references pass through unchanged; receivers
+   *  call ``GET /files/{file_id}`` to mint a fresh URL. */
   readonly content: unknown;
   /** File ids that should be claimed once the message id is minted. */
   readonly fileIds: readonly string[];
 }
 
 /**
- * Walk the request-side content. ``FilePart``/``ImagePart`` parts that
- * carry a ``file_id`` are validated against the sender's pending
- * uploads and rewritten to ``url`` form. All other parts pass through
- * unchanged. ``file_id`` references that don't match a pending upload
- * owned by ``senderHandle`` raise a 404 (non-enumeration).
+ * Validate ``file_id`` references on inbound content. ``FilePart`` /
+ * ``ImagePart`` parts carrying a ``file_id`` are looked up against the
+ * sender's pending uploads — missing or cross-uploader references
+ * raise a 404 (non-enumeration). The content itself passes through
+ * UNCHANGED: the durable transcript carries ``file_id`` exactly as
+ * the sender supplied it. Receivers call ``GET /files/{file_id}``
+ * to mint a fresh signed URL on demand, so nothing in the transcript
+ * ever goes stale.
  */
 export function resolveContentFiles(
   content: unknown,
@@ -222,50 +227,25 @@ export function resolveContentFiles(
   if (!Array.isArray(content)) {
     return { content, fileIds: [] };
   }
-  const resolved: unknown[] = [];
   const fileIds: string[] = [];
   for (const part of content) {
-    if (typeof part !== "object" || part === null) {
-      resolved.push(part);
-      continue;
-    }
+    if (typeof part !== "object" || part === null) continue;
     const obj = part as Record<string, unknown>;
     const partType = obj.type;
     const partFileId = obj.file_id;
-
     if (
       (partType === "file" || partType === "image") &&
       typeof partFileId === "string" &&
       partFileId.length > 0
     ) {
-      const row = files.requirePendingForSender(partFileId, senderHandle);
-      const url = files.buildFileUrl(row.id);
-      fileIds.push(row.id);
-      if (partType === "file") {
-        resolved.push({
-          type: "file",
-          url,
-          name: typeof obj.name === "string" ? obj.name : row.filename,
-          mime_type:
-            typeof obj.mime_type === "string" ? obj.mime_type : row.contentType,
-          size: typeof obj.size === "number" ? obj.size : row.sizeBytes,
-        });
-      } else {
-        const imagePart: Record<string, unknown> = {
-          type: "image",
-          url,
-          mime_type:
-            typeof obj.mime_type === "string" ? obj.mime_type : row.contentType,
-        };
-        if (typeof obj.name === "string") imagePart.name = obj.name;
-        else imagePart.name = row.filename;
-        resolved.push(imagePart);
-      }
-    } else {
-      resolved.push(part);
+      // Validate ownership + pending status; throws NotFoundError on
+      // miss. The returned row is unused — we don't rewrite the part.
+      files.requirePendingForSender(partFileId, senderHandle);
+      fileIds.push(partFileId);
     }
   }
-  return { content: resolved, fileIds };
+  // Pass content through unchanged.
+  return { content, fileIds };
 }
 
 /** Lightweight pre-check: does the content carry any ``file_id`` parts?

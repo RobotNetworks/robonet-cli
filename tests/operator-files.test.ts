@@ -265,8 +265,9 @@ describe("operator files — upload + download", () => {
     assert.equal(claimed!.status, "attached");
     assert.notEqual(claimed!.sessionMessageId, null);
 
-    // The events transcript carries the rewritten content (url, no
-    // file_id) — vanilla ASP FilePart shape.
+    // The events transcript carries the content exactly as the
+    // sender supplied it — file_id is preserved, no url substitution.
+    // Receivers call GET /files/{file_id} to mint a fresh URL on demand.
     const events = await fetch(
       `${h.baseUrl}/sessions/${session_id}/events?after_sequence=0&limit=10`,
       { headers: { Authorization: tokenHeader(h, "@alice.bot") } },
@@ -279,9 +280,8 @@ describe("operator files — upload + download", () => {
     const content = messageEvent!.payload.content as Array<Record<string, unknown>>;
     assert.equal(content.length, 2);
     assert.equal(content[1]!.type, "file");
-    assert.equal(typeof content[1]!.url, "string");
-    assert.equal(content[1]!.file_id, undefined);
-    assert.match(content[1]!.url as string, /\/files\//);
+    assert.equal(content[1]!.file_id, upload.id);
+    assert.equal(content[1]!.url, undefined);
 
     // Bob (joined participant) can download.
     const bobDownload = await fetch(`${h.baseUrl}/files/${upload.id}`, {
