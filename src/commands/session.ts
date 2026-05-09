@@ -284,6 +284,10 @@ function makeSendCmd(): Command {
       "Read the entire `Content` value from stdin (mutually exclusive with --content / --file / --image / --data / message).",
       false,
     )
+    .option(
+      "--idempotency-key <key>",
+      "Stable Idempotency-Key for the send. The CLI auto-generates a fresh key per call by default; pass this to control replay (e.g. retry the same logical message and get the same `(message_id, sequence)` back).",
+    )
     .addOption(tokenOption())
     .option("--json", "Emit machine-readable JSON", false)
     .action(
@@ -300,7 +304,11 @@ function makeSendCmd(): Command {
           identity.handle,
         );
         const client = await resolveSessionClient(config, identity.handle, opts.token);
-        const result = await client.sendMessage(sessionId, content);
+        const result = await client.sendMessage(sessionId, content, {
+          ...(opts.idempotencyKey !== undefined
+            ? { idempotencyKey: opts.idempotencyKey }
+            : {}),
+        });
         if (opts.json) {
           out(JSON.stringify(result, null, 2));
           return;
@@ -319,6 +327,7 @@ interface SendOpts {
   readonly data?: string;
   readonly content?: string;
   readonly contentStdin: boolean;
+  readonly idempotencyKey?: string;
   readonly message?: string;
 }
 
