@@ -59,7 +59,7 @@ interface HealthBody {
  *
  * Endpoints:
  *
- * - `GET /healthz` — readiness, always public.
+ * - `GET /healthz` (or `/health` — alias) — readiness, always public.
  * - `/_admin/*` — admin surface (bearer-auth via the operator admin token).
  * - `/sessions/*` — session surface (bearer-auth via per-agent bearers).
  * - `GET /connect` — WS upgrade for live event delivery.
@@ -155,7 +155,13 @@ async function handleRequest(
   const method = req.method ?? "GET";
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
 
-  if (method === "GET" && url.pathname === "/healthz") {
+  // ``/healthz`` is the historical local-operator path (k8s convention);
+  // ``/health`` mirrors the hosted RobotNet operator so the CLI's doctor
+  // can use one probe across both networks. Both paths return the same body.
+  if (
+    method === "GET" &&
+    (url.pathname === "/healthz" || url.pathname === "/health")
+  ) {
     const body: HealthBody = {
       ok: true,
       network: config.networkName,

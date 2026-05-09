@@ -63,7 +63,12 @@ function networkInfoCheck(config: CLIConfig): DoctorCheck {
 }
 
 async function networkReachabilityCheck(config: CLIConfig): Promise<DoctorCheck> {
-  const url = config.network.url.replace(/\/+$/, "");
+  const base = config.network.url.replace(/\/+$/, "");
+  // Probe the operator's `/health` endpoint rather than the bare URL.
+  // The bare URL doesn't match any route — API Gateway / Lambda return a
+  // generic 500 that masks a real outage. `/health` returns 200 on a healthy
+  // operator (and any HTTP response means the gateway/server is up).
+  const url = `${base}/health`;
   try {
     const response = await fetch(url, {
       method: "GET",
