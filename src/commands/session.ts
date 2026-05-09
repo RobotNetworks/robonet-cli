@@ -5,7 +5,10 @@ import { Command } from "commander";
 
 import { resolveAgentBearer, resolveSessionClient } from "../asp/auth-resolver.js";
 import { AspApiError } from "../asp/errors.js";
-import { AspFilesClient } from "../asp/files-client.js";
+import {
+  AspFilesClient,
+  type FileUploadResponse,
+} from "../asp/files-client.js";
 import {
   assertValidHandle,
   handleArg,
@@ -412,12 +415,26 @@ async function buildContent(
     );
     const files = new AspFilesClient(baseUrl, token);
     for (const filePath of opts.file) {
-      const id = await uploadAndId(files, filePath);
-      parts.push({ type: "file", file_id: id });
+      const upload = await uploadFile(files, filePath);
+      // Carry name / mime_type / size from the upload response so receivers
+      // can render the file without a second `GET /files/{file_id}` round-trip
+      // just to learn the metadata.
+      parts.push({
+        type: "file",
+        file_id: upload.id,
+        name: upload.filename,
+        mime_type: upload.content_type,
+        size: upload.size_bytes,
+      });
     }
     for (const imgPath of opts.image) {
-      const id = await uploadAndId(files, imgPath);
-      parts.push({ type: "image", file_id: id });
+      const upload = await uploadFile(files, imgPath);
+      parts.push({
+        type: "image",
+        file_id: upload.id,
+        name: upload.filename,
+        mime_type: upload.content_type,
+      });
     }
   }
 
@@ -427,7 +444,10 @@ async function buildContent(
   return parts;
 }
 
-async function uploadAndId(client: AspFilesClient, filePath: string): Promise<string> {
+async function uploadFile(
+  client: AspFilesClient,
+  filePath: string,
+): Promise<FileUploadResponse> {
   let bytes: Uint8Array;
   try {
     bytes = await fs.promises.readFile(filePath);
@@ -437,8 +457,7 @@ async function uploadAndId(client: AspFilesClient, filePath: string): Promise<st
   }
   const filename = path.basename(filePath);
   const contentType = guessContentType(filename);
-  const result = await client.upload({ bytes, filename, contentType });
-  return result.id;
+  return await client.upload({ bytes, filename, contentType });
 }
 
 function parseContentJson(text: string, source: string): ContentRequest {
