@@ -357,6 +357,42 @@ export class SessionService {
     this.#dispatch(dispatches);
   }
 
+  /* -- force-leave on block (ASP §6.2) ------------------------------------ */
+
+  /**
+   * Force-leave `blocked` from every active session where both `blocker`
+   * and `blocked` are currently `joined`. Emits `session.left{reason:"left"}`
+   * for each — the schema's reason enum is `["left", "grace_expired"]`,
+   * and the spec explicitly says the blocked agent is not informed it
+   * was blocked, so the event is shape-identical to a voluntary leave.
+   *
+   * Per ASP Whitepaper §6.2, this MUST run as part of the block path so
+   * routing stops immediately. Idempotent: re-running on an already-left
+   * participant is a no-op.
+   */
+  forceLeaveSharedSessions(blocker: Handle, blocked: Handle): void {
+    const dispatches = this.#db.transaction(() => {
+      const all: Dispatch[] = [];
+      for (const p of this.#repo.participants.listForHandle(blocked)) {
+        if (p.status !== "joined") continue;
+        const session = this.#repo.sessions.byId(p.sessionId);
+        if (session === null || session.state !== "active") continue;
+        const blockerRow = this.#repo.participants.get(p.sessionId, blocker);
+        if (blockerRow === null || blockerRow.status !== "joined") continue;
+        this.#repo.participants.setStatus(p.sessionId, blocked, "left");
+        this.#appendEvent(p.sessionId, "session.left", {
+          agent: blocked,
+          reason: "left",
+        });
+        for (const d of this.#collectDispatches(p.sessionId)) {
+          all.push(d);
+        }
+      }
+      return all;
+    })();
+    this.#dispatch(dispatches);
+  }
+
   /* -- end_session -------------------------------------------------------- */
 
   endSession(handle: Handle, sessionId: SessionId): void {

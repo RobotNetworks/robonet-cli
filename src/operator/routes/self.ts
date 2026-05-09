@@ -1,4 +1,5 @@
 import { requireAgent } from "../auth.js";
+import type { SessionService } from "../domain/sessions.js";
 import { BadRequestError, NotFoundError } from "../errors.js";
 import { assertAllowlistEntry, assertHandle } from "../handles.js";
 import type {
@@ -33,6 +34,7 @@ import type { Router } from "./router.js";
  */
 interface SelfRoutesContext {
   readonly repo: OperatorRepository;
+  readonly sessions: SessionService;
 }
 
 export function registerSelfRoutes(router: Router, ctx: SelfRoutesContext): void {
@@ -121,6 +123,12 @@ export function registerSelfRoutes(router: Router, ctx: SelfRoutesContext): void
       );
     }
     const row = ctx.repo.blocks.add(agent.handle, blockedHandle);
+    // ASP §6.2 — a new block MUST force-leave the blocked agent from
+    // any session both agents are currently participating in. Routing
+    // stops immediately; the blocked agent gets a `session.left` event
+    // shape-identical to a voluntary leave (the spec is explicit that
+    // the blocked agent is not informed it was blocked).
+    ctx.sessions.forceLeaveSharedSessions(agent.handle, blockedHandle);
     sendJson(rc.res, 201, serializeBlock(row));
   });
 

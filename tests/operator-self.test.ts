@@ -76,14 +76,21 @@ async function makeHarness(): Promise<Harness> {
   };
 }
 
-async function adminRegister(h: Harness, agentHandle: string): Promise<string> {
+async function adminRegister(
+  h: Harness,
+  agentHandle: string,
+  opts: { readonly policy?: "open" | "allowlist" } = {},
+): Promise<string> {
   const reg = await fetch(`${h.baseUrl}/_admin/agents`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${h.adminToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ handle: agentHandle }),
+    body: JSON.stringify({
+      handle: agentHandle,
+      ...(opts.policy !== undefined ? { policy: opts.policy } : {}),
+    }),
   });
   if (reg.status !== 201) {
     throw new Error(`register failed: ${reg.status} ${await reg.text()}`);
@@ -315,6 +322,156 @@ describe("local operator /blocks", () => {
   it("rejects unauthenticated requests", async () => {
     const res = await fetch(`${h.baseUrl}/agents/me/blocks`);
     assert.equal(res.status, 401);
+  });
+});
+
+describe("local operator /blocks — force-leave shared sessions (ASP §6.2)", () => {
+  let h: Harness;
+
+  beforeEach(async () => {
+    h = await makeHarness();
+    // Open inbound policy so the agents can invite each other without
+    // first wiring an allowlist; the force-leave behavior is independent
+    // of inbound policy.
+    await adminRegister(h, "@alice.bot", { policy: "open" });
+    await adminRegister(h, "@bob.bot", { policy: "open" });
+    await adminRegister(h, "@carol.bot", { policy: "open" });
+  });
+
+  afterEach(async () => {
+    await h.cleanup();
+  });
+
+  async function createJoinedSession(
+    creator: string,
+    invitee: string,
+  ): Promise<string> {
+    const create = await fetch(`${h.baseUrl}/sessions`, {
+      method: "POST",
+      headers: agentHeaders(h, creator, true),
+      body: JSON.stringify({ invite: [invitee] }),
+    });
+    assert.equal(create.status, 201);
+    const { session_id } = (await create.json()) as { session_id: string };
+    const join = await fetch(`${h.baseUrl}/sessions/${session_id}/join`, {
+      method: "POST",
+      headers: agentHeaders(h, invitee),
+    });
+    assert.equal(join.status, 200);
+    return session_id;
+  }
+
+  async function showSession(viewer: string, sessionId: string) {
+    const res = await fetch(`${h.baseUrl}/sessions/${sessionId}`, {
+      headers: agentHeaders(h, viewer),
+    });
+    assert.equal(res.status, 200);
+    return (await res.json()) as {
+      participants: Array<{ handle: string; status: string }>;
+    };
+  }
+
+  async function listEvents(viewer: string, sessionId: string) {
+    const res = await fetch(
+      `${h.baseUrl}/sessions/${sessionId}/events?after_sequence=0&limit=50`,
+      { headers: agentHeaders(h, viewer) },
+    );
+    assert.equal(res.status, 200);
+    return (await res.json()) as {
+      events: Array<{ type: string; payload: Record<string, unknown> }>;
+    };
+  }
+
+  it("force-leaves the blocked agent from a shared session and emits session.left", async () => {
+    const sessionId = await createJoinedSession("@alice.bot", "@bob.bot");
+    const before = await showSession("@alice.bot", sessionId);
+    assert.deepEqual(
+      before.participants
+        .filter((p) => p.handle === "@bob.bot")
+        .map((p) => p.status),
+      ["joined"],
+    );
+
+    const block = await fetch(`${h.baseUrl}/agents/me/blocks`, {
+      method: "POST",
+      headers: agentHeaders(h, "@alice.bot", true),
+      body: JSON.stringify({ handle: "@bob.bot" }),
+    });
+    assert.equal(block.status, 201);
+
+    const after = await showSession("@alice.bot", sessionId);
+    const bob = after.participants.find((p) => p.handle === "@bob.bot");
+    assert.equal(bob?.status, "left");
+
+    const events = await listEvents("@alice.bot", sessionId);
+    const left = events.events.filter(
+      (e) => e.type === "session.left" && e.payload.agent === "@bob.bot",
+    );
+    assert.equal(left.length, 1);
+    // Schema enum is ["left", "grace_expired"]; the spec says the blocked
+    // agent is not informed it was blocked, so the reason is "left".
+    assert.equal(left[0]!.payload.reason, "left");
+  });
+
+  it("force-leaves across every shared active session", async () => {
+    const s1 = await createJoinedSession("@alice.bot", "@bob.bot");
+    const s2 = await createJoinedSession("@bob.bot", "@alice.bot");
+
+    const block = await fetch(`${h.baseUrl}/agents/me/blocks`, {
+      method: "POST",
+      headers: agentHeaders(h, "@alice.bot", true),
+      body: JSON.stringify({ handle: "@bob.bot" }),
+    });
+    assert.equal(block.status, 201);
+
+    for (const sid of [s1, s2]) {
+      const view = await showSession("@alice.bot", sid);
+      const bob = view.participants.find((p) => p.handle === "@bob.bot");
+      assert.equal(bob?.status, "left", `expected @bob.bot left in ${sid}`);
+    }
+  });
+
+  it("does not touch sessions where the blocker is not a current participant", async () => {
+    // @bob.bot and @carol.bot share a session; @alice.bot is not on it.
+    // Alice blocking @bob.bot must not affect that session.
+    const sessionId = await createJoinedSession("@bob.bot", "@carol.bot");
+
+    const block = await fetch(`${h.baseUrl}/agents/me/blocks`, {
+      method: "POST",
+      headers: agentHeaders(h, "@alice.bot", true),
+      body: JSON.stringify({ handle: "@bob.bot" }),
+    });
+    assert.equal(block.status, 201);
+
+    const view = await showSession("@bob.bot", sessionId);
+    const bob = view.participants.find((p) => p.handle === "@bob.bot");
+    const carol = view.participants.find((p) => p.handle === "@carol.bot");
+    assert.equal(bob?.status, "joined");
+    assert.equal(carol?.status, "joined");
+  });
+
+  it("is a no-op when the blocked agent has already left the shared session", async () => {
+    const sessionId = await createJoinedSession("@alice.bot", "@bob.bot");
+    // @bob.bot voluntarily leaves first.
+    const leave = await fetch(`${h.baseUrl}/sessions/${sessionId}/leave`, {
+      method: "POST",
+      headers: agentHeaders(h, "@bob.bot"),
+    });
+    assert.ok([200, 204].includes(leave.status), `leave status ${leave.status}`);
+
+    const block = await fetch(`${h.baseUrl}/agents/me/blocks`, {
+      method: "POST",
+      headers: agentHeaders(h, "@alice.bot", true),
+      body: JSON.stringify({ handle: "@bob.bot" }),
+    });
+    assert.equal(block.status, 201);
+
+    // Exactly one session.left for @bob.bot — the voluntary one.
+    const events = await listEvents("@alice.bot", sessionId);
+    const left = events.events.filter(
+      (e) => e.type === "session.left" && e.payload.agent === "@bob.bot",
+    );
+    assert.equal(left.length, 1);
   });
 });
 

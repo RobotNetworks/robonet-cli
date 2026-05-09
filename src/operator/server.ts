@@ -138,7 +138,7 @@ function buildRouter(
     db: deps.db,
     adminTokenHash: deps.config.adminTokenHash,
   });
-  registerSelfRoutes(router, { repo: deps.repo });
+  registerSelfRoutes(router, { repo: deps.repo, sessions: service });
   registerSessionRoutes(router, { repo: deps.repo, service });
   registerSearchRoutes(router, { repo: deps.repo, service });
   registerFileRoutes(router, { repo: deps.repo, files: fileService });
