@@ -508,18 +508,25 @@ describe("operator sessions — leave + end + history", () => {
     });
     assert.equal(leave.status, 204);
 
-    // Bob gets nothing past their left event in history.
+    // Bob's history covers his time as a participant up to and
+    // including his own ``session.left``. The transcript captures
+    // every transition Bob is the subject of (``invited`` → ``joined``
+    // → ``left``), the message Alice sent while Bob was joined, and
+    // nothing past the moment he left.
     const histRes = await fetch(`${h.baseUrl}/sessions/${session_id}/events`, {
       headers: agentHeaders(h, "@bob.bot"),
     });
     const hist = (await histRes.json()) as { events: { type: string }[] };
     const types = hist.events.map((e) => e.type);
     assert.ok(types.includes("session.invited"));
-    // session.joined for the joiner is intentionally absent: at the time
-    // the event fires, the participant's status is still "invited", which
-    // the eligibility filter rejects for non-{invited,ended} event types.
-    // Live delivery is a separate path; the joiner already sees their
-    // join via the live stream while the transition is in flight.
+    // Bob's own ``session.joined`` IS in his history: events where
+    // the caller is the subject of a status transition are always
+    // visible to that caller, regardless of what their pre-event
+    // running status was.
+    assert.ok(
+      types.includes("session.joined"),
+      `expected session.joined in history; got ${JSON.stringify(types)}`,
+    );
     assert.ok(types.includes("session.message"));
     assert.ok(types.includes("session.left"));
 

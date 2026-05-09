@@ -799,15 +799,27 @@ function filterHistoryEligible(
     const payloadInvitee =
       typeof payload["invitee"] === "string" ? payload["invitee"] : null;
 
-    let eligible = false;
-    if (status === "joined") {
-      eligible = true;
-    } else if (status === "invited") {
-      eligible = ev.type === "session.invited" || ev.type === "session.ended";
-    } else if (status === "absent") {
-      eligible = ev.type === "session.invited" && payloadInvitee === caller;
+    // Events that change the caller's own status are always visible to
+    // them: their own `session.invited`, `session.joined`, and
+    // `session.left` are the markers in the transcript that capture
+    // each transition. Computing eligibility from the *pre-event*
+    // status would drop the caller's own ``session.joined`` (status
+    // is still ``invited`` at that moment, and the ``invited`` branch
+    // only admits ``session.invited`` + ``session.ended``).
+    const isOwnTransition =
+      (ev.type === "session.invited" && payloadInvitee === caller) ||
+      (ev.type === "session.joined" && payloadAgent === caller) ||
+      (ev.type === "session.left" && payloadAgent === caller);
+
+    let eligible = isOwnTransition;
+    if (!eligible) {
+      if (status === "joined") {
+        eligible = true;
+      } else if (status === "invited") {
+        eligible = ev.type === "session.invited" || ev.type === "session.ended";
+      }
+      // status === "absent" / "left": only their own transitions, handled above.
     }
-    // status === "left" is never eligible.
 
     if (eligible) out.push(ev);
 
