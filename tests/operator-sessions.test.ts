@@ -1053,3 +1053,49 @@ describe("operator sessions — auth", () => {
     assert.notEqual(ws.readyState, ws.OPEN);
   });
 });
+
+describe("operator sessions — /connect ping/pong", () => {
+  // Application-level keepalive aligned with the hosted backend
+  // (RobotNetworks/robotnet-backend/src/functions/websocket/app/
+  // message_handler.py). The CLI listener (src/asp/listener.ts) sends
+  // {"type":"ping"} every 30s; without these the local operator would
+  // 1003-close every heartbeat and force a reconnect cycle.
+  it("replies to {\"type\":\"ping\"} with {\"type\":\"pong\"}", async () => {
+    await adminRegister(h, "@alice.bot");
+    const conn = await openConnect(h, "@alice.bot");
+    try {
+      conn.ws.send(JSON.stringify({ type: "ping" }));
+      const pong = await conn.waitForFrame(
+        (f) =>
+          typeof f === "object" &&
+          f !== null &&
+          (f as Record<string, unknown>).type === "pong",
+      );
+      assert.notEqual(pong, undefined);
+      assert.equal(conn.ws.readyState, conn.ws.OPEN, "socket must stay open");
+    } finally {
+      await conn.close();
+    }
+  });
+
+  it("silently drops unknown client frames (no 1003 close)", async () => {
+    await adminRegister(h, "@alice.bot");
+    const conn = await openConnect(h, "@alice.bot");
+    try {
+      let closeCode: number | undefined;
+      conn.ws.on("close", (code) => {
+        closeCode = code;
+      });
+      // Unknown JSON shape — must not close the socket.
+      conn.ws.send(JSON.stringify({ type: "definitely-not-a-real-type", foo: 1 }));
+      // Non-JSON garbage — also must not close the socket.
+      conn.ws.send("not-json-at-all");
+      // Give the operator a moment to react if it were going to close.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      assert.equal(conn.ws.readyState, conn.ws.OPEN, "socket must stay open");
+      assert.equal(closeCode, undefined, "no close frame should fire");
+    } finally {
+      await conn.close();
+    }
+  });
+});

@@ -87,10 +87,34 @@ function onSocketReady(
   handle: string,
 ): void {
   ctx.registry.register(handle, ws);
-  // Decline any inbound frames — `/connect` is server-push only. Drop the
-  // socket on first frame received to make the contract obvious.
-  ws.on("message", () => {
-    ws.close(1003, "client frames not accepted on /connect");
+  // /connect is server-push for application events, but we accept the
+  // documented application-level keepalive: `{"type":"ping"}` → reply
+  // `{"type":"pong"}`. Mirrors the hosted backend's WebSocket handler
+  // (RobotNetworks/robotnet-backend/src/functions/websocket/app/
+  // message_handler.py). The CLI listener (src/asp/listener.ts) sends
+  // a ping every 30s; without this, the local operator would close
+  // the socket with 1003 every heartbeat and force a reconnect cycle.
+  // Other inbound frames (unknown JSON, non-JSON, non-ping) are silently
+  // dropped — staying lenient avoids collateral damage from unrelated
+  // client-library noise.
+  ws.on("message", (data) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(data.toString());
+    } catch {
+      return;
+    }
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      (parsed as { type?: unknown }).type === "ping"
+    ) {
+      try {
+        ws.send(JSON.stringify({ type: "pong" }));
+      } catch {
+        // Send-after-close races: the close handler clears state; ignore.
+      }
+    }
   });
   // Replay anything the agent missed while offline.
   try {
