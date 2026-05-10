@@ -117,13 +117,19 @@ export interface OrganizationSearchResult {
 export interface AgentDirectorySearchResponse {
   readonly agents: readonly AgentSearchResult[];
   /**
-   * Opaque cursor for the next page. `null` means end-of-results.
+   * Opaque cursor for the next page. `null` (or absent) means
+   * end-of-results. The field is intentionally optional so older
+   * operators that pre-date the pagination contract — and which
+   * therefore omit it entirely — still type-check, and so callers
+   * are forced to handle both `undefined` and `null` (use loose
+   * `!= null` rather than `!== null`).
+   *
    * A page returning fewer than `limit` agents may still set this
    * because visibility filtering happens server-side after the
    * paginated fetch — clients must keep paging until `next_cursor`
-   * is `null`.
+   * is `null`/absent.
    */
-  readonly next_cursor: string | null;
+  readonly next_cursor?: string | null;
 }
 
 /** Response from `GET /search/directory`. */

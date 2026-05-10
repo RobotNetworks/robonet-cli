@@ -197,7 +197,9 @@ function makeSearchCmd(): Command {
       // A short page can still set next_cursor — visibility filtering
       // happens server-side after the paginated fetch, so a page may
       // be empty even when more agents exist past the cursor.
-      if (r.next_cursor !== null) {
+      // Loose `!= null` because older operators may omit the field
+      // entirely (undefined) rather than serializing it as null.
+      if (r.next_cursor != null) {
         out(`(more — pass --cursor ${r.next_cursor})`);
       }
     },
