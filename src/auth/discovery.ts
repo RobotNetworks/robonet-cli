@@ -20,6 +20,32 @@ export function websocketOrApiResource(discovery: OAuthDiscovery): string {
   );
 }
 
+/**
+ * Resource indicators (RFC 8707) to pass to the token endpoint when
+ * minting an agent bearer. Returns BOTH the API and WebSocket
+ * resources whenever discovery surfaces them, so the resulting
+ * token's `aud` claim covers both surfaces — without this, calling
+ * `robotnet listen` on a freshly-minted bearer 401s on the WebSocket
+ * handshake against any operator that enforces audience binding on
+ * `/connect`.
+ *
+ * Falls back to the network's base URL when discovery returns
+ * neither — matches the legacy behavior so agent-token / single-
+ * resource networks continue to work.
+ */
+export function collectResources(
+  discovery: OAuthDiscovery,
+  network: import("../config.js").NetworkConfig,
+): string[] {
+  const resources = new Set<string>();
+  if (discovery.apiResource) resources.add(discovery.apiResource);
+  if (discovery.websocketResource) resources.add(discovery.websocketResource);
+  if (resources.size === 0) {
+    resources.add(network.url.replace(/\/+$/, ""));
+  }
+  return [...resources];
+}
+
 function origin(url: string): string {
   const parsed = new URL(url);
   return `${parsed.protocol}//${parsed.host}`;

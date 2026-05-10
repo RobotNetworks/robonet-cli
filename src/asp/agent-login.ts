@@ -1,5 +1,5 @@
 import { requestClientCredentialsToken } from "../auth/client-credentials.js";
-import { discoverOAuth } from "../auth/discovery.js";
+import { collectResources, discoverOAuth } from "../auth/discovery.js";
 import {
   performAgentPkceLogin,
   requestRefreshTokenExchange,
@@ -305,13 +305,15 @@ export async function renewAgentPkce(args: {
   readonly scope: string | null;
 }): Promise<string> {
   const discovery = await discoverOAuth(args.config.network);
-  const resource =
-    discovery.apiResource ?? args.config.network.url.replace(/\/+$/, "");
+  // Refresh must request the same audience set the original token had
+  // — otherwise the renewed bearer drops the WebSocket audience and
+  // `robotnet listen` 401s on the next reconnect.
+  const resources = collectResources(discovery, args.config.network);
   const exchanged = await requestRefreshTokenExchange({
     tokenEndpoint: discovery.tokenEndpoint,
     clientId: args.clientId,
     refreshToken: args.refreshToken,
-    resource,
+    resources,
     scope: args.scope ?? "",
   });
   const bearerExpiresAt =

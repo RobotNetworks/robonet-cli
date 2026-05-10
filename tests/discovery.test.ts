@@ -1,11 +1,21 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
 import {
+  collectResources,
   discoverOAuth,
   websocketOrApiResource,
   type OAuthDiscovery,
 } from "../src/auth/discovery.js";
 import { DiscoveryError } from "../src/errors.js";
+import type { NetworkConfig } from "../src/config.js";
+
+const NETWORK: NetworkConfig = {
+  name: "global",
+  url: "https://api.test/v1",
+  authMode: "oauth",
+  authBaseUrl: "https://auth.test",
+  websocketUrl: "wss://ws.test",
+};
 
 describe("websocketOrApiResource", () => {
   it("prefers websocket resource", () => {
@@ -39,6 +49,64 @@ describe("websocketOrApiResource", () => {
       websocketResource: null,
     };
     assert.throws(() => websocketOrApiResource(discovery), DiscoveryError);
+  });
+});
+
+describe("collectResources", () => {
+  // Regression for the WS-handshake 401 bug: bearers minted with only
+  // the API resource fail audience validation on `/connect` against
+  // any operator that enforces audience binding on the WebSocket route.
+  it("returns BOTH api + websocket resources when discovery surfaces both", () => {
+    const discovery: OAuthDiscovery = {
+      authorizationEndpoint: "https://auth.test/authorize",
+      tokenEndpoint: "https://auth.test/token",
+      registrationEndpoint: "https://auth.test/register",
+      apiResource: "https://api.test/v1",
+      websocketResource: "wss://ws.test",
+    };
+    assert.deepEqual(collectResources(discovery, NETWORK), [
+      "https://api.test/v1",
+      "wss://ws.test",
+    ]);
+  });
+
+  it("dedupes when api + ws resources are identical", () => {
+    const discovery: OAuthDiscovery = {
+      authorizationEndpoint: "https://auth.test/authorize",
+      tokenEndpoint: "https://auth.test/token",
+      registrationEndpoint: "https://auth.test/register",
+      apiResource: "https://api.test/v1",
+      websocketResource: "https://api.test/v1",
+    };
+    assert.deepEqual(collectResources(discovery, NETWORK), [
+      "https://api.test/v1",
+    ]);
+  });
+
+  it("omits websocket resource when discovery doesn't surface one", () => {
+    const discovery: OAuthDiscovery = {
+      authorizationEndpoint: "https://auth.test/authorize",
+      tokenEndpoint: "https://auth.test/token",
+      registrationEndpoint: "https://auth.test/register",
+      apiResource: "https://api.test/v1",
+      websocketResource: null,
+    };
+    assert.deepEqual(collectResources(discovery, NETWORK), [
+      "https://api.test/v1",
+    ]);
+  });
+
+  it("falls back to network.url when discovery has neither", () => {
+    const discovery: OAuthDiscovery = {
+      authorizationEndpoint: "https://auth.test/authorize",
+      tokenEndpoint: "https://auth.test/token",
+      registrationEndpoint: "https://auth.test/register",
+      apiResource: null,
+      websocketResource: null,
+    };
+    assert.deepEqual(collectResources(discovery, NETWORK), [
+      "https://api.test/v1",
+    ]);
   });
 });
 

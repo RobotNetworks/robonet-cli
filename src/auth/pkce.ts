@@ -8,7 +8,7 @@ import {
   DEFAULT_AGENT_SCOPES,
   DEFAULT_USER_SCOPES,
 } from "./client-credentials.js";
-import type { OAuthDiscovery } from "./discovery.js";
+import { collectResources, type OAuthDiscovery } from "./discovery.js";
 import type { NetworkConfig } from "../config.js";
 import { REQUEST_TIMEOUT_MS } from "../endpoints.js";
 import {
@@ -189,14 +189,20 @@ async function runPkceFlow(options: CorePkceOptions): Promise<PKCELoginResult> {
 
     const code = await loopback.awaitCode(state);
 
-    const resource = discovery.apiResource ?? network.url.replace(/\/+$/, "");
+    // Mint the bearer with BOTH the API and WebSocket audiences. Per RFC
+    // 8707, repeated `resource` parameters bind the resulting access
+    // token to all listed audiences. Without the WebSocket resource the
+    // bearer's `aud` claim covers only the API surface, and
+    // `robotnet listen` 401s on the WebSocket handshake against any
+    // operator that enforces audience binding on `/connect`.
+    const resources = collectResources(discovery, network);
     const tokenResult = await requestAuthorizationCodeToken({
       tokenEndpoint: discovery.tokenEndpoint,
       clientId,
       code,
       codeVerifier: verifier,
       redirectUri,
-      resource,
+      resources,
     });
 
     result = {
@@ -389,21 +395,30 @@ async function requestAuthorizationCodeToken(options: {
   code: string;
   codeVerifier: string;
   redirectUri: string;
-  resource: string;
+  resources: readonly string[];
 }): Promise<{
   token: TokenResponse;
   refreshToken: string;
   agentHandle: string | null;
   network: string | null;
 }> {
+  if (options.resources.length === 0) {
+    throw new AuthenticationError(
+      "Authorization code exchange requires at least one resource indicator.",
+    );
+  }
   const form = new URLSearchParams({
     grant_type: "authorization_code",
     client_id: options.clientId,
     code: options.code,
     code_verifier: options.codeVerifier,
     redirect_uri: options.redirectUri,
-    resource: options.resource,
   });
+  // RFC 8707 §2: repeated `resource` parameters bind the resulting
+  // access token to all listed audiences.
+  for (const r of options.resources) {
+    form.append("resource", r);
+  }
 
   const response = await fetch(options.tokenEndpoint, {
     method: "POST",
@@ -446,7 +461,10 @@ async function requestAuthorizationCodeToken(options: {
     typeof rawNetwork === "string" && rawNetwork.length > 0 ? rawNetwork : null;
 
   return {
-    token: tokenResponseFromBody(body, options.resource),
+    // The credential store records one primary resource for display
+    // and refresh-on-rotation purposes; the bearer's actual `aud` claim
+    // covers every resource we passed above.
+    token: tokenResponseFromBody(body, options.resources[0]!),
     refreshToken,
     agentHandle,
     network,
@@ -464,15 +482,22 @@ export async function requestRefreshTokenExchange(options: {
   tokenEndpoint: string;
   clientId: string;
   refreshToken: string;
-  resource: string;
+  resources: readonly string[];
   scope: string;
 }): Promise<{ token: TokenResponse; refreshToken: string }> {
+  if (options.resources.length === 0) {
+    throw new AuthenticationError(
+      "Refresh token exchange requires at least one resource indicator.",
+    );
+  }
   const form = new URLSearchParams({
     grant_type: "refresh_token",
     client_id: options.clientId,
     refresh_token: options.refreshToken,
-    resource: options.resource,
   });
+  for (const r of options.resources) {
+    form.append("resource", r);
+  }
   if (options.scope.trim()) {
     form.set("scope", options.scope.trim());
   }
@@ -506,7 +531,7 @@ export async function requestRefreshTokenExchange(options: {
   }
 
   return {
-    token: tokenResponseFromBody(body, options.resource),
+    token: tokenResponseFromBody(body, options.resources[0]!),
     refreshToken: nextRefreshToken,
   };
 }

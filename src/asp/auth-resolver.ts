@@ -251,11 +251,16 @@ export async function resolveUserToken(config: CLIConfig): Promise<ResolvedToken
 
   let exchanged: Awaited<ReturnType<typeof requestRefreshTokenExchange>>;
   try {
+    // The user-session row stores the primary resource only; the
+    // resource-server account routes are API-side, so a single
+    // resource is sufficient here. Agent-bearer refreshes (which
+    // also need the WebSocket audience) go through `renewAgentPkce`
+    // in `asp/agent-login.ts`.
     exchanged = await requestRefreshTokenExchange({
       tokenEndpoint: session.tokenEndpoint,
       clientId: session.clientId,
       refreshToken: session.refreshToken,
-      resource: session.resource ?? "",
+      resources: [session.resource ?? ""],
       scope: session.scope ?? "",
     });
   } catch (err) {
