@@ -52,7 +52,7 @@ describe("collectNetworkStatuses", () => {
     const config = loadConfig();
     const probe = fixedProbe({
       "http://127.0.0.1:8723": true,
-      "https://api.robotnet.ai/v1": false,
+      "https://api.robotnet.works/v1": false,
     });
     const statuses = await collectNetworkStatuses(config, probe);
 
@@ -83,7 +83,7 @@ describe("collectNetworkStatuses", () => {
       config,
       fixedProbe({
         "http://127.0.0.1:8723": true,
-        "https://api.robotnet.ai/v1": true,
+        "https://api.robotnet.works/v1": true,
       }),
     );
     for (const s of statuses) {
@@ -105,7 +105,7 @@ describe("collectNetworkStatuses", () => {
       config,
       fixedProbe({
         "http://127.0.0.1:8723": true,
-        "https://api.robotnet.ai/v1": true,
+        "https://api.robotnet.works/v1": true,
       }),
     );
     const byName = Object.fromEntries(statuses.map((s) => [s.name, s]));
@@ -132,7 +132,7 @@ describe("formatStatusesHuman", () => {
       }),
       status({
         name: "public",
-        url: "https://api.robotnet.ai/v1",
+        url: "https://api.robotnet.works/v1",
         authMode: "oauth",
         identity: { handle: "@me.prod", source: "directory" },
       }),

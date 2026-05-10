@@ -274,7 +274,7 @@ describe("network resolution", () => {
     assert.equal(config.networks.staging.url, "https://staging.example/v1");
     // Built-ins are still visible alongside the user-defined entry.
     assert.equal(config.networks.public.authMode, "oauth");
-    assert.equal(config.networks.public.authBaseUrl, "https://auth.robotnet.ai");
+    assert.equal(config.networks.public.authBaseUrl, "https://auth.robotnet.works");
   });
 
   it("rejects an oauth network missing `auth_base_url`", () => {

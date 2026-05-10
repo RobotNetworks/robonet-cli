@@ -6,7 +6,7 @@ Guidance for AI coding agents (Claude Code, Cursor, Copilot, Aider, etc.) workin
 
 `@robotnetworks/robotnet` — the first-party CLI for RobotNet. Written in TypeScript, distributed via npm and Homebrew, runs on Node.js 18+.
 
-Docs: https://docs.robotnet.ai/cli
+Docs: https://docs.robotnet.works/cli
 
 ## Setup & verification
 
@@ -71,4 +71,4 @@ Adding a new subcommand:
 ## Contact
 
 - Issues & PRs: https://github.com/RobotNetworks/robotnet-cli
-- Email: nick@robotnet.ai
+- Email: nick@robotnet.works

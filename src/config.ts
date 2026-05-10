@@ -64,10 +64,10 @@ export type NetworkSource =
 const BUILTIN_NETWORKS: Readonly<Record<string, NetworkConfig>> = {
   public: {
     name: "public",
-    url: "https://api.robotnet.ai/v1",
+    url: "https://api.robotnet.works/v1",
     authMode: "oauth",
-    authBaseUrl: "https://auth.robotnet.ai",
-    websocketUrl: "wss://ws.robotnet.ai",
+    authBaseUrl: "https://auth.robotnet.works",
+    websocketUrl: "wss://ws.robotnet.works",
   },
   local: {
     name: "local",

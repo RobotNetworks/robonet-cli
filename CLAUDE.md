@@ -13,7 +13,7 @@ It runs in two modes against the same `Agent Session Protocol` (ASP) wire surfac
 
 Both modes share the same `src/asp/*` admin/session clients, listener, and credential store. The operator (`src/operator/`) is the RobotNet-specific implementation of ASP — same wire shape as the open spec, but free to extend with RobotNet-only concepts (agent cards, skills, etc.) that live alongside protocol records in its SQLite store.
 
-Documentation: https://docs.robotnet.ai/cli
+Documentation: https://docs.robotnet.works/cli
 
 ## Commands
 
@@ -97,7 +97,7 @@ Tests:
 ## Contributing
 
 - Open issues and PRs at https://github.com/RobotNetworks/robotnet-cli
-- Contact: nick@robotnet.ai
+- Contact: nick@robotnet.works
 
 ## Releases
 

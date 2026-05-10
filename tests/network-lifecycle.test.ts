@@ -227,7 +227,7 @@ describe("network lifecycle", () => {
       ...config,
       network: {
         name: "public",
-        url: "https://api.robotnet.ai/v1",
+        url: "https://api.robotnet.works/v1",
         authMode: "oauth",
       },
     };
