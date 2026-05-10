@@ -591,68 +591,104 @@ describe("operator sessions — replay on (re)connect", () => {
 });
 
 describe("operator sessions — reopen", () => {
-  it("reopens an ended session, peers see session.reopened, send works again", async () => {
-    await adminRegister(h, "@alice.bot");
-    await adminRegister(h, "@bob.bot", {
-      policy: "allowlist",
-      allowlistEntries: ["@alice.bot"],
-    });
+  it(
+    "reopens an ended session: prior participants are re-invited fresh and " +
+      "see session.invited; reopener stays joined; send works again",
+    async () => {
+      await adminRegister(h, "@alice.bot");
+      await adminRegister(h, "@bob.bot", {
+        policy: "allowlist",
+        allowlistEntries: ["@alice.bot"],
+      });
 
-    const create = await fetch(`${h.baseUrl}/sessions`, {
-      method: "POST",
-      headers: agentHeaders(h, "@alice.bot"),
-      body: JSON.stringify({ invite: ["@bob.bot"] }),
-    });
-    const { session_id } = (await create.json()) as { session_id: string };
-    await fetch(`${h.baseUrl}/sessions/${session_id}/join`, {
-      method: "POST",
-      headers: agentHeaders(h, "@bob.bot"),
-    });
-    await fetch(`${h.baseUrl}/sessions/${session_id}/end`, {
-      method: "POST",
-      headers: agentHeaders(h, "@alice.bot"),
-    });
-
-    const bob = await openConnect(h, "@bob.bot");
-    try {
-      const reopen = await fetch(`${h.baseUrl}/sessions/${session_id}/reopen`, {
+      const create = await fetch(`${h.baseUrl}/sessions`, {
         method: "POST",
         headers: agentHeaders(h, "@alice.bot"),
-        body: JSON.stringify({}),
+        body: JSON.stringify({ invite: ["@bob.bot"] }),
       });
-      assert.equal(reopen.status, 200);
-      // session_id must be preserved (Whitepaper §6.3).
-      const view = await fetch(`${h.baseUrl}/sessions/${session_id}`, {
+      const { session_id } = (await create.json()) as { session_id: string };
+      await fetch(`${h.baseUrl}/sessions/${session_id}/join`, {
+        method: "POST",
+        headers: agentHeaders(h, "@bob.bot"),
+      });
+      await fetch(`${h.baseUrl}/sessions/${session_id}/end`, {
+        method: "POST",
         headers: agentHeaders(h, "@alice.bot"),
       });
-      const body = (await view.json()) as { id: string; state: string };
-      assert.equal(body.id, session_id);
-      assert.equal(body.state, "active");
-      // bob receives session.reopened — he was joined when the session ended,
-      // so eligibility filter still passes (status === "joined" because
-      // ending a session doesn't change participant status).
-      const reopened = await bob.waitForFrame(
-        (f) =>
-          typeof f === "object" &&
-          f !== null &&
-          (f as Record<string, unknown>).type === "session.reopened",
-      );
-      assert.notEqual(reopened, undefined);
 
-      // Sending into a reopened session works again.
-      const send = await fetch(
-        `${h.baseUrl}/sessions/${session_id}/messages`,
-        {
+      const bob = await openConnect(h, "@bob.bot");
+      try {
+        const reopen = await fetch(`${h.baseUrl}/sessions/${session_id}/reopen`, {
           method: "POST",
           headers: agentHeaders(h, "@alice.bot"),
-          body: JSON.stringify({ content: "after reopen" }),
-        },
-      );
-      assert.equal(send.status, 201);
-    } finally {
-      await bob.close();
-    }
-  });
+          body: JSON.stringify({}),
+        });
+        assert.equal(reopen.status, 200);
+        // session_id must be preserved (Whitepaper §6.3).
+        const view = await fetch(`${h.baseUrl}/sessions/${session_id}`, {
+          headers: agentHeaders(h, "@alice.bot"),
+        });
+        const body = (await view.json()) as {
+          id: string;
+          state: string;
+          participants: ReadonlyArray<{
+            handle: string;
+            status: string;
+            joined_at?: number;
+          }>;
+        };
+        assert.equal(body.id, session_id);
+        assert.equal(body.state, "active");
+
+        // Per Whitepaper §6.3 ("participants are re-invited fresh"), bob
+        // (who was joined when the session ended) is now `invited` again,
+        // and his prior `joined_at` is cleared. Alice — the reopener —
+        // stays `joined`.
+        const alice = body.participants.find((p) => p.handle === "@alice.bot");
+        const bobParticipant = body.participants.find(
+          (p) => p.handle === "@bob.bot",
+        );
+        assert.equal(alice?.status, "joined");
+        assert.equal(bobParticipant?.status, "invited");
+        assert.equal(
+          bobParticipant?.joined_at,
+          undefined,
+          "joined_at must be cleared on re-invite",
+        );
+
+        // Bob receives a fresh `session.invited` (his eligibility on the
+        // reopened wire is the standard `invited`-status set:
+        // session.invited + session.ended). He should NOT see
+        // session.reopened — that's a joined-only lifecycle event and
+        // bob's status flipped to invited at dispatch time.
+        const reinvited = await bob.waitForFrame(
+          (f) =>
+            typeof f === "object" &&
+            f !== null &&
+            (f as Record<string, unknown>).type === "session.invited" &&
+            ((f as Record<string, unknown>).payload as Record<string, unknown>)
+              ?.invitee === "@bob.bot",
+        );
+        assert.notEqual(reinvited, undefined);
+
+        // Sending into a reopened session works again. Bob can join and
+        // start receiving messages by following the standard invited→joined
+        // transition (covered by other tests; here we just confirm the
+        // reopener can still write).
+        const send = await fetch(
+          `${h.baseUrl}/sessions/${session_id}/messages`,
+          {
+            method: "POST",
+            headers: agentHeaders(h, "@alice.bot"),
+            body: JSON.stringify({ content: "after reopen" }),
+          },
+        );
+        assert.equal(send.status, 201);
+      } finally {
+        await bob.close();
+      }
+    },
+  );
 
   it("reopen on an active session is 409", async () => {
     await adminRegister(h, "@alice.bot");

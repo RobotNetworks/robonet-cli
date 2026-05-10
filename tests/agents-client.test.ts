@@ -175,16 +175,51 @@ describe("AgentDirectoryClient.searchAgents", () => {
           agents: [
             { type: "agent", id: "a1", canonical_handle: "@owner.cli", display_name: "Owner", image_url: null },
           ],
+          next_cursor: null,
         }),
         { status: 200 },
       ),
     );
     const result = await makeClient().searchAgents("owner bot", 5);
     assert.equal(result.agents.length, 1);
+    assert.equal(result.next_cursor, null);
     const url = new URL(calls[0]!.url);
     assert.equal(url.pathname, "/v1/search/agents");
     assert.equal(url.searchParams.get("q"), "owner bot");
     assert.equal(url.searchParams.get("limit"), "5");
+    assert.equal(
+      url.searchParams.get("cursor"),
+      null,
+      "no cursor on a first-page call",
+    );
+  });
+
+  it("threads the cursor through to the URL when supplied", async () => {
+    stubFetch(() =>
+      new Response(
+        JSON.stringify({ agents: [], next_cursor: null }),
+        { status: 200 },
+      ),
+    );
+    await makeClient().searchAgents("owner", 5, "OPAQUE-CURSOR-VALUE");
+    const url = new URL(calls[0]!.url);
+    assert.equal(url.searchParams.get("cursor"), "OPAQUE-CURSOR-VALUE");
+  });
+
+  it("surfaces next_cursor when the operator returns one", async () => {
+    stubFetch(() =>
+      new Response(
+        JSON.stringify({
+          agents: [
+            { type: "agent", id: "a1", canonical_handle: "@owner.cli", display_name: "Owner", image_url: null },
+          ],
+          next_cursor: "PAGE-2-CURSOR",
+        }),
+        { status: 200 },
+      ),
+    );
+    const result = await makeClient().searchAgents("owner", 1);
+    assert.equal(result.next_cursor, "PAGE-2-CURSOR");
   });
 
   it("translates 404 to CapabilityNotSupportedError (no domain-level 404 on /search)", async () => {

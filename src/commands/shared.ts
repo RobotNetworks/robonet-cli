@@ -21,6 +21,12 @@ export function scopeOption(): Option {
 export function jsonOption(): Option {
   return new Option("--json", "Output as JSON").default(false);
 }
+export function tokenOption(): Option {
+  return new Option(
+    "--token <token>",
+    "Override the stored agent bearer token (escape hatch)",
+  );
+}
 
 // ── Display helpers ──────────────────────────────────────────────────
 

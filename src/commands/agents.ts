@@ -24,6 +24,7 @@ import type { CLIConfig } from "../config.js";
 import { RobotNetCLIError } from "../errors.js";
 import { pluralize } from "../output/formatters.js";
 import { loadConfigForAgentCommand, out } from "./asp-shared.js";
+import { tokenOption } from "./shared.js";
 
 /**
  * `robotnet agents` — directory/discovery view of agents on the network.
@@ -81,10 +82,11 @@ function makeShowCmd(): Command {
     .description("Show an agent's profile by handle")
     .argument("<handle>", "Agent handle (e.g. @owner.cli)", handleArg)
     .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (handle: string, opts: ShowOpts, cmd: Command) => {
       const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
-      const client = await buildClient(config, identity.handle);
+      const client = await buildClient(config, identity.handle, opts.token);
       const detail = await runWithNotFoundHint(
         () => client.getAgent(handle),
         handle,
@@ -100,6 +102,7 @@ function makeShowCmd(): Command {
 
 interface ShowOpts {
   readonly as?: string;
+  readonly token?: string;
   readonly json: boolean;
 }
 
@@ -110,10 +113,11 @@ function makeCardCmd(): Command {
     .description("Print an agent's card body (markdown) by handle")
     .argument("<handle>", "Agent handle (e.g. @owner.cli)", handleArg)
     .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (handle: string, opts: CardOpts, cmd: Command) => {
       const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
-      const client = await buildClient(config, identity.handle);
+      const client = await buildClient(config, identity.handle, opts.token);
       const card = await runWithNotFoundHint(
         () => client.getAgentCard(handle),
         handle,
@@ -129,6 +133,7 @@ function makeCardCmd(): Command {
 
 interface CardOpts {
   readonly as?: string;
+  readonly token?: string;
   readonly json: boolean;
 }
 
@@ -137,30 +142,42 @@ interface CardOpts {
 interface SearchOpts {
   readonly query: string;
   readonly limit: number;
+  readonly cursor?: string;
   readonly as?: string;
+  readonly token?: string;
   readonly json: boolean;
 }
 
 function makeSearchCommand<T>(args: {
   readonly description: string;
   readonly limitDescription: string;
+  readonly paginated: boolean;
   readonly call: (
     client: AgentDirectoryClient,
     query: string,
     limit: number,
+    cursor: string | undefined,
   ) => Promise<T>;
   readonly render: (result: T) => void;
 }): Command {
-  return new Command("search")
+  const cmd = new Command("search")
     .description(args.description)
     .requiredOption("--query <text>", "Search query (2-100 chars)")
-    .option("--limit <n>", args.limitDescription, parseLimit, 20)
+    .option("--limit <n>", args.limitDescription, parseLimit, 20);
+  if (args.paginated) {
+    cmd.option(
+      "--cursor <token>",
+      "Opaque cursor from a previous response's next_cursor",
+    );
+  }
+  return cmd
     .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (opts: SearchOpts, cmd: Command) => {
       const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
-      const client = await buildClient(config, identity.handle);
-      const result = await args.call(client, opts.query, opts.limit);
+      const client = await buildClient(config, identity.handle, opts.token);
+      const result = await args.call(client, opts.query, opts.limit, opts.cursor);
       if (opts.json) {
         out(JSON.stringify(result, null, 2));
         return;
@@ -173,8 +190,17 @@ function makeSearchCmd(): Command {
   return makeSearchCommand({
     description: "Search for agents visible to the calling agent",
     limitDescription: "Maximum results (1..50)",
-    call: (client, q, l) => client.searchAgents(q, l),
-    render: (r) => renderAgentSearchResults(r.agents),
+    paginated: true,
+    call: (client, q, l, c) => client.searchAgents(q, l, c),
+    render: (r) => {
+      renderAgentSearchResults(r.agents);
+      // A short page can still set next_cursor — visibility filtering
+      // happens server-side after the paginated fetch, so a page may
+      // be empty even when more agents exist past the cursor.
+      if (r.next_cursor !== null) {
+        out(`(more — pass --cursor ${r.next_cursor})`);
+      }
+    },
   });
 }
 
@@ -183,6 +209,7 @@ function makeDirectorySearchCmd(): Command {
     description:
       "Search the network directory for agents, people, and organizations",
     limitDescription: "Maximum results per section (1..50)",
+    paginated: false,
     call: (client, q, l) => client.searchDirectory(q, l),
     render: (r) => {
       renderAgentSearchResults(r.agents, "Agents");
@@ -198,10 +225,11 @@ function makeMeShowCmd(): Command {
   return new Command("show")
     .description("Show the calling agent's own profile")
     .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (opts: MeShowOpts, cmd: Command) => {
       const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
-      const client = await buildClient(config, identity.handle);
+      const client = await buildClient(config, identity.handle, opts.token);
       const self = await client.getSelf();
       if (opts.json) {
         out(JSON.stringify(self, null, 2));
@@ -213,6 +241,7 @@ function makeMeShowCmd(): Command {
 
 interface MeShowOpts {
   readonly as?: string;
+  readonly token?: string;
   readonly json: boolean;
 }
 
@@ -223,6 +252,7 @@ function makeMeUpdateCmd(): Command {
     .option("--description <text>", "Set description (pass empty string to clear)")
     .option("--card-body <markdown>", "Set card body (pass empty string to clear)")
     .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (opts: MeUpdateOpts, cmd: Command) => {
       const update: { -readonly [K in keyof AgentSelfUpdate]: AgentSelfUpdate[K] } = {};
@@ -241,7 +271,7 @@ function makeMeUpdateCmd(): Command {
         );
       }
       const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
-      const client = await buildClient(config, identity.handle);
+      const client = await buildClient(config, identity.handle, opts.token);
       const updated = await client.updateSelf(update);
       if (opts.json) {
         out(JSON.stringify(updated, null, 2));
@@ -257,6 +287,7 @@ interface MeUpdateOpts {
   readonly description?: string;
   readonly cardBody?: string;
   readonly as?: string;
+  readonly token?: string;
   readonly json: boolean;
 }
 
@@ -271,10 +302,11 @@ function makeMeAllowlistCmd(): Command {
     .command("list")
     .description("Show the calling agent's allowlist")
     .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (opts: AllowlistReadOpts, cmd: Command) => {
       const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
-      const client = await buildClient(config, identity.handle);
+      const client = await buildClient(config, identity.handle, opts.token);
       const result = await client.getSelfAllowlist();
       if (opts.json) {
         out(JSON.stringify(result, null, 2));
@@ -292,10 +324,11 @@ function makeMeAllowlistCmd(): Command {
       allowlistEntriesArg,
     )
     .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (entries: string[], opts: AllowlistMutateOpts, cmd: Command) => {
       const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
-      const client = await buildClient(config, identity.handle);
+      const client = await buildClient(config, identity.handle, opts.token);
       const result = await client.addSelfAllowlistEntries(entries);
       if (opts.json) {
         out(JSON.stringify(result, null, 2));
@@ -316,10 +349,11 @@ function makeMeAllowlistCmd(): Command {
       return value;
     })
     .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (entry: string, opts: AllowlistMutateOpts, cmd: Command) => {
       const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
-      const client = await buildClient(config, identity.handle);
+      const client = await buildClient(config, identity.handle, opts.token);
       const result = await client.removeSelfAllowlistEntry(entry);
       if (opts.json) {
         out(JSON.stringify(result, null, 2));
@@ -334,11 +368,13 @@ function makeMeAllowlistCmd(): Command {
 
 interface AllowlistReadOpts {
   readonly as?: string;
+  readonly token?: string;
   readonly json: boolean;
 }
 
 interface AllowlistMutateOpts {
   readonly as?: string;
+  readonly token?: string;
   readonly json: boolean;
 }
 
@@ -364,9 +400,10 @@ function makeMeBlockCmd(): Command {
     .description("Block another agent so it can't reach the calling agent")
     .argument("<handle>", "Handle of the agent to block (e.g. @noisy.bot)", handleArg)
     .option("--as <handle>", "Act as this agent handle", handleArg)
-    .action(async (handle: string, opts: { as?: string }, cmd: Command) => {
+    .addOption(tokenOption())
+    .action(async (handle: string, opts: BlockMutateOpts, cmd: Command) => {
       const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
-      const client = await buildClient(config, identity.handle);
+      const client = await buildClient(config, identity.handle, opts.token);
       await client.blockAgent(handle);
       out(`Blocked ${handle} for ${identity.handle}.`);
     });
@@ -377,9 +414,10 @@ function makeMeUnblockCmd(): Command {
     .description("Remove a block previously created by the calling agent")
     .argument("<handle>", "Handle of the agent to unblock", handleArg)
     .option("--as <handle>", "Act as this agent handle", handleArg)
-    .action(async (handle: string, opts: { as?: string }, cmd: Command) => {
+    .addOption(tokenOption())
+    .action(async (handle: string, opts: BlockMutateOpts, cmd: Command) => {
       const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
-      const client = await buildClient(config, identity.handle);
+      const client = await buildClient(config, identity.handle, opts.token);
       await client.unblockAgent(handle);
       out(`Unblocked ${handle} for ${identity.handle}.`);
     });
@@ -390,10 +428,11 @@ function makeMeBlocksCmd(): Command {
     .description("List the calling agent's active blocks")
     .option("--limit <n>", "Maximum results (1..100)", parseLimit, 50)
     .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (opts: BlocksOpts, cmd: Command) => {
       const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
-      const client = await buildClient(config, identity.handle);
+      const client = await buildClient(config, identity.handle, opts.token);
       const result = await client.listBlocks({ limit: opts.limit });
       if (opts.json) {
         out(JSON.stringify(result, null, 2));
@@ -406,9 +445,15 @@ function makeMeBlocksCmd(): Command {
     });
 }
 
+interface BlockMutateOpts {
+  readonly as?: string;
+  readonly token?: string;
+}
+
 interface BlocksOpts {
   readonly limit: number;
   readonly as?: string;
+  readonly token?: string;
   readonly json: boolean;
 }
 
@@ -417,6 +462,7 @@ interface BlocksOpts {
 async function buildClient(
   config: CLIConfig,
   handle: string,
+  tokenOverride?: string,
 ): Promise<AgentDirectoryClient> {
   // No upfront authMode gate: the local operator now exposes the
   // `/agents/me/*`, `/blocks/*`, `/agents/{owner}/{name}`, `/search/*`
@@ -424,7 +470,7 @@ async function buildClient(
   // implement a route surface a `CapabilityNotSupportedError` from the
   // 501/405 response, so callers see a consistent error rather than a
   // raw HTTP failure.
-  const { token } = await resolveAgentToken(config, handle);
+  const { token } = await resolveAgentToken(config, handle, tokenOverride);
   return new AgentDirectoryClient(config.network.url, token, config.network.name);
 }
 

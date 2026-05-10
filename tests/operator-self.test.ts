@@ -715,6 +715,114 @@ describe("local operator GET /search/agents", () => {
     const res = await fetch(`${h.baseUrl}/search/agents?q=billing`);
     assert.equal(res.status, 401);
   });
+
+  it("paginates with next_cursor when raw page == limit", async () => {
+    // Fetch page 1 of size 1: returns the first match (sorted by handle)
+    // and a non-null next_cursor because the raw page filled the limit.
+    const page1Res = await fetch(`${h.baseUrl}/search/agents?q=billing&limit=1`, {
+      headers: agentHeaders(h, "@me.bot"),
+    });
+    assert.equal(page1Res.status, 200);
+    const page1 = (await page1Res.json()) as {
+      agents: Array<{ canonical_handle: string }>;
+      next_cursor: string | null;
+    };
+    assert.equal(page1.agents.length, 1);
+    assert.equal(page1.agents[0]?.canonical_handle, "@billing.bot");
+    assert.notEqual(page1.next_cursor, null);
+
+    // Page 2: pass the cursor back, get the second match. Raw page is
+    // 1 == limit, so next_cursor is still non-null per the contract
+    // — the trailing empty page (page 3) is the end signal.
+    const page2Res = await fetch(
+      `${h.baseUrl}/search/agents?q=billing&limit=1&cursor=${encodeURIComponent(
+        page1.next_cursor!,
+      )}`,
+      { headers: agentHeaders(h, "@me.bot") },
+    );
+    assert.equal(page2Res.status, 200);
+    const page2 = (await page2Res.json()) as {
+      agents: Array<{ canonical_handle: string }>;
+      next_cursor: string | null;
+    };
+    assert.equal(page2.agents.length, 1);
+    assert.equal(page2.agents[0]?.canonical_handle, "@billing.support");
+    assert.notEqual(page2.next_cursor, null, "raw page == limit on page 2");
+
+    // Page 3: cursor points past the last match. Raw page returns 0 rows
+    // → next_cursor is null. This is the end signal.
+    const page3Res = await fetch(
+      `${h.baseUrl}/search/agents?q=billing&limit=1&cursor=${encodeURIComponent(
+        page2.next_cursor!,
+      )}`,
+      { headers: agentHeaders(h, "@me.bot") },
+    );
+    const page3 = (await page3Res.json()) as {
+      agents: unknown[];
+      next_cursor: string | null;
+    };
+    assert.equal(page3.agents.length, 0);
+    assert.equal(page3.next_cursor, null, "empty raw page is end-of-results");
+  });
+
+  it("returns null next_cursor when first page is short", async () => {
+    // 2 matching agents, limit 5 → raw page < limit → no cursor.
+    const res = await fetch(`${h.baseUrl}/search/agents?q=billing&limit=5`, {
+      headers: agentHeaders(h, "@me.bot"),
+    });
+    const body = (await res.json()) as {
+      agents: unknown[];
+      next_cursor: string | null;
+    };
+    assert.equal(body.agents.length, 2);
+    assert.equal(body.next_cursor, null);
+  });
+
+  it("400s on a malformed cursor", async () => {
+    const res = await fetch(
+      `${h.baseUrl}/search/agents?q=billing&cursor=${"x".repeat(300)}`,
+      { headers: agentHeaders(h, "@me.bot") },
+    );
+    // Cursors over 200 chars are rejected up-front (no work done).
+    assert.equal(res.status, 400);
+  });
+
+  it(
+    "returns next_cursor even when visibility filtering empties the page — clients " +
+      "must keep paging",
+    async () => {
+      // Add a third agent that's private and the only one matching a
+      // distinct query; with limit=1 the raw page is full but visibility
+      // drops the agents array to empty. Cursor must still come back so
+      // the client knows to keep paging.
+      await adminRegister(h, "@hidden.metric");
+      h.repo.agents.updateProfile("@hidden.metric", {
+        visibility: "private",
+        displayName: "Hidden Metric",
+      });
+      // We also need at least one more match past it so the raw page
+      // == limit. Add a second hidden one.
+      await adminRegister(h, "@hidden.metric2");
+      h.repo.agents.updateProfile("@hidden.metric2", {
+        visibility: "private",
+        displayName: "Hidden Metric Two",
+      });
+
+      const res = await fetch(`${h.baseUrl}/search/agents?q=hidden&limit=1`, {
+        headers: agentHeaders(h, "@me.bot"),
+      });
+      const body = (await res.json()) as {
+        agents: unknown[];
+        next_cursor: string | null;
+      };
+      assert.equal(body.agents.length, 0, "all candidates were filtered out");
+      assert.notEqual(
+        body.next_cursor,
+        null,
+        "next_cursor must surface so client can keep paging past the invisible block",
+      );
+    },
+  );
 });
 
 describe("local operator GET /search", () => {

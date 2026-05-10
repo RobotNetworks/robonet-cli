@@ -9,6 +9,7 @@ import {
 import { RobotNetCLIError } from "../errors.js";
 import { startAgentTerminalIndicator } from "../output/terminal-indicator.js";
 import { loadConfigForAgentCommand, out } from "./asp-shared.js";
+import { tokenOption } from "./shared.js";
 
 /**
  * `robotnet listen` — stream the agent's session events over WebSocket.
@@ -34,10 +35,7 @@ export function registerListenCommand(program: Command): void {
         "Stream live session events for an agent over WebSocket (Ctrl-C to stop)",
       )
       .option("--as <handle>", "Act as this agent handle", handleArg)
-      .option(
-        "--token <token>",
-        "Override the stored agent bearer token (escape hatch)",
-      )
+      .addOption(tokenOption())
       .option(
         "--max-attempts <n>",
         "Cap on reconnect attempts. Default: unbounded.",

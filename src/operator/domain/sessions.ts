@@ -439,21 +439,42 @@ export class SessionService {
       this.#repo.sessions.setState(args.sessionId, "active");
       this.#appendEvent(args.sessionId, "session.reopened", { reopened_by: handle });
 
+      // Per Whitepaper §6.3 ("participants are re-invited fresh") — every
+      // existing participant other than the reopener is reset to `invited`
+      // and a fresh session.invited event is emitted, so the lifecycle is
+      // observable on the wire and `joined` status carries the same
+      // post-reopen meaning as in the originally active session. The
+      // global reference operator does this; without it, the local
+      // operator silently leaves prior `joined` participants in a
+      // not-actually-rejoined state.
+      const existingParticipants = this.#repo.participants.listForSession(
+        args.sessionId,
+      );
+      for (const p of existingParticipants) {
+        if (p.handle === handle) continue;
+        this.#repo.participants.reinvite(args.sessionId, p.handle);
+        this.#appendEvent(args.sessionId, "session.invited", {
+          invitee: p.handle,
+          by: handle,
+        });
+      }
+
       // Process the (optional) re-invite list — same trust + status rules
       // as createSession's invite path. Silent omission of unreachable
-      // invitees per §6.2.
+      // invitees per §6.2. Already-existing participants were re-invited
+      // above; this handles brand-new invitees the reopener wants to add.
       for (const target of invite) {
         if (!isReachable(this.#repo, handle, target)) continue;
         const existing = this.#repo.participants.get(args.sessionId, target);
         if (existing === null) {
           this.#repo.participants.add(args.sessionId, target, "invited");
-        } else {
-          this.#repo.participants.setStatus(args.sessionId, target, "invited");
+          this.#appendEvent(args.sessionId, "session.invited", {
+            invitee: target,
+            by: handle,
+          });
         }
-        this.#appendEvent(args.sessionId, "session.invited", {
-          invitee: target,
-          by: handle,
-        });
+        // If the target already exists they were re-invited in the loop
+        // above. Skip the duplicate event.
       }
 
       if (args.initialMessage != null) {

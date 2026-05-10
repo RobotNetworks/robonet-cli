@@ -205,16 +205,36 @@ export class AgentsRepo {
    * route layer because it depends on caller identity.
    */
   search(query: string, limit: number): readonly AgentRecord[] {
-    const pattern = `%${escapeLike(query)}%`;
+    return this.searchPage({ query, limit });
+  }
+
+  /**
+   * Cursor-paginated agent search.
+   *
+   * Sort key is the agent `handle` (already unique). The cursor — passed
+   * back from the prior response's `next_cursor` — is the handle of the
+   * last row from that page; rows with a strictly greater handle make
+   * up the next page. Visibility filtering happens in the route layer
+   * because it depends on the caller's identity, so a short page does
+   * NOT mean end-of-results — clients should keep paging while
+   * `next_cursor` is non-null.
+   */
+  searchPage(args: {
+    readonly query: string;
+    readonly limit: number;
+    readonly afterHandle?: string;
+  }): readonly AgentRecord[] {
+    const pattern = `%${escapeLike(args.query)}%`;
+    const after = args.afterHandle ?? "";
     const rows = this.#db
       .prepare(
         `SELECT * FROM agents
-         WHERE handle LIKE ? ESCAPE '\\'
-            OR display_name LIKE ? ESCAPE '\\'
+         WHERE (handle LIKE ? ESCAPE '\\' OR display_name LIKE ? ESCAPE '\\')
+           AND handle > ?
          ORDER BY handle
          LIMIT ?`,
       )
-      .all(pattern, pattern, limit) as RawAgentRow[];
+      .all(pattern, pattern, after, args.limit) as RawAgentRow[];
     return rows.map(rawToAgent);
   }
 
@@ -534,6 +554,27 @@ export class ParticipantsRepo {
            WHERE session_id = ? AND handle = ?`,
         )
         .run(status, status, now, status, now, sessionId, handle).changes > 0
+    );
+  }
+
+  /**
+   * Reset a participant to `invited` and clear `joined_at_ms` / `left_at_ms`
+   * — used by `reopenSession` so that the wire view of a re-invited prior
+   * participant doesn't carry the stale `joined_at` from before the end.
+   * `setStatus` deliberately preserves those timestamps; this is the only
+   * codepath that explicitly rewinds them.
+   */
+  reinvite(sessionId: SessionId, handle: Handle): boolean {
+    return (
+      this.#db
+        .prepare(
+          `UPDATE participants
+             SET status = 'invited',
+                 joined_at_ms = NULL,
+                 left_at_ms = NULL
+           WHERE session_id = ? AND handle = ?`,
+        )
+        .run(sessionId, handle).changes > 0
     );
   }
 

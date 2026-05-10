@@ -44,15 +44,28 @@ export function registerSearchRoutes(router: Router, ctx: SearchRoutesContext): 
     const caller = requireAgent(rc.req, ctx.repo.agents);
     const query = parseQuery(rc.url);
     const limit = parseAgentSearchLimit(rc.url);
-    // Pull a wider window than `limit` so visibility filtering doesn't
-    // truncate to fewer than the requested count when the first batch
-    // contains private agents the caller can't see.
-    const candidates = ctx.repo.agents.search(query, Math.min(limit * 4, 100));
-    const visible = candidates
-      .filter((a) => isVisibleTo(ctx, a, caller))
-      .slice(0, limit);
+    const cursor = parseOptionalCursor(rc.url);
+    // Drop the over-fetch heuristic in favor of true cursor pagination.
+    // A page may be short post-visibility — clients keep paging until
+    // next_cursor is null. Sort key is `handle`, so the cursor is just
+    // the last seen handle (opaque to the wire).
+    const afterHandle = cursor !== undefined ? decodeCursor(cursor) : undefined;
+    const candidates = ctx.repo.agents.searchPage({
+      query,
+      limit,
+      ...(afterHandle !== undefined ? { afterHandle } : {}),
+    });
+    const visible = candidates.filter((a) => isVisibleTo(ctx, a, caller));
+    // Encode next_cursor whenever we returned a full raw page; even if
+    // visibility filtered the page down to zero, there might be more
+    // matches past this batch.
+    const nextCursor =
+      candidates.length === limit
+        ? encodeCursor(candidates[candidates.length - 1]!.handle)
+        : null;
     sendJson(rc.res, 200, {
       agents: visible.map(toAgentSearchResult),
+      next_cursor: nextCursor,
     });
   });
 
@@ -162,4 +175,31 @@ function parseOptionalCounterpart(url: URL): string | undefined {
   const v = url.searchParams.get("counterpart");
   if (v === null || v.length === 0) return undefined;
   return assertHandle(v, "counterpart");
+}
+
+function parseOptionalCursor(url: URL): string | undefined {
+  const v = url.searchParams.get("cursor");
+  if (v === null || v.length === 0) return undefined;
+  if (v.length > 200) {
+    throw new BadRequestError("cursor too long", "INVALID_QUERY");
+  }
+  return v;
+}
+
+/**
+ * Cursor format for the local operator's `/search/agents`: opaque
+ * base64 of the last seen agent handle. The wire treats it as
+ * opaque — only this operator decodes it. Client code should pass
+ * the value back unmodified.
+ */
+function encodeCursor(handle: string): string {
+  return Buffer.from(handle, "utf-8").toString("base64url");
+}
+
+function decodeCursor(cursor: string): string {
+  try {
+    return Buffer.from(cursor, "base64url").toString("utf-8");
+  } catch {
+    throw new BadRequestError("malformed cursor", "INVALID_QUERY");
+  }
 }

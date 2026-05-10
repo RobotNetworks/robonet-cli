@@ -1,13 +1,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { Command, Option } from "commander";
+import { Command } from "commander";
 
 import { resolveAgentBearer } from "../asp/auth-resolver.js";
 import { handleArg } from "../asp/handles.js";
 import { AspFilesClient } from "../asp/files-client.js";
 import { RobotNetCLIError } from "../errors.js";
 import { loadConfigForAgentCommand, out } from "./asp-shared.js";
+import { tokenOption } from "./shared.js";
 
 /**
  * `robotnet files` — upload + download attachments referenced by
@@ -169,9 +170,3 @@ function guessContentType(filename: string): string {
   return KNOWN_TYPES_BY_EXT[ext] ?? "application/octet-stream";
 }
 
-function tokenOption(): Option {
-  return new Option(
-    "--token <token>",
-    "Override the stored agent bearer token (escape hatch)",
-  );
-}

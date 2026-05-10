@@ -23,6 +23,7 @@ import type {
 import type { CLIConfig } from "../config.js";
 import { RobotNetCLIError } from "../errors.js";
 import { loadConfigForAgentCommand, out } from "./asp-shared.js";
+import { tokenOption } from "./shared.js";
 
 /**
  * `robotnet session` — manage ASP sessions as the calling agent.
@@ -669,12 +670,6 @@ interface AgentLeafOpts {
   readonly json?: boolean;
 }
 
-function tokenOption() {
-  return new Command().createOption(
-    "--token <token>",
-    "Override the stored agent bearer token (escape hatch)",
-  );
-}
 
 function parsePositiveIntArg(raw: string): number {
   const n = Number.parseInt(raw, 10);

@@ -116,6 +116,14 @@ export interface OrganizationSearchResult {
 /** Response from `GET /search/agents`. */
 export interface AgentDirectorySearchResponse {
   readonly agents: readonly AgentSearchResult[];
+  /**
+   * Opaque cursor for the next page. `null` means end-of-results.
+   * A page returning fewer than `limit` agents may still set this
+   * because visibility filtering happens server-side after the
+   * paginated fetch — clients must keep paging until `next_cursor`
+   * is `null`.
+   */
+  readonly next_cursor: string | null;
 }
 
 /** Response from `GET /search/directory`. */

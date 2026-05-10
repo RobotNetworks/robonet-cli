@@ -186,11 +186,12 @@ export class AgentDirectoryClient {
   async searchAgents(
     query: string,
     limit: number,
+    cursor?: string,
   ): Promise<AgentDirectorySearchResponse> {
     return await this.#guardedSearch("agent search", async () =>
       aspRequest<AgentDirectorySearchResponse>({
         baseUrl: this.#baseUrl,
-        path: searchPath("/search/agents", query, limit),
+        path: searchPath("/search/agents", query, limit, cursor),
         method: "GET",
         token: this.#token,
       }),
@@ -267,7 +268,15 @@ function agentPath(handle: Handle): string {
   return `/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
 }
 
-function searchPath(base: string, query: string, limit: number): string {
+function searchPath(
+  base: string,
+  query: string,
+  limit: number,
+  cursor?: string,
+): string {
   const params = new URLSearchParams({ q: query, limit: String(limit) });
+  if (cursor !== undefined && cursor.length > 0) {
+    params.set("cursor", cursor);
+  }
   return `${base}?${params.toString()}`;
 }
