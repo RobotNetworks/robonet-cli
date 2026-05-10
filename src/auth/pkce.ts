@@ -194,7 +194,7 @@ async function runPkceFlow(options: CorePkceOptions): Promise<PKCELoginResult> {
     // token to all listed audiences. Without the WebSocket resource the
     // bearer's `aud` claim covers only the API surface, and
     // `robotnet listen` 401s on the WebSocket handshake against any
-    // operator that enforces audience binding on `/connect`.
+    // operator that enforces audience binding on the WebSocket route.
     const resources = collectResources(discovery, network);
     const tokenResult = await requestAuthorizationCodeToken({
       tokenEndpoint: discovery.tokenEndpoint,

@@ -27,7 +27,7 @@ export function websocketOrApiResource(discovery: OAuthDiscovery): string {
  * token's `aud` claim covers both surfaces — without this, calling
  * `robotnet listen` on a freshly-minted bearer 401s on the WebSocket
  * handshake against any operator that enforces audience binding on
- * `/connect`.
+ * the WebSocket route.
  *
  * Falls back to the network's base URL when discovery returns
  * neither — matches the legacy behavior so agent-token / single-

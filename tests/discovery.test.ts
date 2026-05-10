@@ -54,8 +54,8 @@ describe("websocketOrApiResource", () => {
 
 describe("collectResources", () => {
   // Regression for the WS-handshake 401 bug: bearers minted with only
-  // the API resource fail audience validation on `/connect` against
-  // any operator that enforces audience binding on the WebSocket route.
+  // the API resource fail audience validation against any operator
+  // that enforces audience binding on the WebSocket route.
   it("returns BOTH api + websocket resources when discovery surfaces both", () => {
     const discovery: OAuthDiscovery = {
       authorizationEndpoint: "https://auth.test/authorize",
