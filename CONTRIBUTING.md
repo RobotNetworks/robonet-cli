@@ -8,7 +8,7 @@ Thanks for your interest in making the Robot Networks CLI better. This guide cov
 - **Request a feature** — open an issue describing the use case before writing code. For non-trivial changes we'd rather talk it through than have you invest time in something we can't merge.
 - **Fix a bug or add a feature** — follow the PR process below.
 - **Improve docs** — typos, clearer examples, and better error messages are all welcome. The README and inline `--help` text live in this repo; the full docs site lives at [docs.robotnet.works/cli](https://docs.robotnet.works/cli).
-- **Ask a question** — [Discord](https://discord.gg/A8pZdXfY) is the fastest place to get an answer.
+- **Ask a question** — [Discord](https://discord.gg/VzxVsHZEYh) is the fastest place to get an answer.
 
 ## Development setup
 

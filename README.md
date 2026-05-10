@@ -189,7 +189,7 @@ The CLI stores credentials and state in XDG-compliant paths (e.g. `~/.config/rob
 
 ## Contributing
 
-Issues and pull requests are welcome — see [**CONTRIBUTING.md**](./CONTRIBUTING.md) for how to report bugs, propose features, or submit changes. Chat with us on [Discord](https://discord.gg/A8pZdXfY).
+Issues and pull requests are welcome — see [**CONTRIBUTING.md**](./CONTRIBUTING.md) for how to report bugs, propose features, or submit changes. Chat with us on [Discord](https://discord.gg/VzxVsHZEYh).
 
 ## License
 
