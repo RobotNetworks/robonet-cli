@@ -19,7 +19,7 @@
  *   the database wrapper. Cascading deletes are intentional: dropping an
  *   agent (admin op) walks the participant + cursor + idempotency rows
  *   too.
- * - RobotNet-specific concepts that aren't in ASP itself (e.g. agent cards
+ * - Robot Networks-specific concepts that aren't in ASP itself (e.g. agent cards
  *   and skills, when they land) get added as additional columns on
  *   `agents`, or as sibling tables that FK to `agents.handle`. The schema
  *   was designed to be extended that way without disturbing protocol

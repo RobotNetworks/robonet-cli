@@ -18,7 +18,7 @@ export interface AgentTerminalIndicator {
 }
 
 /**
- * Mark an interactive terminal as hosting a live RobotNet agent listener.
+ * Mark an interactive terminal as hosting a live Robot Networks agent listener.
  *
  * The sequences are written to stderr by default so stdout stays a clean
  * event stream for `robotnet listen` consumers. Unsupported terminals ignore
@@ -38,7 +38,7 @@ export function startAgentTerminalIndicator(
     chunks.push(setTerminalProgress("indeterminate"));
   }
   if (supportsITermBadge(env)) {
-    chunks.push(setITermBadge(`RobotNet ${opts.handle}`));
+    chunks.push(setITermBadge(`Robot Networks ${opts.handle}`));
   }
 
   stream.write(chunks.join(""));
@@ -61,7 +61,7 @@ export function formatAgentTerminalTitle(
   handle: string,
   networkName: string,
 ): string {
-  return `RobotNet: ${handle} on ${networkName}`;
+  return `Robot Networks: ${handle} on ${networkName}`;
 }
 
 function supportsITermBadge(env: Record<string, string | undefined>): boolean {

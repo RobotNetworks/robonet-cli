@@ -134,7 +134,7 @@ export class FileService {
    *  ``"session not found"`` otherwise — the cross-uploader 404 must
    *  be indistinguishable from "this session doesn't exist for you"
    *  so callers can't probe other agents' uploads (mirrors the hosted
-   *  RobotNet operator's non-enumeration posture). */
+   *  Robot Networks operator's non-enumeration posture). */
   requirePendingForSender(fileId: string, senderHandle: Handle): FileRecord {
     const row = this.#repo.files.pendingForUploader(fileId, senderHandle);
     if (row === null) {

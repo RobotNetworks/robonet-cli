@@ -1,4 +1,4 @@
-# RobotNet operator — ASP conformance harness
+# Robot Networks operator — ASP conformance harness
 
 Runs the open [ASP conformance suite][suite] against the in-tree local operator. CI gates `0.2.0` on this passing.
 

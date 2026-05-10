@@ -28,7 +28,7 @@ describe("formatAgentTerminalTitle", () => {
   it("includes the active agent handle and network", () => {
     assert.equal(
       formatAgentTerminalTitle("@cli.bot", "local"),
-      "RobotNet: @cli.bot on local",
+      "Robot Networks: @cli.bot on local",
     );
   });
 });
@@ -57,12 +57,12 @@ describe("startAgentTerminalIndicator", () => {
       env: { TERM_PROGRAM: "Apple_Terminal" },
     });
 
-    assert.equal(stream.output(), osc("2;RobotNet: @cli.bot on local"));
+    assert.equal(stream.output(), osc("2;Robot Networks: @cli.bot on local"));
 
     indicator.close();
     assert.equal(
       stream.output(),
-      osc("2;RobotNet: @cli.bot on local") + osc("2;"),
+      osc("2;Robot Networks: @cli.bot on local") + osc("2;"),
     );
   });
 
@@ -74,11 +74,11 @@ describe("startAgentTerminalIndicator", () => {
       stream,
       env: { TERM_PROGRAM: "iTerm.app" },
     });
-    const badge = Buffer.from("RobotNet @cli.bot", "utf8").toString("base64");
+    const badge = Buffer.from("Robot Networks @cli.bot", "utf8").toString("base64");
 
     assert.equal(
       stream.output(),
-      osc("2;RobotNet: @cli.bot on local") +
+      osc("2;Robot Networks: @cli.bot on local") +
         osc("9;4;3;0") +
         osc(`1337;SetBadgeFormat=${badge}`),
     );
@@ -87,7 +87,7 @@ describe("startAgentTerminalIndicator", () => {
     indicator.close();
     assert.equal(
       stream.output(),
-      osc("2;RobotNet: @cli.bot on local") +
+      osc("2;Robot Networks: @cli.bot on local") +
         osc("9;4;3;0") +
         osc(`1337;SetBadgeFormat=${badge}`) +
         osc("2;") +
@@ -108,7 +108,7 @@ describe("startAgentTerminalIndicator", () => {
 
     assert.equal(
       stream.output(),
-      osc("2;RobotNet: @cli]2;bad.bot on local"),
+      osc("2;Robot Networks: @cli]2;bad.bot on local"),
     );
   });
 });

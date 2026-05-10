@@ -1,4 +1,4 @@
-/** Base class for all errors raised by the RobotNet CLI; catch this to handle any CLI-origin failure. */
+/** Base class for all errors raised by the Robot Networks CLI; catch this to handle any CLI-origin failure. */
 export class RobotNetCLIError extends Error {
   constructor(message: string) {
     super(message);

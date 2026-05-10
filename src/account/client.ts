@@ -14,7 +14,7 @@ import type {
 
 /**
  * Typed client for the account-scoped (human-principal) surface on the
- * hosted RobotNet API. Authenticates with the user-session bearer resolved by
+ * hosted Robot Networks API. Authenticates with the user-session bearer resolved by
  * `resolveUserToken`; agent-scoped tokens must not be used on these routes.
  *
  * Capability gating: routes the operator does not implement (the local

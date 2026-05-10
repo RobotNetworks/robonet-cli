@@ -28,8 +28,8 @@ function makeConfig(args: {
   };
 }
 
-const PUBLIC: NetworkConfig = {
-  name: "public",
+const GLOBAL: NetworkConfig = {
+  name: "global",
   url: "https://api.example/v1",
   authMode: "oauth",
   authBaseUrl: "https://auth.example",
@@ -44,18 +44,18 @@ const LOCAL: NetworkConfig = {
 describe("assertNetworkSupportsOAuthLogin", () => {
   it("accepts an OAuth network", () => {
     assert.doesNotThrow(() =>
-      assertNetworkSupportsOAuthLogin(makeConfig({ active: PUBLIC })),
+      assertNetworkSupportsOAuthLogin(makeConfig({ active: GLOBAL })),
     );
   });
 
   it("refuses an agent-token network and points at the right OAuth network", () => {
-    const config = makeConfig({ active: LOCAL, others: [PUBLIC] });
+    const config = makeConfig({ active: LOCAL, others: [GLOBAL] });
     assert.throws(
       () => assertNetworkSupportsOAuthLogin(config),
       (err: unknown) =>
         err instanceof Error &&
         err.message.includes('"local" uses agent-token auth') &&
-        err.message.includes("--network public") &&
+        err.message.includes("--network global") &&
         err.message.includes("robotnet admin agent create"),
     );
   });
@@ -64,7 +64,7 @@ describe("assertNetworkSupportsOAuthLogin", () => {
     const config = makeConfig({
       active: LOCAL,
       others: [
-        PUBLIC,
+        GLOBAL,
         { name: "staging", url: "https://api.staging/v1", authMode: "oauth" },
       ],
     });
@@ -72,7 +72,7 @@ describe("assertNetworkSupportsOAuthLogin", () => {
       () => assertNetworkSupportsOAuthLogin(config),
       (err: unknown) =>
         err instanceof Error &&
-        err.message.includes("Available OAuth networks: public, staging"),
+        err.message.includes("Available OAuth networks: global, staging"),
     );
   });
 

@@ -2,7 +2,7 @@
  * TypeScript wire types for the Agent Session Protocol.
  *
  * Mirror the JSON Schema definitions in `asp/schemas/{common,events,http}.json`.
- * Keep them additive — nothing here should depend on RobotNet-specific shapes.
+ * Keep them additive — nothing here should depend on Robot Networks-specific shapes.
  */
 
 /** `@<owner>.<name>` — the canonical agent address. */
@@ -48,7 +48,7 @@ export interface TextPart {
   readonly text: string;
 }
 
-/** ASP image part. RobotNet adds ``file_id`` as an operator-extension
+/** ASP image part. Robot Networks adds ``file_id`` as an operator-extension
  *  third source alongside vanilla ``url`` and ``data_uri``. Receivers
  *  resolve ``file_id`` by calling the operator's
  *  ``GET /files/{file_id}`` endpoint to mint a fresh signed URL. */
@@ -61,7 +61,7 @@ export interface ImagePart {
   readonly name?: string;
 }
 
-/** ASP file part. Vanilla ASP requires ``url``; RobotNet adds
+/** ASP file part. Vanilla ASP requires ``url``; Robot Networks adds
  *  ``file_id`` as an operator-extension alternative. The durable
  *  transcript carries whichever form the sender used; nothing in the
  *  transcript expires, because URL minting happens at fetch time. */
@@ -130,7 +130,7 @@ export type AgentVisibility = "public" | "private";
 /**
  * Read-side wire shape — `GET /_admin/agents/:handle`, `PATCH`, allowlist
  * mutations. Does not carry the bearer token: operators that hash bearers
- * at rest (RobotNet's local operator does) only return the plaintext on
+ * at rest (Robot Networks' local operator does) only return the plaintext on
  * the originating mint operation.
  *
  * `display_name`, `description`, `card_body`, and `visibility` are

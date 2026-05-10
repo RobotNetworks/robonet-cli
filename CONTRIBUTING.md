@@ -1,6 +1,6 @@
-# Contributing to RobotNet CLI
+# Contributing to Robot Networks CLI
 
-Thanks for your interest in making the RobotNet CLI better. This guide covers how to report issues, propose changes, and submit pull requests.
+Thanks for your interest in making the Robot Networks CLI better. This guide covers how to report issues, propose changes, and submit pull requests.
 
 ## Ways to contribute
 

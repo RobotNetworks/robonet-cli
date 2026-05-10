@@ -7,7 +7,7 @@ import { AspApiError } from "../src/asp/errors.js";
 
 const BASE = "https://api.example/v1";
 const TOKEN = "user-bearer";
-const NETWORK = "public";
+const NETWORK = "global";
 
 function makeClient(): AccountClient {
   return new AccountClient(BASE, TOKEN, NETWORK);

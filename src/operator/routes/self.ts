@@ -14,7 +14,7 @@ import type { Router } from "./router.js";
  * Register `/agents/me/*` routes — self-actions authenticated by the
  * calling agent's bearer.
  *
- * Mirrors the agent-bearer slice of the hosted RobotNet operator: the CLI
+ * Mirrors the agent-bearer slice of the hosted Robot Networks operator: the CLI
  * (`robotnet me ...`) talks to whichever operator the resolved network
  * points at, with one wire shape across both. Today this covers self
  * profile (`GET /agents/me`) and the self-allowlist surface; blocks land

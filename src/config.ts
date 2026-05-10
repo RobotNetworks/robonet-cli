@@ -6,7 +6,7 @@ import { ConfigurationError } from "./errors.js";
 
 const DEFAULT_ENVIRONMENT = "prod";
 const DEFAULT_PROFILE = "default";
-const DEFAULT_NETWORK = "public";
+const DEFAULT_NETWORK = "global";
 const WORKSPACE_CONFIG_DIR = ".robotnet";
 const WORKSPACE_CONFIG_FILE = "config.json";
 
@@ -16,7 +16,7 @@ export type NetworkAuthMode = "oauth" | "agent-token";
 /**
  * A named ASP network the CLI can target.
  *
- * `oauth` networks (e.g. the hosted RobotNet network) authenticate via the
+ * `oauth` networks (e.g. Robot Networks itself) authenticate via the
  * usual `robotnet login` flow and **must** carry their own `authBaseUrl`
  * (and almost always `websocketUrl`) — different operators run different
  * auth servers and WebSocket gateways, so these belong to the network, not
@@ -50,7 +50,7 @@ export type NetworkSource =
 /**
  * The set of networks every profile knows about by default.
  *
- * - `public`: the hosted RobotNet network, authenticated via OAuth (today's
+ * - `global`: Robot Networks (the hosted production network), authenticated via OAuth (today's
  *   `robotnet login` flow). Carries its own auth + websocket URLs so it
  *   works out of the box without any profile config.
  * - `local`: a `robotnet network start` instance on the loopback default
@@ -62,8 +62,8 @@ export type NetworkSource =
  * field.
  */
 const BUILTIN_NETWORKS: Readonly<Record<string, NetworkConfig>> = {
-  public: {
-    name: "public",
+  global: {
+    name: "global",
     url: "https://api.robotnet.works/v1",
     authMode: "oauth",
     authBaseUrl: "https://auth.robotnet.works",
@@ -378,7 +378,7 @@ function resolveNetwork(
  *
  * Network resolution: `options.networkName` (typically the `--network` flag) >
  * `ROBOTNET_NETWORK` env var > workspace `.robotnet/config.json` `network`
- * field > the built-in `"public"` network.
+ * field > the built-in `"global"` network.
  *
  * Per-network endpoint env overrides (`ROBOTNET_API_BASE_URL`,
  * `ROBOTNET_AUTH_BASE_URL`, `ROBOTNET_WEBSOCKET_URL`) are applied to the

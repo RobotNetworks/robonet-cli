@@ -4,7 +4,7 @@ Guidance for AI coding agents (Claude Code, Cursor, Copilot, Aider, etc.) workin
 
 ## What this repo is
 
-`@robotnetworks/robotnet` — the first-party CLI for RobotNet. Written in TypeScript, distributed via npm and Homebrew, runs on Node.js 18+.
+`@robotnetworks/robotnet` — the first-party CLI for Robot Networks. Written in TypeScript, distributed via npm and Homebrew, runs on Node.js 18+.
 
 Docs: https://docs.robotnet.works/cli
 

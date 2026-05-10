@@ -60,8 +60,8 @@ describe("collectNetworkStatuses", () => {
     assert.equal(byName.local!.reachable, true);
     assert.equal(byName.local!.identity?.handle, "@me.dev");
     assert.equal(byName.local!.identity?.source, "directory");
-    assert.equal(byName.public!.reachable, false);
-    assert.equal(byName.public!.identity, null);
+    assert.equal(byName.global!.reachable, false);
+    assert.equal(byName.global!.identity, null);
   });
 
   it("returns networks sorted by name for stable output", async () => {
@@ -110,7 +110,7 @@ describe("collectNetworkStatuses", () => {
     );
     const byName = Object.fromEntries(statuses.map((s) => [s.name, s]));
     assert.equal(byName.local!.identity?.handle, "@local.bot");
-    assert.equal(byName.public!.identity, null);
+    assert.equal(byName.global!.identity, null);
   });
 });
 
@@ -131,7 +131,7 @@ describe("formatStatusesHuman", () => {
         identity: { handle: "@me.dev", source: "directory" },
       }),
       status({
-        name: "public",
+        name: "global",
         url: "https://api.robotnet.works/v1",
         authMode: "oauth",
         identity: { handle: "@me.prod", source: "directory" },
@@ -139,7 +139,7 @@ describe("formatStatusesHuman", () => {
     ]);
     assert.deepEqual(lines, [
       "[robotnet] local: @me.dev",
-      "[robotnet] public: @me.prod",
+      "[robotnet] global: @me.prod",
     ]);
   });
 
@@ -154,18 +154,18 @@ describe("formatStatusesHuman", () => {
     const lines = formatStatusesHuman([
       status({ name: "local", reachable: false }),
       status({
-        name: "public",
+        name: "global",
         reachable: true,
         identity: { handle: "@me.prod", source: "env" },
       }),
     ]);
-    assert.deepEqual(lines, ["[robotnet] public: @me.prod"]);
+    assert.deepEqual(lines, ["[robotnet] global: @me.prod"]);
   });
 
   it("returns no lines when nothing is live", () => {
     const lines = formatStatusesHuman([
       status({ name: "local", reachable: false }),
-      status({ name: "public", reachable: false }),
+      status({ name: "global", reachable: false }),
     ]);
     assert.deepEqual(lines, []);
   });

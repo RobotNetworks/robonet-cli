@@ -6,7 +6,7 @@ import type { CLIConfig } from "../config.js";
  * Resolve the SQLite credential store path for this profile.
  *
  * Lives next to today's `auth.json` for now: `<configDir>/credentials.sqlite`.
- * Other RobotNet clients must use this path; named
+ * Other Robot Networks clients must use this path; named
  * profiles nest under `profiles/<name>/credentials.sqlite` automatically
  * because `configDir` already encodes the profile.
  */

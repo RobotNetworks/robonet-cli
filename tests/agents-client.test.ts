@@ -8,7 +8,7 @@ import { AspApiError } from "../src/asp/errors.js";
 
 const BASE = "https://api.example/v1";
 const TOKEN = "test-bearer";
-const NETWORK = "public";
+const NETWORK = "global";
 
 function makeClient(): AgentDirectoryClient {
   return new AgentDirectoryClient(BASE, TOKEN, NETWORK);

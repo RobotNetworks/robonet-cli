@@ -37,7 +37,7 @@ afterEach(() => {
 });
 
 function makeConfig(network: NetworkConfig = {
-  name: "public",
+  name: "global",
   url: "https://api.example/v1",
   authMode: "oauth",
   authBaseUrl: "https://auth.example",
@@ -145,7 +145,7 @@ describe("enrollAgentClientCredentials", () => {
 
     // Row landed in the store with the renewal material.
     const store = await openProcessCredentialStore(config);
-    const row = store.getAgentCredential("public", "@cli.bot");
+    const row = store.getAgentCredential("global", "@cli.bot");
     assert.ok(row);
     assert.equal(row!.kind, "oauth_client_credentials");
     assert.equal(row!.bearer, "minted-bearer");
@@ -219,16 +219,16 @@ describe("persistAgentPkce", () => {
     // The bug we're guarding against: the row used to land as
     // the bare handle (no @), so listener lookups for the canonical handle missed.
     const store = await openProcessCredentialStore(config);
-    const row = store.getAgentCredential("public", "@owner.agent");
+    const row = store.getAgentCredential("global", "@owner.agent");
     assert.ok(row, "row must be keyed by canonical @-form");
     assert.equal(row!.handle, "@owner.agent");
     assert.equal(row!.kind, "oauth_pkce");
-    assert.equal(row!.networkName, "public");
+    assert.equal(row!.networkName, "global");
   });
 
   it("refuses to store when auth-server network disagrees with local config", async () => {
     const config = makeConfig({
-      name: "public",
+      name: "global",
       url: "https://api.example/v1",
       authMode: "oauth",
     });
@@ -244,12 +244,12 @@ describe("persistAgentPkce", () => {
       (err: unknown) =>
         err instanceof Error &&
         err.message.includes('identifies as network "staging"') &&
-        err.message.includes('on network "public"'),
+        err.message.includes('on network "global"'),
     );
 
     // Nothing should have been written.
     const store = await openProcessCredentialStore(config);
-    assert.equal(store.getAgentCredential("public", "@owner.agent"), null);
+    assert.equal(store.getAgentCredential("global", "@owner.agent"), null);
   });
 
   it("falls back to local config when auth-server omits the network field", async () => {
@@ -260,7 +260,7 @@ describe("persistAgentPkce", () => {
       result: fakePkceResult({ network: null }),
     });
     const store = await openProcessCredentialStore(config);
-    assert.ok(store.getAgentCredential("public", "@owner.agent"));
+    assert.ok(store.getAgentCredential("global", "@owner.agent"));
   });
 
   it("accepts when auth-server network matches local config", async () => {
@@ -268,10 +268,10 @@ describe("persistAgentPkce", () => {
     await _persistAgentPkceForTests({
       config,
       handle: "@owner.agent",
-      result: fakePkceResult({ network: "public" }),
+      result: fakePkceResult({ network: "global" }),
     });
     const store = await openProcessCredentialStore(config);
-    assert.ok(store.getAgentCredential("public", "@owner.agent"));
+    assert.ok(store.getAgentCredential("global", "@owner.agent"));
   });
 });
 
@@ -313,7 +313,7 @@ describe("renewAgentClientCredentials", () => {
     assert.equal(fresh, "second-bearer");
 
     const store = await openProcessCredentialStore(config);
-    const row = store.getAgentCredential("public", "@cli.bot");
+    const row = store.getAgentCredential("global", "@cli.bot");
     assert.ok(row);
     assert.equal(row!.bearer, "second-bearer");
     assert.equal(row!.scope, "sessions:read sessions:write");

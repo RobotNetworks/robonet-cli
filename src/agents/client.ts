@@ -16,7 +16,7 @@ import type { AllowlistEntry } from "../asp/types.js";
 import { assertValidAllowlistEntry } from "../asp/handles.js";
 
 /**
- * Typed client for the RobotNet hosted agent-discovery surface.
+ * Typed client for the Robot Networks hosted agent-discovery surface.
  *
  * Wraps:
  *

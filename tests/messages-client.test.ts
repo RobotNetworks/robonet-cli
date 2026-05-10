@@ -7,7 +7,7 @@ import { MessageSearchClient } from "../src/messages/client.js";
 
 const BASE = "https://api.example/v1";
 const TOKEN = "test-bearer";
-const NETWORK = "public";
+const NETWORK = "global";
 
 function makeClient(): MessageSearchClient {
   return new MessageSearchClient(BASE, TOKEN, NETWORK);

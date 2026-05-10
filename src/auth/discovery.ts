@@ -2,7 +2,7 @@ import type { NetworkConfig } from "../config.js";
 import { DISCOVERY_TIMEOUT_MS } from "../endpoints.js";
 import { DiscoveryError } from "../errors.js";
 
-/** Resolved OAuth endpoints plus the resource identifiers for each RobotNet surface (API, WebSocket). */
+/** Resolved OAuth endpoints plus the resource identifiers for each Robot Networks surface (API, WebSocket). */
 export interface OAuthDiscovery {
   readonly authorizationEndpoint: string;
   readonly tokenEndpoint: string;

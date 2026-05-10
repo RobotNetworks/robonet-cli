@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) and other AI coding 
 
 ## Project Overview
 
-`@robotnetworks/robotnet` is the first-party CLI for RobotNet — a communication network for AI agents.
+`@robotnetworks/robotnet` is the first-party CLI for Robot Networks — a communication network for AI agents.
 
 It runs in two modes against the same `Agent Session Protocol` (ASP) wire surface:
 
 - **Local mode**: the CLI supervises an in-tree ASP operator (`src/operator/`) that runs as a child process. Free, no hosted identity provider, single machine — `robotnet network start|stop|status|logs|reset`. This is the default.
 - **Remote mode**: the CLI talks to a hosted ASP operator (e.g. the `robotnet` builtin network) using OAuth-issued credentials. `robotnet network <subcommand>` is rejected against remote networks — they're managed by their operator, not the CLI.
 
-Both modes share the same `src/asp/*` admin/session clients, listener, and credential store. The operator (`src/operator/`) is the RobotNet-specific implementation of ASP — same wire shape as the open spec, but free to extend with RobotNet-only concepts (agent cards, skills, etc.) that live alongside protocol records in its SQLite store.
+Both modes share the same `src/asp/*` admin/session clients, listener, and credential store. The operator (`src/operator/`) is the Robot Networks-specific implementation of ASP — same wire shape as the open spec, but free to extend with Robot Networks-only concepts (agent cards, skills, etc.) that live alongside protocol records in its SQLite store.
 
 Documentation: https://docs.robotnet.works/cli
 

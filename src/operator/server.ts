@@ -156,7 +156,7 @@ async function handleRequest(
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
 
   // ``/healthz`` is the historical local-operator path (k8s convention);
-  // ``/health`` mirrors the hosted RobotNet operator so the CLI's doctor
+  // ``/health`` mirrors the hosted Robot Networks operator so the CLI's doctor
   // can use one probe across both networks. Both paths return the same body.
   if (
     method === "GET" &&

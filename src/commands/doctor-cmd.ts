@@ -8,7 +8,7 @@ import { jsonOption, profileTitle } from "./shared.js";
 export function registerDoctorCommand(program: Command): void {
   program
     .command("doctor")
-    .description("Run local RobotNet CLI diagnostics")
+    .description("Run local Robot Networks CLI diagnostics")
     .addOption(jsonOption())
     .action(async (opts, cmd) => {
       const config = await loadConfigFromRoot(cmd);
@@ -21,7 +21,7 @@ export function registerDoctorCommand(program: Command): void {
         process.exitCode = ok ? 0 : 1;
         return;
       }
-      console.log(profileTitle("RobotNet Doctor", config));
+      console.log(profileTitle("Robot Networks Doctor", config));
       for (const check of checks) {
         const status = check.ok ? "ok" : "fail";
         console.log(`- ${check.name}: ${status} - ${check.detail}`);

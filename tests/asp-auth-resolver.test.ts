@@ -155,7 +155,7 @@ describe("resolveSessionClient", () => {
 describe("resolveAgentToken — oauth_client_credentials renewal", () => {
   it("returns the cached bearer when it is still valid", async () => {
     const config = makeConfig({
-      name: "public",
+      name: "global",
       url: "https://api.example/v1",
       authMode: "oauth",
       authBaseUrl: "https://auth.example",
@@ -167,7 +167,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
     );
     const store = await openProcessCredentialStore(config);
     store.putAgentCredential({
-      networkName: "public",
+      networkName: "global",
       handle: "@cli.bot",
       kind: "oauth_client_credentials",
       bearer: "live-bearer",
@@ -185,7 +185,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
 
   it("renews via client_credentials when the cached bearer is expired", async () => {
     const config = makeConfig({
-      name: "public",
+      name: "global",
       url: "https://api.example/v1",
       authMode: "oauth",
       authBaseUrl: "https://auth.example",
@@ -196,7 +196,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
     );
     const store = await openProcessCredentialStore(config);
     store.putAgentCredential({
-      networkName: "public",
+      networkName: "global",
       handle: "@cli.bot",
       kind: "oauth_client_credentials",
       bearer: "stale-bearer",
@@ -244,7 +244,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
     assert.equal(out.token, "fresh-bearer");
     assert.equal(tokenCalls, 1);
     // The renewed value is also persisted.
-    const row = store.getAgentCredential("public", "@cli.bot");
+    const row = store.getAgentCredential("global", "@cli.bot");
     assert.equal(row?.bearer, "fresh-bearer");
   });
 
@@ -253,7 +253,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
       "../src/credentials/aes-encryptor.js"
     );
     const config = makeConfig({
-      name: "public",
+      name: "global",
       url: "https://api.example/v1",
       authMode: "oauth",
       authBaseUrl: "https://auth.example",
@@ -267,9 +267,9 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
       "../src/credentials/lifecycle.js"
     );
     const sA = await openProcessCredentialStore(config);
-    sA.putLocalAdminToken("public", "admin-tok");
+    sA.putLocalAdminToken("global", "admin-tok");
     sA.putAgentCredential({
-      networkName: "public",
+      networkName: "global",
       handle: "@cli.bot",
       kind: "local_bearer",
       bearer: "agent-tok",
@@ -295,7 +295,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
 
   it("renews an expired oauth_pkce bearer via the refresh token, rotating the row", async () => {
     const config = makeConfig({
-      name: "public",
+      name: "global",
       url: "https://api.example/v1",
       authMode: "oauth",
       authBaseUrl: "https://auth.example",
@@ -306,7 +306,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
     );
     const store = await openProcessCredentialStore(config);
     store.putAgentCredential({
-      networkName: "public",
+      networkName: "global",
       handle: "@cli.bot",
       kind: "oauth_pkce",
       bearer: "stale-bearer",
@@ -360,7 +360,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
       assert.equal(params.get("client_id"), "public-ci");
       assert.equal(params.get("refresh_token"), "rt-old");
       // Row is rotated: new bearer + new refresh token in place.
-      const reread = store.getAgentCredential("public", "@cli.bot");
+      const reread = store.getAgentCredential("global", "@cli.bot");
       assert.equal(reread?.bearer, "fresh-bearer");
       assert.equal(reread?.refreshToken, "rt-new");
     } finally {
@@ -370,7 +370,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
 
   it("errors helpfully when an expired oauth_pkce row is missing renewal material", async () => {
     const config = makeConfig({
-      name: "public",
+      name: "global",
       url: "https://api.example/v1",
       authMode: "oauth",
       authBaseUrl: "https://auth.example",
@@ -383,7 +383,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
     // Bypass validation by going under the hood — represents a row that
     // pre-dates the refresh-wiring schema (clientId still null on disk).
     store.putAgentCredential({
-      networkName: "public",
+      networkName: "global",
       handle: "@cli.bot",
       kind: "oauth_pkce",
       bearer: "stale-bearer",
@@ -398,7 +398,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
     const raw = new Database(dbPath);
     raw.prepare(
       "UPDATE agent_credentials SET client_id = NULL WHERE network_name = ? AND handle = ?",
-    ).run("public", "@cli.bot");
+    ).run("global", "@cli.bot");
     raw.close();
     _resetCredentialStoreCacheForTests();
 

@@ -196,10 +196,10 @@ describe("network resolution", () => {
     return file;
   }
 
-  it("falls back to the built-in `public` network with no config", () => {
+  it("falls back to the built-in `global` network with no config", () => {
     const config = loadConfig(undefined, { cwd: env.tmpDir });
 
-    assert.equal(config.network.name, "public");
+    assert.equal(config.network.name, "global");
     assert.equal(config.network.authMode, "oauth");
     assert.equal(config.networkSource.kind, "default");
     // Built-in `local` is always visible too.
@@ -218,7 +218,7 @@ describe("network resolution", () => {
   });
 
   it("--network flag wins over ROBOTNET_NETWORK env var", () => {
-    process.env.ROBOTNET_NETWORK = "public";
+    process.env.ROBOTNET_NETWORK = "global";
     const config = loadConfig(undefined, {
       cwd: env.tmpDir,
       networkName: "local",
@@ -273,8 +273,8 @@ describe("network resolution", () => {
     assert.equal(config.network.websocketUrl, "wss://ws.staging.example");
     assert.equal(config.networks.staging.url, "https://staging.example/v1");
     // Built-ins are still visible alongside the user-defined entry.
-    assert.equal(config.networks.public.authMode, "oauth");
-    assert.equal(config.networks.public.authBaseUrl, "https://auth.robotnet.works");
+    assert.equal(config.networks.global.authMode, "oauth");
+    assert.equal(config.networks.global.authBaseUrl, "https://auth.robotnet.works");
   });
 
   it("rejects an oauth network missing `auth_base_url`", () => {
@@ -335,7 +335,7 @@ describe("network resolution", () => {
         err.message.includes('Network "ghost"') &&
         err.message.includes("--network flag") &&
         err.message.includes("local") &&
-        err.message.includes("public"),
+        err.message.includes("global"),
     );
   });
 

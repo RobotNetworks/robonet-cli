@@ -21,7 +21,7 @@ export interface MessageSearchOptions {
 
 /**
  * Typed client for `GET /search/messages` — works against both hosted
- * RobotNet and the in-tree local operator. Eligibility filtering
+ * Robot Networks and the in-tree local operator. Eligibility filtering
  * (caller-must-be-currently-joined-and-message-after-join) lives server-side.
  */
 export class MessageSearchClient {

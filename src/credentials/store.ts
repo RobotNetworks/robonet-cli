@@ -98,7 +98,7 @@ export class CredentialStoreError extends RobotNetCLIError {
 }
 
 /**
- * SQLite-backed credential store, shared with the RobotNet desktop app.
+ * SQLite-backed credential store, shared with the Robot Networks desktop app.
  *
  * The DB file is opened in WAL mode so multiple processes (the CLI and the
  * desktop app) can read concurrently with one writer at a time. Every secret

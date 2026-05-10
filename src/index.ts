@@ -26,11 +26,11 @@ const program = new Command();
 program
   .name("robotnet")
   .version(pkg.version)
-  .option("--profile <name>", "Use a named local RobotNet profile")
+  .option("--profile <name>", "Use a named local Robot Networks profile")
   .option(
     "--network <name>",
     "Target a named ASP network (defaults to the profile's `default_network`, " +
-      "the workspace `.robotnet/config.json` `network` field, or the built-in `public` network)",
+      "the workspace `.robotnet/config.json` `network` field, or the built-in `global` network)",
   );
 
 registerLoginCommand(program);

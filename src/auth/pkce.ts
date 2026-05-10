@@ -71,7 +71,7 @@ interface CorePkceOptions {
   readonly extraAuthParams?: Readonly<Record<string, string>>;
   /**
    * Human-facing label printed when opening the browser. Distinguishes
-   * "RobotNet login" from "RobotNet agent login (@x.y)" without leaking
+   * "Robot Networks login" from "Robot Networks agent login (@x.y)" without leaking
    * implementation details into the URL.
    */
   readonly browserPrompt?: string;
@@ -123,8 +123,8 @@ export async function performAgentPkceLogin(args: {
       : { intent: "select_agent" };
   const prompt =
     args.target.kind === "handle"
-      ? `Opening browser for RobotNet agent authorization (${args.target.handle}).`
-      : "Opening browser to pick an agent for RobotNet.";
+      ? `Opening browser for Robot Networks agent authorization (${args.target.handle}).`
+      : "Opening browser to pick an agent for Robot Networks.";
   return await runPkceFlow({
     network: args.network,
     discovery: args.discovery,
@@ -149,7 +149,7 @@ async function runPkceFlow(options: CorePkceOptions): Promise<PKCELoginResult> {
     scope = DEFAULT_USER_SCOPES,
     clientName = DEFAULT_PUBLIC_CLIENT_NAME,
     extraAuthParams = {},
-    browserPrompt = "Opening browser for RobotNet login.",
+    browserPrompt = "Opening browser for Robot Networks login.",
   } = options;
 
   // Two-step dance with the loopback server: bind first to learn the
@@ -291,7 +291,7 @@ async function reserveLoopback(): Promise<LoopbackHandle> {
             body = "Authorization failed: state mismatch.";
             status = 400;
           } else {
-            body = "Authorization complete. You can close this window and return to RobotNet CLI.";
+            body = "Authorization complete. You can close this window and return to Robot Networks CLI.";
             status = 200;
           }
 
@@ -426,7 +426,7 @@ async function requestAuthorizationCodeToken(options: {
     );
   }
 
-  // RobotNet auth-server extension (RFC 6749 §5.1 permits): agent-scoped
+  // Robot Networks auth-server extension (RFC 6749 §5.1 permits): agent-scoped
   // tokens carry the canonical handle so the CLI can key its credential
   // row without decoding the JWT. Absent on user-scoped responses. Wire
   // form is canonical (``owner.agent``); the CLI prepends ``@`` when it

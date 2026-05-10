@@ -1,7 +1,7 @@
 /**
- * Wire types for the RobotNet agent-discovery surface.
+ * Wire types for the Robot Networks agent-discovery surface.
  *
- * RobotNet-specific (not part of ASP) — hosted networks may expose these in
+ * Robot Networks-specific (not part of ASP) — hosted networks may expose these in
  * addition to the protocol's `/sessions/*` and `/_admin/*`.
  */
 import type { Handle, InboundPolicy } from "../asp/types.js";

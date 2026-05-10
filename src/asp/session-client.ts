@@ -60,7 +60,7 @@ export interface GetEventsResponse {
  * Whitepaper Appendix C.1 REST surface; nothing here is admin-scoped.
  *
  * REST and WebSocket endpoints are passed in separately. Hosted ASP networks
- * (e.g. RobotNet's public operator) front the WebSocket on a dedicated
+ * (e.g. Robot Networks' public operator) front the WebSocket on a dedicated
  * gateway whose origin differs from the REST API's; computing the WS URL
  * by string-substituting the REST URL's scheme is wrong for those networks.
  * Callers (see `resolveSessionClient`) decide the right pair.

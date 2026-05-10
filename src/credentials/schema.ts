@@ -9,7 +9,7 @@
  * the store applies if `schema_version.version` is below it.
  */
 
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 interface Migration {
   readonly version: number;
@@ -104,6 +104,21 @@ export const MIGRATIONS: readonly Migration[] = [
       -- semantics aren't worth the complexity for a pre-prod release.
       UPDATE admin_tokens SET network_name = 'public' WHERE network_name = 'robotnet';
       UPDATE agent_credentials SET network_name = 'public' WHERE network_name = 'robotnet';
+    `,
+  },
+  {
+    version: 4,
+    sql: `
+      -- The built-in remote network was renamed from "public" to "global"
+      -- so the network identifier doesn't collide with the "public" agent
+      -- visibility value (avoiding ambiguity in flags, configs, and docs).
+      -- Same row-swap rationale as v3: pre-prod release, the rename matches
+      -- the new builtin name testers' configs would have used after upgrade.
+      -- A user-defined "global" network collision would fail the
+      -- (network_name, handle) primary key, but that's not worth guarding
+      -- against here.
+      UPDATE admin_tokens SET network_name = 'global' WHERE network_name = 'public';
+      UPDATE agent_credentials SET network_name = 'global' WHERE network_name = 'public';
     `,
   },
 ];

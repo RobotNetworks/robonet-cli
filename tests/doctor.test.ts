@@ -89,7 +89,7 @@ describe("runDoctor — remote network (auth-mode=oauth)", () => {
       return new Response("ok", { status: 200 });
     };
 
-    const config = loadConfig(undefined, { networkName: "public" });
+    const config = loadConfig(undefined, { networkName: "global" });
     const checks = await runDoctor(config);
     const byName = indexByName(checks);
 
@@ -113,7 +113,7 @@ describe("runDoctor — remote network (auth-mode=oauth)", () => {
         { status: 200 },
       );
 
-    const config = loadConfig(undefined, { networkName: "public" });
+    const config = loadConfig(undefined, { networkName: "global" });
     const { CredentialStore } = await import("../src/credentials/store.js");
     const { UnsafePlaintextEncryptor } = await import(
       "../src/credentials/crypto.js"

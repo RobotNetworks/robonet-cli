@@ -19,7 +19,7 @@ export interface AccountResponse {
 /**
  * Wire types for the account-scoped surface (`robotnet account ...`).
  *
- * RobotNet-specific (not ASP). The hosted API exposes these to a human
+ * Robot Networks-specific (not ASP). The hosted API exposes these to a human
  * principal authenticated by `robotnet login`; never wire an agent bearer onto
  * these calls.
  */

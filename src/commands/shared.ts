@@ -6,10 +6,10 @@ import type { CLIConfig } from "../config.js";
 // ── Option factories ─────────────────────────────────────────────────
 
 export function clientIdOption(): Option {
-  return new Option("--client-id <id>", "RobotNet client ID");
+  return new Option("--client-id <id>", "Robot Networks client ID");
 }
 export function clientSecretOption(): Option {
-  return new Option("--client-secret <secret>", "RobotNet client secret");
+  return new Option("--client-secret <secret>", "Robot Networks client secret");
 }
 export function scopeOption(): Option {
   // No `.default(...)`: the right scope set depends on whether the
@@ -82,12 +82,12 @@ export async function resolveClientId(
   defaultValue?: string,
 ): Promise<string> {
   if (provided) return provided;
-  return promptText("RobotNet client ID", defaultValue);
+  return promptText("Robot Networks client ID", defaultValue);
 }
 
 export async function resolveClientSecret(
   provided: string | undefined,
 ): Promise<string> {
   if (provided) return provided;
-  return promptSecret("RobotNet client secret");
+  return promptSecret("Robot Networks client secret");
 }

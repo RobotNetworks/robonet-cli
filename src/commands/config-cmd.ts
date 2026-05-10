@@ -9,7 +9,7 @@ import { jsonOption, profileTitle } from "./shared.js";
 export function registerConfigCommand(program: Command): void {
   const configCmd = program
     .command("config")
-    .description("Inspect local RobotNet CLI configuration");
+    .description("Inspect local Robot Networks CLI configuration");
 
   configCmd
     .command("show")
@@ -23,7 +23,7 @@ export function registerConfigCommand(program: Command): void {
       }
       console.log(
         renderKeyValues(
-          profileTitle("RobotNet CLI Config", config),
+          profileTitle("Robot Networks CLI Config", config),
           configToHumanPayload(config),
         ),
       );

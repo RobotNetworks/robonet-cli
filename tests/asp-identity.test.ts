@@ -66,7 +66,7 @@ describe("writeDirectoryIdentityEntry", () => {
     });
     await writeDirectoryIdentityEntry(tmpDir, {
       handle: "@new.bot",
-      network: "public",
+      network: "global",
     });
 
     const parsed = JSON.parse(
@@ -82,7 +82,7 @@ describe("writeDirectoryIdentityEntry", () => {
   it("preserves unrelated keys (`profile`, custom fields) already present in the file", async () => {
     writeRawWorkspaceFile(tmpDir, {
       profile: "work",
-      network: "public",
+      network: "global",
       custom: "value",
     });
 
@@ -96,7 +96,7 @@ describe("writeDirectoryIdentityEntry", () => {
     );
     assert.deepEqual(parsed, {
       profile: "work",
-      network: "public",
+      network: "global",
       custom: "value",
       agent: "@me.dev",
     });
@@ -208,7 +208,7 @@ describe("resolveAgentIdentity precedence (--as > env > directory[scoped])", () 
 
     const r = await resolveAgentIdentity({
       explicitHandle: "@from-flag.bot",
-      resolvedNetwork: "public",
+      resolvedNetwork: "global",
       fromDir: tmpDir,
     });
     assert.ok(r);
@@ -224,7 +224,7 @@ describe("resolveAgentIdentity precedence (--as > env > directory[scoped])", () 
     });
 
     const r = await resolveAgentIdentity({
-      resolvedNetwork: "public",
+      resolvedNetwork: "global",
       fromDir: tmpDir,
     });
     assert.ok(r);
@@ -248,7 +248,7 @@ describe("resolveAgentIdentity precedence (--as > env > directory[scoped])", () 
     assert.equal(matched!.sourceFile, directoryIdentityPath(tmpDir));
 
     const unmatched = await resolveAgentIdentity({
-      resolvedNetwork: "public",
+      resolvedNetwork: "global",
       fromDir: tmpDir,
     });
     assert.equal(unmatched, undefined);
@@ -258,7 +258,7 @@ describe("resolveAgentIdentity precedence (--as > env > directory[scoped])", () 
     const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "robotnet-iso-"));
     try {
       const r = await resolveAgentIdentity({
-        resolvedNetwork: "public",
+        resolvedNetwork: "global",
         fromDir: isolated,
       });
       assert.equal(r, undefined);
@@ -280,7 +280,7 @@ describe("resolveAgentIdentity precedence (--as > env > directory[scoped])", () 
     await assert.rejects(
       resolveAgentIdentity({
         explicitHandle: "BAD",
-        resolvedNetwork: "public",
+        resolvedNetwork: "global",
         fromDir: tmpDir,
       }),
       InvalidHandleError,
@@ -291,7 +291,7 @@ describe("resolveAgentIdentity precedence (--as > env > directory[scoped])", () 
     process.env.ROBOTNET_AGENT = "BAD";
     await assert.rejects(
       resolveAgentIdentity({
-        resolvedNetwork: "public",
+        resolvedNetwork: "global",
         fromDir: tmpDir,
       }),
       InvalidHandleError,
