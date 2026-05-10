@@ -207,10 +207,10 @@ export const MIGRATIONS: readonly Migration[] = [
     sql: `
       -- ── Agent profile metadata ───────────────────────────────────────
       --
-      -- v3 grows the agents row with the profile fields the hosted operator
-      -- carries: display_name (defaults to the handle for backfill),
-      -- description and card_body (free text), and visibility (controls
-      -- whether other agents can discover this one).
+      -- v3 grows the agents row with the profile fields exposed by the
+      -- agent profile wire shape: display_name (defaults to the handle
+      -- for backfill), description and card_body (free text), and
+      -- visibility (controls whether other agents can discover this one).
       --
       -- 'visibility' is a hard CHECK so the column can't be drifted to
       -- unrecognized values via direct SQL.
@@ -237,10 +237,9 @@ export const MIGRATIONS: readonly Migration[] = [
     sql: `
       -- ── Files ────────────────────────────────────────────────────────
       --
-      -- v4 adds the operator-extension file upload + claim flow that the
-      -- production backend already implements. Mirrors the wire shape:
-      -- agents POST a file to /files (multipart), get back a file_id,
-      -- and reference it from a session message's content
+      -- v4 adds the operator-extension file upload + claim flow.
+      -- Wire shape: agents POST a file to /files (multipart), get back
+      -- a file_id, and reference it from a session message's content
       -- ({type: "file", file_id: "..."}). The session-message path
       -- claims pending files for the message id, and from then on the
       -- file is deliverable to participants via GET /files/:id.

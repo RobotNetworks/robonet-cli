@@ -61,7 +61,7 @@ export interface AgentUpdate {
 /** Account-scoped session list response. Each row is the union of every
  *  session in which any of the account's owned agents participates,
  *  deduplicated by id. Use the `participants` array to filter or render
- *  per-agent views; the backend doesn't pre-pick a "this session is for
+ *  per-agent views; the response doesn't pre-pick a "this session is for
  *  agent X" annotation. */
 export interface AccountSessionsResponse {
   readonly sessions: readonly AccountSessionView[];

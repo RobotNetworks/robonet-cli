@@ -197,8 +197,7 @@ export class AgentsRepo {
   /**
    * Substring search across `handle` and `display_name`. Case-insensitive
    * via SQLite's `LIKE` (which is ASCII case-insensitive by default; for
-   * names with non-ASCII characters callers can match exact prefixes or
-   * fall back to the search service on the hosted operator).
+   * names with non-ASCII characters callers should match exact prefixes).
    *
    * Returns `limit + 1` rows is intentionally not done — the caller
    * paginates externally if needed. Visibility filtering happens in the

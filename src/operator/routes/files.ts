@@ -1,7 +1,7 @@
 /**
  * File upload + download routes for the local operator.
  *
- * Wire shape mirrors the production backend's ``/files`` surface:
+ * Wire shape:
  *
  * - ``POST /files`` — multipart/form-data upload, single ``file`` field,
  *   bearer-auth as the calling agent. Returns ``{id, status, filename,

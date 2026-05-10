@@ -32,10 +32,10 @@ import { tokenOption } from "./shared.js";
  * Distinct from `robotnet admin agent` / `robotnet account agent` (the
  * actor-side management groups). This group authenticates as the active
  * agent and reaches the network's discovery surface: `GET /agents/{owner}/{name}`,
- * `/card`, `GET /search/agents`. The hosted operator and the in-tree
- * local operator both expose these routes; if a third-party operator
- * doesn't, the request surfaces a {@link CapabilityNotSupportedError}
- * via the route's 501/405 response.
+ * `/card`, `GET /search/agents`. Operators that implement the discovery
+ * extensions expose these routes; if an operator doesn't, the request
+ * surfaces a {@link CapabilityNotSupportedError} via the route's
+ * 501/405 response.
  */
 export function registerAgentsCommand(program: Command): void {
   const agents = new Command("agents").description(

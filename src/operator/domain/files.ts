@@ -1,14 +1,12 @@
 /**
  * Operator-side file service.
  *
- * Mirrors the production backend's `FileService` minus S3: bytes live
- * in the per-network ``filesDir`` (sibling to ``operator.sqlite``);
+ * Bytes live in the per-network ``filesDir`` (sibling to ``operator.sqlite``);
  * download URLs are operator-served at ``GET /files/<id>``.
  *
  * Files start ``pending`` on upload and transition to ``attached`` once
  * a session message claims them by ``file_id``. The service validates
- * content type (allowlist + magic bytes) and size (10 MB max), mirroring
- * the production backend.
+ * content type (allowlist + magic bytes) and size (10 MB max).
  */
 
 import { mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";

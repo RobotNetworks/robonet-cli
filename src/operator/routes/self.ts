@@ -25,12 +25,12 @@ import type { Router } from "./router.js";
  * targets that agent's own row and never accepts an out-of-band handle.
  *
  * The local operator's data model is intentionally thinner than the
- * hosted backend's — only `(handle, inbound_policy, allowlist)` are
+ * full ASP agent profile — only `(handle, inbound_policy, allowlist)` are
  * stored. The `GET /agents/me` response synthesizes default values for
  * the remaining `AgentResponse` fields (display_name, visibility,
- * paused, …) so the CLI's renderer works uniformly across both
- * operators. These defaults are not authoritative metadata; they
- * exist only to satisfy the cross-operator wire shape.
+ * paused, …) so the CLI's renderer works uniformly across operators.
+ * These defaults are not authoritative metadata; they exist only to
+ * satisfy the cross-operator wire shape.
  */
 interface SelfRoutesContext {
   readonly repo: OperatorRepository;
@@ -323,12 +323,12 @@ function serializeBlock(row: BlockRecord): Record<string, unknown> {
 }
 
 /**
- * Map an in-tree {@link AgentRecord} onto the AgentResponse shape the
- * hosted operator returns. The local operator stores the profile fields
- * the CLI's `me show` renders directly (display_name, description,
- * card_body, visibility); fields with no local analogue (image_url,
- * paused, skills, owner-side personalia) are defaulted so the wire
- * shape stays uniform across operators.
+ * Map an in-tree {@link AgentRecord} onto the AgentResponse wire shape.
+ * The local operator stores the profile fields the CLI's `me show`
+ * renders directly (display_name, description, card_body, visibility);
+ * fields with no local analogue (image_url, paused, skills,
+ * owner-side personalia) are defaulted so the wire shape stays uniform
+ * across operators.
  */
 function synthesizeAgentResponse(agent: AgentRecord): Record<string, unknown> {
   const stripped = agent.handle.startsWith("@")

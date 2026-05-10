@@ -38,7 +38,7 @@ export async function aspRequest<T>(args: {
   if (args.body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
-  // The hosted operator requires `Idempotency-Key` on every unsafe verb.
+  // ASP operators may require `Idempotency-Key` on every unsafe verb.
   // Body-level `idempotency_key` (when supplied) still takes precedence at
   // the server; this header just keeps the request from being rejected
   // before the body validator runs.
@@ -92,8 +92,8 @@ export async function aspRequest<T>(args: {
  * Three error envelopes appear in the wild:
  *   1. `{"error": "<code>"}` — legacy shape from older operators.
  *   2. `{"error": {"code": "...", "message": "...", "docs_url": "..."}}` —
- *      the hosted operator's structured envelope. Surface `message` as
- *      the user-facing detail and `code` as the stable identifier.
+ *      structured envelope. Surface `message` as the user-facing detail
+ *      and `code` as the stable identifier.
  *   3. `{"detail": ...}` — FastAPI's default validation shape (string
  *      or list of `{loc, msg}` items). Surface `detail` directly.
  */

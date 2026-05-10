@@ -89,9 +89,7 @@ function onSocketReady(
   ctx.registry.register(handle, ws);
   // /connect is server-push for application events, but we accept the
   // documented application-level keepalive: `{"type":"ping"}` → reply
-  // `{"type":"pong"}`. Mirrors the hosted backend's WebSocket handler
-  // (RobotNetworks/robotnet-backend/src/functions/websocket/app/
-  // message_handler.py). The CLI listener (src/asp/listener.ts) sends
+  // `{"type":"pong"}`. The CLI listener (src/asp/listener.ts) sends
   // a ping every 30s; without this, the local operator would close
   // the socket with 1003 every heartbeat and force a reconnect cycle.
   // Other inbound frames (unknown JSON, non-JSON, non-ping) are silently

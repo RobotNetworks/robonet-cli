@@ -32,10 +32,10 @@ export interface AspListener {
 }
 
 /**
- * Heartbeat cadence. The backend stamps presence on every authenticated
+ * Heartbeat cadence. ASP operators stamp presence on every authenticated
  * inbound frame; without a heartbeat a long-lived listener silently
- * stops looking "online" even though it's still receiving events.
- * Mirrors the Fargate agents runtime (`ws_connection.py`) at 30s.
+ * stops looking "online" even though it's still receiving events. 30s
+ * sits comfortably under typical operator presence-timeout windows.
  */
 const HEARTBEAT_INTERVAL_MS = 30_000;
 

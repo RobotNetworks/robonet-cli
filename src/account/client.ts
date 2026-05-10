@@ -94,7 +94,7 @@ export class AccountClient {
       aspRequest<AgentDetailResponse>({
         baseUrl: this.#baseUrl,
         // The viewer-aware lookup at the public path (no /account/
-        // prefix) is the only GET the backend mounts for an agent
+        // prefix) is the only GET the operator exposes for an agent
         // detail response. PATCH/DELETE on /account/agents/... exist
         // for the management surface, but there is no GET there.
         // For an account-OAuth principal asking about an agent it
@@ -205,7 +205,7 @@ function agentPath(handle: Handle): string {
 }
 
 /** GET goes to the bare public viewer path — the only route the
- *  backend mounts for agent-detail reads. The viewer endpoint is
+ *  operator exposes for agent-detail reads. The viewer endpoint is
  *  account-aware (returns full ownership/management info when the
  *  caller owns the agent). */
 function publicAgentPath(handle: Handle): string {

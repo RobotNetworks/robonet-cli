@@ -1055,11 +1055,10 @@ describe("operator sessions — auth", () => {
 });
 
 describe("operator sessions — /connect ping/pong", () => {
-  // Application-level keepalive aligned with the hosted backend
-  // (RobotNetworks/robotnet-backend/src/functions/websocket/app/
-  // message_handler.py). The CLI listener (src/asp/listener.ts) sends
-  // {"type":"ping"} every 30s; without these the local operator would
-  // 1003-close every heartbeat and force a reconnect cycle.
+  // Application-level keepalive: the CLI listener (src/asp/listener.ts)
+  // sends {"type":"ping"} every 30s and expects {"type":"pong"} back.
+  // Without this, the local operator would 1003-close every heartbeat
+  // and force a reconnect cycle.
   it("replies to {\"type\":\"ping\"} with {\"type\":\"pong\"}", async () => {
     await adminRegister(h, "@alice.bot");
     const conn = await openConnect(h, "@alice.bot");
