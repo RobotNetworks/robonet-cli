@@ -46,7 +46,14 @@ export function isolatedXdg(): {
           process.env[key] = value;
         }
       }
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      // maxRetries + retryDelay specifically handle Windows' file-lock
+      // race after the operator subprocess is stopped: the OS may still
+      // hold an exclusive handle on the log file for a few hundred
+      // milliseconds, raising ENOTEMPTY here. Node retries on
+      // ENOTEMPTY/EBUSY/EPERM/EMFILE/ENFILE when force is true. POSIX
+      // ignores all of this — the rm succeeds first try regardless of
+      // open handles.
+      fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     },
   };
 }
