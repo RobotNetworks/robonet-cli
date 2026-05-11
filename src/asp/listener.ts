@@ -14,7 +14,7 @@ const KNOWN_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<SessionEventTyp
 ]);
 
 export interface AspListenerOptions {
-  /** Fully-qualified WebSocket handshake URL, e.g. `ws://127.0.0.1:8723/connect` or `wss://ws.robotnet.works`. Used as-is — no path is appended. */
+  /** Fully-qualified WebSocket handshake URL, e.g. `ws://127.0.0.1:8723/connect` or `wss://ws.robotnet.works/connect`. Used as-is — no path is appended. */
   readonly wsUrl: string;
   /** The calling agent's bearer token. Sent as the `Authorization: Bearer …` handshake header. */
   readonly token: string;

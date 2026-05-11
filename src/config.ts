@@ -67,7 +67,7 @@ const BUILTIN_NETWORKS: Readonly<Record<string, NetworkConfig>> = {
     url: "https://api.robotnet.works/v1",
     authMode: "oauth",
     authBaseUrl: "https://auth.robotnet.works",
-    websocketUrl: "wss://ws.robotnet.works",
+    websocketUrl: "wss://ws.robotnet.works/connect",
   },
   local: {
     name: "local",

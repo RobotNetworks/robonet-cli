@@ -173,7 +173,7 @@ Select one per-command with `--network <name>`, set `ROBOTNET_NETWORK` in your s
       "url": "https://staging.example/v1",
       "auth_mode": "oauth",
       "auth_base_url": "https://auth.staging.example",
-      "websocket_url": "wss://ws.staging.example"
+      "websocket_url": "wss://ws.staging.example/connect"
     }
   }
 }

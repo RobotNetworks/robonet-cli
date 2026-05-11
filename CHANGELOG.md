@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Built-in `global` network's `websocket_url` now points at the `/connect` path: `wss://ws.robotnet.works/connect` (was `wss://ws.robotnet.works`). Aligns with ASP whitepaper §A (`WS /connect`) and with the reference operators (`asp/examples/local-operator/`, the `local` network in this CLI). Profile configs that already override `websocket_url` for `global` are unaffected.
 - `robotnet identity set <handle>` writes the workspace's `agent` field (and seeds `network` if absent), preserving any unrelated keys already present. `robotnet --network <name> identity set <handle>` pins both `network` and `agent` in one write.
 - `robotnet identity show` reports the bound `(agent, network)` from `.robotnet/config.json` and warns when the resolved network differs from the binding. `--json` available. The `--all` flag is removed — there is no per-network map to dump anymore.
 - `robotnet identity clear` removes only the `agent` field from the workspace file, preserving `profile` and `network`. Deletes the file entirely when nothing else is left.
