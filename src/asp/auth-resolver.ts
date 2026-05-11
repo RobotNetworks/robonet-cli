@@ -2,7 +2,8 @@ import { requestRefreshTokenExchange } from "../auth/pkce.js";
 import type { CLIConfig } from "../config.js";
 import { CredentialDecryptionError } from "../credentials/aes-encryptor.js";
 import { openProcessCredentialStore } from "../credentials/lifecycle.js";
-import type { CredentialStore } from "../credentials/store.js";
+import { withCredentialRefreshLock } from "../credentials/refresh-lock.js";
+import type { AgentCredentialRecord, CredentialStore } from "../credentials/store.js";
 import { FatalAuthError, RobotNetCLIError } from "../errors.js";
 import { AspAdminClient } from "./admin-client.js";
 import {
@@ -88,6 +89,15 @@ export async function resolveAgentToken(
     throw new CredentialNotFoundError(handle, config.network.name);
   }
 
+  return await resolveStoredAgentToken(config, handle, stored, store);
+}
+
+async function resolveStoredAgentToken(
+  config: CLIConfig,
+  handle: string,
+  stored: AgentCredentialRecord,
+  store: CredentialStore,
+): Promise<ResolvedToken> {
   switch (stored.kind) {
     case "local_bearer":
       // Long-lived bearers issued by `admin agent create` on a local
@@ -98,23 +108,7 @@ export async function resolveAgentToken(
       if (bearerStillValid(stored.bearerExpiresAt)) {
         return { token: stored.bearer, source: "store" };
       }
-      if (stored.refreshToken === null || stored.clientId === null) {
-        // Defensive: the credential row should always have both for
-        // oauth_pkce (validate gates inserts), but a hand-edited DB or a
-        // future schema migration could leave them sparse.
-        throw new RobotNetCLIError(
-          `agent ${handle}'s PKCE bearer has expired and the row is missing renewal material. ` +
-            `Re-run \`robotnet login --agent ${handle}\` to enroll afresh.`,
-        );
-      }
-      const refreshed = await renewAgentPkce({
-        config,
-        handle,
-        clientId: stored.clientId,
-        refreshToken: stored.refreshToken,
-        scope: stored.scope,
-      });
-      return { token: refreshed, source: "store" };
+      return await renewAgentPkceWithLock(config, handle, store);
     }
 
     case "oauth_client_credentials": {
@@ -147,6 +141,70 @@ export async function resolveAgentToken(
       );
     }
   }
+}
+
+async function renewAgentPkceWithLock(
+  config: CLIConfig,
+  handle: string,
+  store: CredentialStore,
+): Promise<ResolvedToken> {
+  return await withCredentialRefreshLock(
+    config,
+    { kind: "agent", networkName: config.network.name, handle },
+    async () => {
+      let latest: ReturnType<CredentialStore["getAgentCredential"]>;
+      try {
+        latest = store.getAgentCredential(config.network.name, handle);
+      } catch (err) {
+        if (err instanceof CredentialDecryptionError) {
+          handleKeyChangeRecovery(store, `agent credential for ${handle}`, config.network.name);
+        }
+        throw err;
+      }
+
+      if (latest === null) {
+        throw new CredentialNotFoundError(handle, config.network.name);
+      }
+      if (latest.kind !== "oauth_pkce" || bearerStillValid(latest.bearerExpiresAt)) {
+        return await resolveStoredAgentToken(config, handle, latest, store);
+      }
+      if (latest.refreshToken === null || latest.clientId === null) {
+        // Defensive: the credential row should always have both for
+        // oauth_pkce (validate gates inserts), but a hand-edited DB or a
+        // future schema migration could leave them sparse.
+        throw new RobotNetCLIError(
+          `agent ${handle}'s PKCE bearer has expired and the row is missing renewal material. ` +
+            `Re-run \`robotnet login --agent ${handle}\` to enroll afresh.`,
+        );
+      }
+
+      try {
+        const refreshed = await renewAgentPkce({
+          config,
+          handle,
+          clientId: latest.clientId,
+          refreshToken: latest.refreshToken,
+          scope: latest.scope,
+        });
+        return { token: refreshed, source: "store" };
+      } catch (err) {
+        if (err instanceof FatalAuthError) {
+          const current = store.getAgentCredential(config.network.name, handle);
+          if (
+            current?.kind === "oauth_pkce" &&
+            current.refreshToken === latest.refreshToken
+          ) {
+            store.deleteAgentCredential(config.network.name, handle);
+          }
+          throw new RobotNetCLIError(
+            `agent ${handle}'s stored PKCE refresh token was rejected by the auth server. ` +
+              `Cleared the stale credential; run \`robotnet login --agent ${handle} --network ${config.network.name}\` to re-authenticate.`,
+          );
+        }
+        throw err;
+      }
+    },
+  );
 }
 
 export async function resolveSessionClient(

@@ -368,6 +368,151 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
     }
   });
 
+  it("serializes concurrent oauth_pkce refreshes and rereads the rotated row", async () => {
+    const config = makeConfig({
+      name: "global",
+      url: "https://api.example/v1",
+      authMode: "oauth",
+      authBaseUrl: "https://auth.example",
+      websocketUrl: "wss://ws.example",
+    });
+    const { openProcessCredentialStore } = await import(
+      "../src/credentials/lifecycle.js"
+    );
+    const store = await openProcessCredentialStore(config);
+    store.putAgentCredential({
+      networkName: "global",
+      handle: "@cli.bot",
+      kind: "oauth_pkce",
+      bearer: "stale-bearer",
+      bearerExpiresAt: Date.now() - 1,
+      refreshToken: "rt-old",
+      clientId: "public-ci",
+      scope: "sessions:read sessions:write",
+    });
+
+    let tokenCalls = 0;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("oauth-protected-resource")) {
+        return new Response(
+          JSON.stringify({ resource: "https://api.example/v1" }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("oauth-authorization-server")) {
+        return new Response(
+          JSON.stringify({
+            authorization_endpoint: "https://auth.example/authorize",
+            token_endpoint: "https://auth.example/token",
+            registration_endpoint: "https://auth.example/register",
+            resource_servers: [],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url === "https://auth.example/token") {
+        tokenCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return new Response(
+          JSON.stringify({
+            access_token: "fresh-bearer",
+            token_type: "Bearer",
+            expires_in: 3600,
+            refresh_token: "rt-new",
+            scope: "sessions:read sessions:write",
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+    try {
+      const [a, b] = await Promise.all([
+        resolveAgentToken(config, "@cli.bot"),
+        resolveAgentToken(config, "@cli.bot"),
+      ]);
+
+      assert.deepEqual(a, { token: "fresh-bearer", source: "store" });
+      assert.deepEqual(b, { token: "fresh-bearer", source: "store" });
+      assert.equal(tokenCalls, 1);
+      const reread = store.getAgentCredential("global", "@cli.bot");
+      assert.equal(reread?.bearer, "fresh-bearer");
+      assert.equal(reread?.refreshToken, "rt-new");
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it("clears an oauth_pkce agent credential when refresh is fatally rejected", async () => {
+    const config = makeConfig({
+      name: "global",
+      url: "https://api.example/v1",
+      authMode: "oauth",
+      authBaseUrl: "https://auth.example",
+      websocketUrl: "wss://ws.example",
+    });
+    const { openProcessCredentialStore } = await import(
+      "../src/credentials/lifecycle.js"
+    );
+    const store = await openProcessCredentialStore(config);
+    store.putAgentCredential({
+      networkName: "global",
+      handle: "@cli.bot",
+      kind: "oauth_pkce",
+      bearer: "stale-bearer",
+      bearerExpiresAt: Date.now() - 1,
+      refreshToken: "rt-revoked",
+      clientId: "public-ci",
+      scope: "sessions:read sessions:write",
+    });
+
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("oauth-protected-resource")) {
+        return new Response(
+          JSON.stringify({ resource: "https://api.example/v1" }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("oauth-authorization-server")) {
+        return new Response(
+          JSON.stringify({
+            authorization_endpoint: "https://auth.example/authorize",
+            token_endpoint: "https://auth.example/token",
+            registration_endpoint: "https://auth.example/register",
+            resource_servers: [],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url === "https://auth.example/token") {
+        return new Response(
+          JSON.stringify({
+            error: "invalid_grant",
+            error_description: "Refresh token family revoked",
+          }),
+          { status: 400 },
+        );
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+    try {
+      await assert.rejects(
+        resolveAgentToken(config, "@cli.bot"),
+        (err: unknown) =>
+          err instanceof RobotNetCLIError &&
+          err.message.includes("stored PKCE refresh token was rejected") &&
+          err.message.includes("Cleared the stale credential"),
+      );
+      assert.equal(store.getAgentCredential("global", "@cli.bot"), null);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
   it("errors helpfully when an expired oauth_pkce row is missing renewal material", async () => {
     const config = makeConfig({
       name: "global",
