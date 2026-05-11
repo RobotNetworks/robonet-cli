@@ -3,6 +3,25 @@ import { startAspListener, type AspListenerOptions } from "./listener.js";
 import type { SessionEvent, UnknownSessionEvent } from "./types.js";
 
 /**
+ * Maximum number of distinct ``event_id``s the dedup gate remembers.
+ *
+ * The wire is **at-least-once** (operator broadcasts and catchup replays
+ * can both deliver the same event around a reconnect; SQS/SNS layers
+ * underneath are also at-least-once by design). Receivers are responsible
+ * for dedup on ``event_id``. This LRU is the gate.
+ *
+ * 5000 sized to comfortably cover:
+ *  - The catchup-vs-live race window on every reconnect (typically a
+ *    handful of envelopes per session × dozens of sessions).
+ *  - SQS-level redelivery bursts.
+ *  - Bursty fanout where one publish lands on multiple paths.
+ *
+ * Memory cost is negligible (~26-char ULIDs in a Map). The cap exists
+ * only to prevent unbounded growth on a long-running listener.
+ */
+const DEDUP_LRU_MAX = 5000;
+
+/**
  * Why the listener gave up. Lets the caller render a meaningful exit summary
  * to its supervisor without re-classifying the error itself.
  *
@@ -110,6 +129,34 @@ export function startReconnectingAspListener(
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let closed = false;
 
+  // Receiver-side dedup gate. The wire is at-least-once: catchup replays
+  // and live broadcasts can both deliver the same event around a
+  // reconnect; SQS-level retries can also redeliver. Tracking event_ids
+  // we've already surfaced to the caller's onEvent makes the perceived
+  // stream exactly-once even though the operator never drops events.
+  // State lives at the reconnecting-listener scope so dedup persists
+  // across reconnects within one listener lifetime — events delivered
+  // before a drop and replayed via catchup after the new connect get
+  // filtered.
+  const seenEventIds = new Map<string, true>();
+  const seeEventIdAndCheckDuplicate = (eventId: string): boolean => {
+    if (seenEventIds.has(eventId)) {
+      // LRU bump: re-insert so it sits at the most-recently-used end.
+      // The Map iteration order is insertion order; re-inserting moves
+      // the key to the end without changing its presence.
+      seenEventIds.delete(eventId);
+      seenEventIds.set(eventId, true);
+      return true;
+    }
+    seenEventIds.set(eventId, true);
+    if (seenEventIds.size > DEDUP_LRU_MAX) {
+      // Evict the oldest entry (insertion-order head of the Map).
+      const oldest = seenEventIds.keys().next().value;
+      if (oldest !== undefined) seenEventIds.delete(oldest);
+    }
+    return false;
+  };
+
   const clearStable = (): void => {
     if (stableTimer !== null) {
       clearTimeout(stableTimer);
@@ -200,7 +247,19 @@ export function startReconnectingAspListener(
         }, resetAfterStableMs);
         opts.onOpen?.();
       },
-      onEvent: opts.onEvent,
+      onEvent: (event, raw) => {
+        // Receiver-side dedup. The operator's wire is at-least-once,
+        // so catchup-vs-live races and SQS redelivery can produce the
+        // same event_id more than once. Drop the duplicate before it
+        // reaches the caller so the perceived stream is exactly-once.
+        const eventId = event.event_id;
+        if (typeof eventId === "string" && eventId.length > 0) {
+          if (seeEventIdAndCheckDuplicate(eventId)) {
+            return;
+          }
+        }
+        opts.onEvent?.(event, raw);
+      },
       onUnparseable: opts.onUnparseable,
       onError: opts.onError,
       onClose: (code, reason) => {

@@ -19,6 +19,8 @@ interface TestServer {
   connections(): number;
   /** Authorization header of every accepted handshake (handy to confirm a fresh token per attempt). */
   authorizations(): readonly string[];
+  /** Push a JSON frame to every currently-open client socket. Used by dedup tests. */
+  broadcast(frame: object): number;
   close(): Promise<void>;
 }
 
@@ -48,11 +50,34 @@ async function startTestServer(): Promise<TestServer> {
     },
     connections: (): number => count,
     authorizations: (): readonly string[] => auths.slice(),
+    broadcast: (frame: object): number => {
+      const payload = JSON.stringify(frame);
+      let sent = 0;
+      for (const c of wss.clients) {
+        if (c.readyState === WebSocket.OPEN) {
+          c.send(payload);
+          sent += 1;
+        }
+      }
+      return sent;
+    },
     close: async (): Promise<void> => {
       for (const c of wss.clients) c.terminate();
       await new Promise<void>((r) => wss.close(() => r()));
       await new Promise<void>((r) => httpServer.close(() => r()));
     },
+  };
+}
+
+/** Build a minimal SessionEvent-shaped frame with a stable event_id. */
+function eventFrame(event_id: string, sequence = 1): object {
+  return {
+    type: "session.message",
+    session_id: "sess_test",
+    event_id,
+    sequence,
+    created_at: 1700000000000,
+    payload: { id: "msg_test", sender: "@x.bot", content: "hi" },
   };
 }
 
@@ -339,5 +364,108 @@ describe("startReconnectingAspListener", () => {
     assert.equal(failures.length, 1);
 
     listener.close();
+  });
+
+  // ---------------------------------------------------------------------
+  // Receiver-side dedup. The wire is at-least-once: catchup-vs-live
+  // races and SQS redelivery can both produce the same event_id more
+  // than once. The listener filters duplicates by event_id so the
+  // perceived stream the caller's onEvent sees is exactly-once.
+  // ---------------------------------------------------------------------
+
+  it("dedup: drops a duplicate event_id within a single connection", async () => {
+    const harness = await startTestServer();
+    const seenEventIds: string[] = [];
+
+    const listener = startReconnectingAspListener({
+      resolve: async () => ({ wsUrl: harness.wsUrl, token: "tok" }),
+      onEvent: (e) => seenEventIds.push(e.event_id),
+      initialDelayMs: 5,
+      maxDelayMs: 5,
+      resetAfterStableMs: 60_000,
+      jitterRatio: 0,
+    });
+
+    await waitFor(() => harness.connections() === 1);
+
+    // Same event_id three times in a row — only the first should reach
+    // the caller. Catchup-vs-live races and SQS redelivery on the
+    // operator side both look exactly like this on the wire.
+    harness.broadcast(eventFrame("evt_001"));
+    harness.broadcast(eventFrame("evt_001"));
+    harness.broadcast(eventFrame("evt_001"));
+
+    await waitFor(() => seenEventIds.length >= 1, 1000);
+    // Give two more event-loop ticks to confirm no further events land.
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(seenEventIds, ["evt_001"]);
+
+    listener.close();
+    await harness.close();
+  });
+
+  it("dedup: distinct event_ids are all delivered, in order", async () => {
+    const harness = await startTestServer();
+    const seenEventIds: string[] = [];
+
+    const listener = startReconnectingAspListener({
+      resolve: async () => ({ wsUrl: harness.wsUrl, token: "tok" }),
+      onEvent: (e) => seenEventIds.push(e.event_id),
+      initialDelayMs: 5,
+      maxDelayMs: 5,
+      resetAfterStableMs: 60_000,
+      jitterRatio: 0,
+    });
+
+    await waitFor(() => harness.connections() === 1);
+    harness.broadcast(eventFrame("evt_001", 1));
+    harness.broadcast(eventFrame("evt_002", 2));
+    harness.broadcast(eventFrame("evt_003", 3));
+    await waitFor(() => seenEventIds.length === 3, 1000);
+
+    assert.deepEqual(seenEventIds, ["evt_001", "evt_002", "evt_003"]);
+
+    listener.close();
+    await harness.close();
+  });
+
+  it("dedup: persists across reconnects (catchup-after-drop is filtered)", async () => {
+    // Real-world case: an event was delivered live before the drop;
+    // after the new $connect, catchup replays the same event_id. The
+    // dedup gate must remember the earlier delivery so the caller
+    // doesn't see the same event twice across a reconnect boundary.
+    const harness = await startTestServer();
+    const seenEventIds: string[] = [];
+
+    const listener = startReconnectingAspListener({
+      resolve: async () => ({ wsUrl: harness.wsUrl, token: "tok" }),
+      onEvent: (e) => seenEventIds.push(e.event_id),
+      initialDelayMs: 5,
+      maxDelayMs: 5,
+      resetAfterStableMs: 60_000,
+      jitterRatio: 0,
+    });
+
+    // Connection #1: deliver evt_A and evt_B.
+    await waitFor(() => harness.connections() === 1);
+    harness.broadcast(eventFrame("evt_A", 1));
+    harness.broadcast(eventFrame("evt_B", 2));
+    await waitFor(() => seenEventIds.length === 2);
+
+    // Drop, reconnect. Connection #2 replays evt_B (catchup) then sends
+    // a new evt_C live. Caller should only see evt_C as new.
+    harness.dropAll();
+    await waitFor(() => harness.connections() === 2);
+    harness.broadcast(eventFrame("evt_B", 2));
+    harness.broadcast(eventFrame("evt_C", 3));
+    await waitFor(() => seenEventIds.length >= 3, 1000);
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    assert.deepEqual(seenEventIds, ["evt_A", "evt_B", "evt_C"]);
+
+    listener.close();
+    await harness.close();
   });
 });
