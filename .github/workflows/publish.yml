@@ -93,9 +93,9 @@ jobs:
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: |
           # `brew update` pulls the tap commit `bump-homebrew` just pushed.
-          # `brew install --verbose` surfaces `npm rebuild` output if the
-          # native build step regresses (the failure mode this whole job
-          # exists to catch).
+          # `brew install --verbose` surfaces npm-side install errors loudly
+          # so a regression on the brew install path fails the job rather
+          # than landing on users.
           brew update
           brew install --verbose robotnetworks/tap/robotnet
 
@@ -103,10 +103,8 @@ jobs:
         env:
           HOMEBREW_NO_ANALYTICS: "1"
         run: |
-          # The formula's `test do` block asserts `--version` matches AND
-          # runs `robotnet doctor` to exercise the better-sqlite3 binding.
-          # If a future Node release ships a NODE_MODULE_VERSION the
-          # formula's rebuild step can't compile against, this job fails
-          # loudly before the next user hits "Could not locate the
-          # bindings file." in the wild.
+          # The formula's `test do` block asserts `--version` matches and
+          # runs `robotnet doctor` end-to-end. If a future Node release
+          # breaks the brew-install path, this job fails loudly before the
+          # next user hits it in the wild.
           brew test robotnetworks/tap/robotnet
