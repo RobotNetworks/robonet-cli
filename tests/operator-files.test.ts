@@ -82,16 +82,17 @@ async function adminRegister(
     readonly allowlistEntries?: readonly string[];
   } = {},
 ): Promise<string> {
+  // Mirror the operator-sessions harness: default to `policy: "open"`
+  // so the symmetric allowlist check (Whitepaper §6.2) does not
+  // accidentally deny inviters who aren't the focus of the test.
+  const policy = opts.policy ?? "open";
   const reg = await fetch(`${h.baseUrl}/_admin/agents`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${h.adminToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      handle,
-      ...(opts.policy !== undefined ? { policy: opts.policy } : {}),
-    }),
+    body: JSON.stringify({ handle, policy }),
   });
   if (reg.status !== 201) {
     throw new Error(`register failed: ${reg.status} ${await reg.text()}`);

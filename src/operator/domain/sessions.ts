@@ -22,7 +22,7 @@ import type { ConnectionRegistry } from "./transport.js";
 import { isEligible } from "./eligibility.js";
 import { containsFileId, type FileService, resolveContentFiles } from "./files.js";
 import { mintId } from "./ids.js";
-import { isReachable } from "./policy.js";
+import { canInitiate } from "./policy.js";
 
 /* -------------------------------------------------------------------------- */
 /* Public service API                                                          */
@@ -123,10 +123,12 @@ export class SessionService {
     let result: { sessionId: SessionId; sequence: Sequence | null; dispatches: readonly Dispatch[] };
     try {
       result = withTransaction(this.#db, () => {
-        // Reachability check — privacy-preserving: any unreachable invitee
-        // fails the whole request as 404 (Whitepaper §6.2).
+        // Bilateral reachability check (Whitepaper §6.2 — symmetric
+        // allowlist): both peers' gates must admit each other. Any
+        // unreachable invitee fails the whole request as 404,
+        // non-enumerating which one or which direction denied.
         for (const target of invite) {
-          if (!isReachable(this.#repo, creator, target)) {
+          if (!canInitiate(this.#repo, creator, target)) {
             throw new NotFoundError("not found");
           }
         }
@@ -241,7 +243,7 @@ export class SessionService {
 
       const invited: Handle[] = [];
       for (const target of invite) {
-        if (!isReachable(this.#repo, caller, target)) continue; // §6.2 silent omission
+        if (!canInitiate(this.#repo, caller, target)) continue; // §6.2 silent omission
         const existing = this.#repo.participants.get(sessionId, target);
         if (existing !== null && (existing.status === "invited" || existing.status === "joined")) {
           continue;
@@ -465,7 +467,7 @@ export class SessionService {
       // invitees per §6.2. Already-existing participants were re-invited
       // above; this handles brand-new invitees the reopener wants to add.
       for (const target of invite) {
-        if (!isReachable(this.#repo, handle, target)) continue;
+        if (!canInitiate(this.#repo, handle, target)) continue;
         const existing = this.#repo.participants.get(args.sessionId, target);
         if (existing === null) {
           this.#repo.participants.add(args.sessionId, target, "invited");

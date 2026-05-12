@@ -4,19 +4,25 @@ import type { Handle } from "../storage/types.js";
 /**
  * Trust enforcement.
  *
- * `isReachable(sender, target)` is the operator-side analog of "may
- * `sender` send a session to `target` right now?". The semantics mirror
- * the ASP whitepaper §6.2:
+ * `isReachable(sender, target)` answers "does `target`'s inbound policy
+ * admit `sender`?". Semantics per Whitepaper §6.2:
  *
- * - target's `inbound_policy = 'open'`: anyone can reach.
- * - target's `inbound_policy = 'allowlist'`: reachable only when the
+ * - target's `inbound_policy = 'open'`: anyone is admitted.
+ * - target's `inbound_policy = 'allowlist'`: admitted only when the
  *   sender's exact handle, or the owner glob `@owner.*` covering it,
  *   appears on target's allowlist.
+ *
+ * `canInitiate(initiator, peer)` runs the check in both directions. The
+ * allowlist is symmetric: both gates must pass — the initiator must be
+ * admitted by the peer's policy *and* the peer must be admitted by the
+ * initiator's policy. For mixed pairs (allowlist + open), the
+ * allowlist agent's gate dominates ("open" means *I have no gate*, not
+ * *I am universally reachable*).
  *
  * Privacy property (Whitepaper §6.2): when an invite request contains
  * any unreachable invitee, the request fails as a whole and the caller
  * is told nothing about which one denied. The route layer therefore
- * folds `isReachable` over the whole list and fails closed if any
+ * folds `canInitiate` over the whole list and fails closed if any
  * member returns false.
  */
 
@@ -32,6 +38,14 @@ export function isReachable(
   if (allowlist.includes(sender)) return true;
   const ownerGlob = ownerGlobFor(sender);
   return ownerGlob !== null && allowlist.includes(ownerGlob);
+}
+
+export function canInitiate(
+  repo: OperatorRepository,
+  initiator: Handle,
+  peer: Handle,
+): boolean {
+  return isReachable(repo, initiator, peer) && isReachable(repo, peer, initiator);
 }
 
 /** `@owner.name` → `@owner.*`. Returns null when `handle` is malformed. */

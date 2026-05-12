@@ -91,16 +91,19 @@ async function adminRegister(h: Harness, handle: string, opts: {
   readonly policy?: "open" | "allowlist";
   readonly allowlistEntries?: readonly string[];
 } = {}): Promise<string> {
+  // The harness defaults to `policy: "open"` to keep most fixtures
+  // ergonomic — the symmetric allowlist (Whitepaper §6.2) means an
+  // inviter with the operator's default `allowlist`+empty posture would
+  // be denied outbound to everyone. Tests that exercise denial pass
+  // `policy: "allowlist"` explicitly.
+  const policy = opts.policy ?? "open";
   const reg = await fetch(`${h.baseUrl}/_admin/agents`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${h.adminToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      handle,
-      ...(opts.policy !== undefined ? { policy: opts.policy } : {}),
-    }),
+    body: JSON.stringify({ handle, policy }),
   });
   if (reg.status !== 201) {
     throw new Error(`register failed: ${reg.status} ${await reg.text()}`);
@@ -236,9 +239,10 @@ describe("operator sessions — create + invite", () => {
     }
   });
 
-  it("rejects creation when an invitee is unreachable (privacy: 404)", async () => {
+  it("rejects creation when invitee's allowlist denies the creator (privacy: 404)", async () => {
     await adminRegister(h, "@alice.bot");
-    await adminRegister(h, "@bob.bot"); // policy=allowlist, no entries → unreachable
+    // bob: allowlist + empty → does not admit alice inbound.
+    await adminRegister(h, "@bob.bot", { policy: "allowlist" });
 
     const res = await fetch(`${h.baseUrl}/sessions`, {
       method: "POST",
@@ -248,8 +252,24 @@ describe("operator sessions — create + invite", () => {
     assert.equal(res.status, 404);
   });
 
-  it("open-policy invitees are reachable by anyone", async () => {
-    await adminRegister(h, "@alice.bot");
+  it("rejects creation when creator's own allowlist excludes the invitee (privacy: 404)", async () => {
+    // Whitepaper §6.2: the allowlist is symmetric. Even when the
+    // invitee is reachable inbound, the creator's own outbound gate
+    // must admit the invitee. A pre-fix operator that only checked
+    // the invitee's policy would let this case through.
+    await adminRegister(h, "@alice.bot", { policy: "allowlist" }); // empty allowlist
+    await adminRegister(h, "@bob.bot", { policy: "open" });
+
+    const res = await fetch(`${h.baseUrl}/sessions`, {
+      method: "POST",
+      headers: agentHeaders(h, "@alice.bot"),
+      body: JSON.stringify({ invite: ["@bob.bot"] }),
+    });
+    assert.equal(res.status, 404);
+  });
+
+  it("open-on-both-sides agents can session each other", async () => {
+    await adminRegister(h, "@alice.bot", { policy: "open" });
     await adminRegister(h, "@bob.bot", { policy: "open" });
 
     const res = await fetch(`${h.baseUrl}/sessions`, {
