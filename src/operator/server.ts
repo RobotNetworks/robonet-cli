@@ -6,7 +6,7 @@ import {
 } from "node:http";
 import type { Duplex } from "node:stream";
 
-import type Database from "better-sqlite3";
+import type { DatabaseSync } from "node:sqlite";
 
 import type { OperatorConfig } from "./config.js";
 import { FileService } from "./domain/files.js";
@@ -37,7 +37,7 @@ export interface OperatorHandle {
 interface OperatorServerDeps {
   readonly config: OperatorConfig;
   readonly repo: OperatorRepository;
-  readonly db: Database.Database;
+  readonly db: DatabaseSync;
   /**
    * Override the grace window between a handle's last WS closing and
    * `session.left{reason: "grace_expired"}` firing. Defaults to 30s in

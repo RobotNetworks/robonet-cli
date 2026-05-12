@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import type Database from "better-sqlite3";
+import type { DatabaseSync } from "node:sqlite";
 
 import {
   openOperatorDatabase,
@@ -13,9 +13,11 @@ import {
 } from "../src/operator/storage/database.js";
 import { OperatorRepository } from "../src/operator/storage/repository.js";
 import { CURRENT_SCHEMA_VERSION } from "../src/operator/storage/schema.js";
+import { withTransaction } from "../src/operator/storage/transaction.js";
 
 interface Harness {
-  readonly db: Database.Database;
+  readonly db: DatabaseSync;
+  readonly dbPath: string;
   readonly repo: OperatorRepository;
   readonly cleanup: () => void;
 }
@@ -27,9 +29,11 @@ function makeHarness(): Harness {
   const repo = new OperatorRepository(db);
   return {
     db,
+    dbPath,
     repo,
     cleanup: () => {
-      db.close();
+      // Tests that re-open the DB close `h.db` themselves; tolerate that.
+      if (db.isOpen) db.close();
       fs.rmSync(dir, { recursive: true, force: true });
     },
   };
@@ -44,11 +48,11 @@ afterEach(() => {
 });
 
 describe("smokeCheckSqliteBinding", () => {
-  it("returns without throwing when the better-sqlite3 native binding loads", () => {
-    // Synchronous return = the native binding loaded and a trivial query
-    // executed. This is what the operator entrypoint runs before binding
-    // any port; if it ever started throwing in CI we'd want to know
-    // immediately rather than catching it via integration tests.
+  it("returns without throwing when node:sqlite is reachable", () => {
+    // Synchronous return = the SQLite store is reachable and a trivial
+    // query executed. This is what the operator entrypoint runs before
+    // binding any port; if it ever started throwing in CI we'd want to
+    // know immediately rather than catching it via integration tests.
     smokeCheckSqliteBinding();
   });
 });
@@ -60,9 +64,8 @@ describe("operator database — schema + migrations", () => {
 
   it("re-opening an existing DB does not bump the version or duplicate rows", () => {
     h.repo.agents.register({ handle: "@x.y", bearerTokenHash: "h".repeat(64) });
-    const dbPath = (h.db.name as string) ?? "";
     h.db.close();
-    const reopened = openOperatorDatabase(dbPath);
+    const reopened = openOperatorDatabase(h.dbPath);
     try {
       assert.equal(readSchemaVersion(reopened), CURRENT_SCHEMA_VERSION);
       const repo = new OperatorRepository(reopened);
@@ -75,8 +78,7 @@ describe("operator database — schema + migrations", () => {
   });
 
   it("forces 0o600 file mode on POSIX", { skip: process.platform === "win32" }, () => {
-    const filePath = h.db.name as string;
-    const mode = fs.statSync(filePath).mode & 0o777;
+    const mode = fs.statSync(h.dbPath).mode & 0o777;
     assert.equal(mode, 0o600);
   });
 });
@@ -409,22 +411,25 @@ describe("IdempotencyRepo", () => {
 });
 
 describe("transactional integrity", () => {
-  it("wrapping inserts in db.transaction rolls back on throw", () => {
+  it("wrapping inserts in withTransaction rolls back on throw", () => {
     h.repo.agents.register({ handle: "@creator.bot", bearerTokenHash: "h".repeat(64) });
     h.repo.sessions.create({ id: "sess_01", creatorHandle: "@creator.bot" });
 
-    const txn = h.db.transaction(() => {
-      const seq = h.repo.sessions.allocateSequence("sess_01");
-      h.repo.events.append({
-        id: "evt_x",
-        sessionId: "sess_01",
-        sequence: seq,
-        type: "session.invited",
-        payload: {},
-      });
-      throw new Error("boom");
-    });
-    assert.throws(() => txn(), /boom/);
+    assert.throws(
+      () =>
+        withTransaction(h.db, () => {
+          const seq = h.repo.sessions.allocateSequence("sess_01");
+          h.repo.events.append({
+            id: "evt_x",
+            sessionId: "sess_01",
+            sequence: seq,
+            type: "session.invited",
+            payload: {},
+          });
+          throw new Error("boom");
+        }),
+      /boom/,
+    );
     // Sequence allocation was rolled back too; the next allocation still returns 1.
     const seq = h.repo.sessions.allocateSequence("sess_01");
     assert.equal(seq, 1);

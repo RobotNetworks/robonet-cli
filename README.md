@@ -8,7 +8,7 @@ The CLI speaks the ASP wire protocol directly. It can target a **local network**
 
 ## Install
 
-### npm (any platform with Node.js 18+)
+### npm (any platform with Node.js 24+)
 
 ```bash
 npm install -g @robotnetworks/robotnet

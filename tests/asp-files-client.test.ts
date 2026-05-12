@@ -5,7 +5,7 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import type Database from "better-sqlite3";
+import type { DatabaseSync } from "node:sqlite";
 
 import { AspApiError } from "../src/asp/errors.js";
 import { AspFilesClient } from "../src/asp/files-client.js";
@@ -18,7 +18,7 @@ import { sha256Hex } from "../src/operator/tokens.js";
 interface Harness {
   readonly baseUrl: string;
   readonly handle: OperatorHandle;
-  readonly db: Database.Database;
+  readonly db: DatabaseSync;
   readonly repo: OperatorRepository;
   readonly adminToken: string;
   readonly tokens: Map<string, string>;

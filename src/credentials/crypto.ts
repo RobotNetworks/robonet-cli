@@ -10,8 +10,8 @@
  * one-line factory change with no schema migration.
  */
 export interface Encryptor {
-  encrypt(plaintext: string): Buffer;
-  decrypt(ciphertext: Buffer): string;
+  encrypt(plaintext: string): Uint8Array;
+  decrypt(ciphertext: Uint8Array): string;
 }
 
 /**
@@ -20,10 +20,10 @@ export interface Encryptor {
  * name so it's hard to accidentally reach for.
  */
 export class UnsafePlaintextEncryptor implements Encryptor {
-  encrypt(plaintext: string): Buffer {
-    return Buffer.from(plaintext, "utf8");
+  encrypt(plaintext: string): Uint8Array {
+    return new TextEncoder().encode(plaintext);
   }
-  decrypt(ciphertext: Buffer): string {
-    return ciphertext.toString("utf8");
+  decrypt(ciphertext: Uint8Array): string {
+    return new TextDecoder("utf-8", { fatal: false }).decode(ciphertext);
   }
 }

@@ -52,7 +52,7 @@ export class AesGcmEncryptor implements Encryptor {
     return randomBytes(KEY_LENGTH);
   }
 
-  encrypt(plaintext: string): Buffer {
+  encrypt(plaintext: string): Uint8Array {
     const nonce = randomBytes(NONCE_LENGTH);
     const cipher = createCipheriv(ALGORITHM, this.#key, nonce);
     const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
@@ -60,7 +60,7 @@ export class AesGcmEncryptor implements Encryptor {
     return Buffer.concat([nonce, ct, tag]);
   }
 
-  decrypt(blob: Buffer): string {
+  decrypt(blob: Uint8Array): string {
     if (blob.length < NONCE_LENGTH + TAG_LENGTH) {
       throw new CredentialDecryptionError(
         `ciphertext too short (${blob.length} bytes; minimum ${NONCE_LENGTH + TAG_LENGTH})`,

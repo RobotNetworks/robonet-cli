@@ -539,8 +539,8 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
     // Manually null out client_id at the SQL layer to simulate a hand-edited
     // row that hits the defensive check in auth-resolver.
     const dbPath = `${config.paths.configDir}/credentials.sqlite`;
-    const Database = (await import("better-sqlite3")).default;
-    const raw = new Database(dbPath);
+    const { DatabaseSync } = await import("node:sqlite");
+    const raw = new DatabaseSync(dbPath);
     raw.prepare(
       "UPDATE agent_credentials SET client_id = NULL WHERE network_name = ? AND handle = ?",
     ).run("global", "@cli.bot");

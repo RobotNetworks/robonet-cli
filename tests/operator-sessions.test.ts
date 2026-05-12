@@ -5,7 +5,7 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import type Database from "better-sqlite3";
+import type { DatabaseSync } from "node:sqlite";
 import { WebSocket } from "ws";
 
 import type { OperatorConfig } from "../src/operator/config.js";
@@ -22,7 +22,7 @@ interface Harness {
   readonly baseUrl: string;
   readonly wsUrl: string;
   readonly handle: OperatorHandle;
-  readonly db: Database.Database;
+  readonly db: DatabaseSync;
   readonly repo: OperatorRepository;
   readonly adminToken: string;
   /** Test fixture: pre-registered agents with their plaintext bearer tokens (returned from POST /_admin/agents). */

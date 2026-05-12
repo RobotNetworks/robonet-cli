@@ -89,10 +89,9 @@ const TEST_START_OPTS = {
   operatorEntrypoint: OPERATOR_TS_ENTRYPOINT,
   nodeArgs: ["--import", "tsx"] as const,
   // Windows GitHub runners are noticeably slower at child-process spawn
-  // + first `better-sqlite3` native binding load — 8s flakes on a cold
-  // start. Give the operator a generous window; the test still fails
-  // fast for genuine startup failures (synchronous spawn errors throw
-  // before the readiness wait).
+  // and first-import — 8s flakes on a cold start. Give the operator a
+  // generous window; the test still fails fast for genuine startup
+  // failures (synchronous spawn errors throw before the readiness wait).
   readinessTimeoutMs: process.platform === "win32" ? 30_000 : 10_000,
 };
 

@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import type { DatabaseSync } from "node:sqlite";
 
 import {
   BadRequestError,
@@ -8,6 +8,7 @@ import {
 } from "../errors.js";
 import { assertHandle } from "../handles.js";
 import type { OperatorRepository } from "../storage/repository.js";
+import { withTransaction } from "../storage/transaction.js";
 import type {
   EventRecord,
   Handle,
@@ -88,13 +89,13 @@ export interface SessionView {
  */
 export class SessionService {
   readonly #repo: OperatorRepository;
-  readonly #db: Database.Database;
+  readonly #db: DatabaseSync;
   readonly #transport: ConnectionRegistry;
   readonly #files: FileService | null;
 
   constructor(
     repo: OperatorRepository,
-    db: Database.Database,
+    db: DatabaseSync,
     transport: ConnectionRegistry,
     files: FileService | null = null,
   ) {
@@ -121,7 +122,7 @@ export class SessionService {
 
     let result: { sessionId: SessionId; sequence: Sequence | null; dispatches: readonly Dispatch[] };
     try {
-      result = this.#db.transaction(() => {
+      result = withTransaction(this.#db, () => {
         // Reachability check — privacy-preserving: any unreachable invitee
         // fails the whole request as 404 (Whitepaper §6.2).
         for (const target of invite) {
@@ -196,7 +197,7 @@ export class SessionService {
 
         const dispatches = this.#collectDispatches(sessionId);
         return { sessionId, sequence: initialSeq, dispatches };
-      })();
+      });
     } catch (err) {
       throw err;
     }
@@ -208,7 +209,7 @@ export class SessionService {
   /* -- join_session ------------------------------------------------------- */
 
   joinSession(handle: Handle, sessionId: SessionId): void {
-    const dispatches = this.#db.transaction(() => {
+    const dispatches = withTransaction(this.#db, () => {
       const session = this.#requireActive(sessionId);
       void session;
       const participant = this.#repo.participants.get(sessionId, handle);
@@ -223,7 +224,7 @@ export class SessionService {
       this.#repo.participants.setStatus(sessionId, handle, "joined");
       this.#appendEvent(sessionId, "session.joined", { agent: handle });
       return this.#collectDispatches(sessionId);
-    })();
+    });
     this.#dispatch(dispatches);
   }
 
@@ -234,7 +235,7 @@ export class SessionService {
     sessionId: SessionId,
     invite: readonly Handle[],
   ): readonly Handle[] {
-    const result = this.#db.transaction(() => {
+    const result = withTransaction(this.#db, () => {
       this.#requireActive(sessionId);
       this.#requireJoined(sessionId, caller);
 
@@ -258,7 +259,7 @@ export class SessionService {
       }
       const dispatches = this.#collectDispatches(sessionId);
       return { invited, dispatches };
-    })();
+    });
     this.#dispatch(result.dispatches);
     return result.invited;
   }
@@ -266,7 +267,7 @@ export class SessionService {
   /* -- send_message ------------------------------------------------------- */
 
   sendMessage(input: SendMessageInput): SendMessageResult {
-    const result = this.#db.transaction(() => {
+    const result = withTransaction(this.#db, () => {
       this.#requireActive(input.sessionId);
       this.#requireJoined(input.sessionId, input.sender);
 
@@ -321,7 +322,7 @@ export class SessionService {
         sequence: message.sequence,
         dispatches,
       };
-    })();
+    });
     this.#dispatch(result.dispatches);
     return { messageId: result.messageId, sequence: result.sequence };
   }
@@ -344,7 +345,7 @@ export class SessionService {
   /* -- leave_session ------------------------------------------------------ */
 
   leaveSession(handle: Handle, sessionId: SessionId): void {
-    const dispatches = this.#db.transaction(() => {
+    const dispatches = withTransaction(this.#db, () => {
       this.#requireActive(sessionId);
       this.#requireJoined(sessionId, handle);
       this.#repo.participants.setStatus(sessionId, handle, "left");
@@ -353,7 +354,7 @@ export class SessionService {
         reason: "left",
       });
       return this.#collectDispatches(sessionId);
-    })();
+    });
     this.#dispatch(dispatches);
   }
 
@@ -371,7 +372,7 @@ export class SessionService {
    * participant is a no-op.
    */
   forceLeaveSharedSessions(blocker: Handle, blocked: Handle): void {
-    const dispatches = this.#db.transaction(() => {
+    const dispatches = withTransaction(this.#db, () => {
       const all: Dispatch[] = [];
       for (const p of this.#repo.participants.listForHandle(blocked)) {
         if (p.status !== "joined") continue;
@@ -389,20 +390,20 @@ export class SessionService {
         }
       }
       return all;
-    })();
+    });
     this.#dispatch(dispatches);
   }
 
   /* -- end_session -------------------------------------------------------- */
 
   endSession(handle: Handle, sessionId: SessionId): void {
-    const dispatches = this.#db.transaction(() => {
+    const dispatches = withTransaction(this.#db, () => {
       this.#requireActive(sessionId);
       this.#requireJoined(sessionId, handle);
       this.#repo.sessions.setState(sessionId, "ended");
       this.#appendEvent(sessionId, "session.ended", { ended_by: handle });
       return this.#collectDispatches(sessionId);
-    })();
+    });
     this.#dispatch(dispatches);
   }
 
@@ -422,7 +423,7 @@ export class SessionService {
     const handle = assertHandle(args.handle, "handle");
     const invite = (args.invite ?? []).map((h) => assertHandle(h, "invite[]"));
 
-    const dispatches = this.#db.transaction(() => {
+    const dispatches = withTransaction(this.#db, () => {
       const session = this.#repo.sessions.byId(args.sessionId);
       if (session === null) throw new NotFoundError("not found");
       if (session.state !== "ended") {
@@ -496,7 +497,7 @@ export class SessionService {
       }
 
       return this.#collectDispatches(args.sessionId);
-    })();
+    });
     this.#dispatch(dispatches);
   }
 
@@ -580,7 +581,7 @@ export class SessionService {
    * own status is unchanged until grace expires.
    */
   onAgentWentOffline(handle: Handle): void {
-    const dispatches = this.#db.transaction(() => {
+    const dispatches = withTransaction(this.#db, () => {
       const all: Dispatch[] = [];
       for (const p of this.#repo.participants.listForHandle(handle)) {
         if (p.status !== "joined") continue;
@@ -592,7 +593,7 @@ export class SessionService {
         }
       }
       return all;
-    })();
+    });
     this.#dispatch(dispatches);
   }
 
@@ -602,7 +603,7 @@ export class SessionService {
    * the agent missed while offline.
    */
   onAgentCameBack(handle: Handle): void {
-    const dispatches = this.#db.transaction(() => {
+    const dispatches = withTransaction(this.#db, () => {
       const all: Dispatch[] = [];
       for (const p of this.#repo.participants.listForHandle(handle)) {
         if (p.status !== "joined") continue;
@@ -614,7 +615,7 @@ export class SessionService {
         }
       }
       return all;
-    })();
+    });
     this.#dispatch(dispatches);
     // Catch-up replay handles anything else the agent missed during the
     // window. Dispatches advance the agent's per-session cursor.
@@ -627,7 +628,7 @@ export class SessionService {
    * window closes with the handle still offline.
    */
   onAgentGraceExpired(handle: Handle): void {
-    const dispatches = this.#db.transaction(() => {
+    const dispatches = withTransaction(this.#db, () => {
       const all: Dispatch[] = [];
       for (const p of this.#repo.participants.listForHandle(handle)) {
         if (p.status !== "joined") continue;
@@ -643,7 +644,7 @@ export class SessionService {
         }
       }
       return all;
-    })();
+    });
     this.#dispatch(dispatches);
   }
 

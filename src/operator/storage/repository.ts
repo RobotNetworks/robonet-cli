@@ -1,5 +1,6 @@
-import type Database from "better-sqlite3";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 
+import { withTransaction } from "./transaction.js";
 import type {
   AgentRecord,
   AgentVisibility,
@@ -28,8 +29,8 @@ import type {
 
 /**
  * Bundle of typed accessors over the operator's SQLite database. The
- * service layer composes these inside `db.transaction(...)` blocks; the
- * repos themselves don't open transactions so the caller controls
+ * service layer composes these inside `withTransaction(db, ...)` blocks;
+ * the repos themselves don't open transactions so the caller controls
  * atomicity boundaries.
  *
  * Construction is cheap — repos hold prepared statements but no
@@ -46,7 +47,7 @@ export class OperatorRepository {
   readonly idempotency: IdempotencyRepo;
   readonly files: FilesRepo;
 
-  constructor(db: Database.Database) {
+  constructor(db: DatabaseSync) {
     this.agents = new AgentsRepo(db);
     this.blocks = new BlocksRepo(db);
     this.sessions = new SessionsRepo(db);
@@ -82,9 +83,9 @@ export interface UpdateAgentProfileInput {
 }
 
 export class AgentsRepo {
-  readonly #db: Database.Database;
+  readonly #db: DatabaseSync;
 
-  constructor(db: Database.Database) {
+  constructor(db: DatabaseSync) {
     this.#db = db;
   }
 
@@ -143,7 +144,7 @@ export class AgentsRepo {
     input: UpdateAgentProfileInput,
   ): AgentRecord | null {
     const sets: string[] = [];
-    const params: unknown[] = [];
+    const params: SQLInputValue[] = [];
     if (input.displayName !== undefined) {
       sets.push("display_name = ?");
       params.push(input.displayName);
@@ -176,21 +177,21 @@ export class AgentsRepo {
   byHandle(handle: Handle): AgentRecord | null {
     const row = this.#db
       .prepare("SELECT * FROM agents WHERE handle = ?")
-      .get(handle) as RawAgentRow | undefined;
+      .get(handle) as unknown as RawAgentRow | undefined;
     return row === undefined ? null : rawToAgent(row);
   }
 
   byBearerHash(hash: string): AgentRecord | null {
     const row = this.#db
       .prepare("SELECT * FROM agents WHERE bearer_token_hash = ?")
-      .get(hash) as RawAgentRow | undefined;
+      .get(hash) as unknown as RawAgentRow | undefined;
     return row === undefined ? null : rawToAgent(row);
   }
 
   list(): readonly AgentRecord[] {
     const rows = this.#db
       .prepare("SELECT * FROM agents ORDER BY handle")
-      .all() as RawAgentRow[];
+      .all() as unknown as RawAgentRow[];
     return rows.map(rawToAgent);
   }
 
@@ -233,7 +234,7 @@ export class AgentsRepo {
          ORDER BY handle
          LIMIT ?`,
       )
-      .all(pattern, pattern, after, args.limit) as RawAgentRow[];
+      .all(pattern, pattern, after, args.limit) as unknown as RawAgentRow[];
     return rows.map(rawToAgent);
   }
 
@@ -257,13 +258,13 @@ export class AgentsRepo {
    * true iff the agent existed.
    */
   remove(handle: Handle): boolean {
-    const txn = this.#db.transaction((h: Handle) => {
-      this.#db.prepare("DELETE FROM sessions WHERE creator_handle = ?").run(h);
-      this.#db.prepare("DELETE FROM participants WHERE handle = ?").run(h);
-      this.#db.prepare("DELETE FROM delivery_cursors WHERE handle = ?").run(h);
-      return this.#db.prepare("DELETE FROM agents WHERE handle = ?").run(h).changes;
+    const changes = withTransaction(this.#db, () => {
+      this.#db.prepare("DELETE FROM sessions WHERE creator_handle = ?").run(handle);
+      this.#db.prepare("DELETE FROM participants WHERE handle = ?").run(handle);
+      this.#db.prepare("DELETE FROM delivery_cursors WHERE handle = ?").run(handle);
+      return this.#db.prepare("DELETE FROM agents WHERE handle = ?").run(handle).changes;
     });
-    return (txn(handle) as number) > 0;
+    return changes > 0;
   }
 
   rotateBearerHash(handle: Handle, newHash: string): boolean {
@@ -302,7 +303,7 @@ export class AgentsRepo {
       .prepare(
         "SELECT * FROM allowlist WHERE owner_handle = ? AND entry = ?",
       )
-      .get(ownerHandle, entry) as RawAllowlistRow | undefined;
+      .get(ownerHandle, entry) as unknown as RawAllowlistRow | undefined;
     if (got === undefined) {
       throw new Error(`internal: allowlist row missing after upsert (${ownerHandle}, ${entry})`);
     }
@@ -320,7 +321,7 @@ export class AgentsRepo {
   listAllowlist(ownerHandle: Handle): readonly AllowlistEntry[] {
     const rows = this.#db
       .prepare("SELECT * FROM allowlist WHERE owner_handle = ? ORDER BY entry")
-      .all(ownerHandle) as RawAllowlistRow[];
+      .all(ownerHandle) as unknown as RawAllowlistRow[];
     return rows.map(rawToAllowlist);
   }
 }
@@ -344,9 +345,9 @@ function rawToBlock(row: RawBlockRow): BlockRecord {
 }
 
 export class BlocksRepo {
-  readonly #db: Database.Database;
+  readonly #db: DatabaseSync;
 
-  constructor(db: Database.Database) {
+  constructor(db: DatabaseSync) {
     this.#db = db;
   }
 
@@ -368,7 +369,7 @@ export class BlocksRepo {
       .prepare(
         `SELECT * FROM blocks WHERE blocker_handle = ? AND blocked_handle = ?`,
       )
-      .get(blockerHandle, blockedHandle) as RawBlockRow | undefined;
+      .get(blockerHandle, blockedHandle) as unknown as RawBlockRow | undefined;
     if (got === undefined) {
       throw new Error(
         `internal: block row missing after upsert (${blockerHandle} → ${blockedHandle})`,
@@ -397,7 +398,7 @@ export class BlocksRepo {
          ORDER BY created_at_ms DESC, blocked_handle ASC
          LIMIT ? OFFSET ?`,
       )
-      .all(blockerHandle, limit, offset) as RawBlockRow[];
+      .all(blockerHandle, limit, offset) as unknown as RawBlockRow[];
     return rows.map(rawToBlock);
   }
 }
@@ -413,9 +414,9 @@ export interface CreateSessionInput {
 }
 
 export class SessionsRepo {
-  readonly #db: Database.Database;
+  readonly #db: DatabaseSync;
 
-  constructor(db: Database.Database) {
+  constructor(db: DatabaseSync) {
     this.#db = db;
   }
 
@@ -444,7 +445,7 @@ export class SessionsRepo {
   byId(id: SessionId): SessionRecord | null {
     const row = this.#db
       .prepare("SELECT * FROM sessions WHERE id = ?")
-      .get(id) as RawSessionRow | undefined;
+      .get(id) as unknown as RawSessionRow | undefined;
     return row === undefined ? null : rawToSession(row);
   }
 
@@ -463,7 +464,7 @@ export class SessionsRepo {
           WHERE p.handle = ?
           ORDER BY s.updated_at_ms DESC, s.id DESC`,
       )
-      .all(handle) as RawSessionRow[];
+      .all(handle) as unknown as RawSessionRow[];
     return rows.map(rawToSession);
   }
 
@@ -491,8 +492,9 @@ export class SessionsRepo {
    * counter atomically. Throws if the session does not exist.
    *
    * Must be called inside a transaction so the read-and-increment is
-   * serialised against concurrent writers — better-sqlite3's deferred
-   * transactions provide that guarantee on the writer.
+   * serialised against concurrent writers — SQLite's `BEGIN DEFERRED`
+   * (used by `withTransaction`) acquires the writer lock on the first
+   * write and serialises all later writers behind it.
    */
   allocateSequence(id: SessionId): Sequence {
     const row = this.#db
@@ -518,9 +520,9 @@ export class SessionsRepo {
 /* -------------------------------------------------------------------------- */
 
 export class ParticipantsRepo {
-  readonly #db: Database.Database;
+  readonly #db: DatabaseSync;
 
-  constructor(db: Database.Database) {
+  constructor(db: DatabaseSync) {
     this.#db = db;
   }
 
@@ -582,21 +584,21 @@ export class ParticipantsRepo {
       .prepare(
         "SELECT * FROM participants WHERE session_id = ? AND handle = ?",
       )
-      .get(sessionId, handle) as RawParticipantRow | undefined;
+      .get(sessionId, handle) as unknown as RawParticipantRow | undefined;
     return row === undefined ? null : rawToParticipant(row);
   }
 
   listForSession(sessionId: SessionId): readonly ParticipantRecord[] {
     const rows = this.#db
       .prepare("SELECT * FROM participants WHERE session_id = ? ORDER BY handle")
-      .all(sessionId) as RawParticipantRow[];
+      .all(sessionId) as unknown as RawParticipantRow[];
     return rows.map(rawToParticipant);
   }
 
   listForHandle(handle: Handle): readonly ParticipantRecord[] {
     const rows = this.#db
       .prepare("SELECT * FROM participants WHERE handle = ?")
-      .all(handle) as RawParticipantRow[];
+      .all(handle) as unknown as RawParticipantRow[];
     return rows.map(rawToParticipant);
   }
 }
@@ -616,9 +618,9 @@ export interface InsertMessageInput {
 }
 
 export class MessagesRepo {
-  readonly #db: Database.Database;
+  readonly #db: DatabaseSync;
 
-  constructor(db: Database.Database) {
+  constructor(db: DatabaseSync) {
     this.#db = db;
   }
 
@@ -654,7 +656,7 @@ export class MessagesRepo {
   byId(id: string): MessageRecord | null {
     const row = this.#db
       .prepare("SELECT * FROM messages WHERE id = ?")
-      .get(id) as RawMessageRow | undefined;
+      .get(id) as unknown as RawMessageRow | undefined;
     return row === undefined ? null : rawToMessage(row);
   }
 
@@ -687,7 +689,7 @@ export class MessagesRepo {
     const like = `%${escaped}%`;
 
     const filters: string[] = [];
-    const params: unknown[] = [args.callerHandle, like];
+    const params: SQLInputValue[] = [args.callerHandle, like];
     if (args.sessionId !== undefined) {
       filters.push("AND m.session_id = ?");
       params.push(args.sessionId);
@@ -713,7 +715,7 @@ export class MessagesRepo {
        ORDER BY m.created_at_ms DESC, m.id DESC
        LIMIT ?
     `;
-    const rows = this.#db.prepare(sql).all(...params) as RawMessageRow[];
+    const rows = this.#db.prepare(sql).all(...params) as unknown as RawMessageRow[];
     return rows.map(rawToMessage);
   }
 }
@@ -731,9 +733,9 @@ export interface AppendEventInput {
 }
 
 export class EventsRepo {
-  readonly #db: Database.Database;
+  readonly #db: DatabaseSync;
 
-  constructor(db: Database.Database) {
+  constructor(db: DatabaseSync) {
     this.#db = db;
   }
 
@@ -762,7 +764,7 @@ export class EventsRepo {
   byId(id: string): EventRecord | null {
     const row = this.#db
       .prepare("SELECT * FROM events WHERE id = ?")
-      .get(id) as RawEventRow | undefined;
+      .get(id) as unknown as RawEventRow | undefined;
     return row === undefined ? null : rawToEvent(row);
   }
 
@@ -779,7 +781,7 @@ export class EventsRepo {
          ORDER BY sequence
          LIMIT ?`,
       )
-      .all(sessionId, afterSequence, limit) as RawEventRow[];
+      .all(sessionId, afterSequence, limit) as unknown as RawEventRow[];
     return rows.map(rawToEvent);
   }
 }
@@ -789,9 +791,9 @@ export class EventsRepo {
 /* -------------------------------------------------------------------------- */
 
 export class DeliveryCursorsRepo {
-  readonly #db: Database.Database;
+  readonly #db: DatabaseSync;
 
-  constructor(db: Database.Database) {
+  constructor(db: DatabaseSync) {
     this.#db = db;
   }
 
@@ -820,7 +822,7 @@ export class DeliveryCursorsRepo {
   listForHandle(handle: Handle): readonly DeliveryCursorRecord[] {
     const rows = this.#db
       .prepare("SELECT * FROM delivery_cursors WHERE handle = ?")
-      .all(handle) as RawCursorRow[];
+      .all(handle) as unknown as RawCursorRow[];
     return rows.map(rawToCursor);
   }
 }
@@ -838,9 +840,9 @@ export interface InsertIdempotencyInput {
 }
 
 export class IdempotencyRepo {
-  readonly #db: Database.Database;
+  readonly #db: DatabaseSync;
 
-  constructor(db: Database.Database) {
+  constructor(db: DatabaseSync) {
     this.#db = db;
   }
 
@@ -854,7 +856,7 @@ export class IdempotencyRepo {
         `SELECT * FROM idempotency
          WHERE session_id = ? AND sender_handle = ? AND key = ?`,
       )
-      .get(sessionId, senderHandle, key) as RawIdempotencyRow | undefined;
+      .get(sessionId, senderHandle, key) as unknown as RawIdempotencyRow | undefined;
     return row === undefined ? null : rawToIdempotency(row);
   }
 
@@ -900,9 +902,9 @@ export interface RegisterFileInput {
 }
 
 export class FilesRepo {
-  readonly #db: Database.Database;
+  readonly #db: DatabaseSync;
 
-  constructor(db: Database.Database) {
+  constructor(db: DatabaseSync) {
     this.#db = db;
   }
 
@@ -939,7 +941,7 @@ export class FilesRepo {
   byId(id: string): FileRecord | null {
     const row = this.#db
       .prepare("SELECT * FROM files WHERE id = ?")
-      .get(id) as RawFileRow | undefined;
+      .get(id) as unknown as RawFileRow | undefined;
     return row === undefined ? null : rawToFile(row);
   }
 
@@ -952,7 +954,7 @@ export class FilesRepo {
         `SELECT * FROM files
          WHERE id = ? AND uploader_handle = ? AND status = 'pending'`,
       )
-      .get(id, uploaderHandle) as RawFileRow | undefined;
+      .get(id, uploaderHandle) as unknown as RawFileRow | undefined;
     return row === undefined ? null : rawToFile(row);
   }
 
@@ -977,7 +979,7 @@ export class FilesRepo {
     let count = 0;
     for (const id of ids) {
       const result = stmt.run(sessionMessageId, id, uploaderHandle);
-      count += result.changes;
+      count += Number(result.changes);
     }
     return count;
   }
@@ -990,7 +992,7 @@ export class FilesRepo {
         `SELECT * FROM files
          WHERE status = 'pending' AND expires_at_ms IS NOT NULL AND expires_at_ms < ?`,
       )
-      .all(now) as RawFileRow[];
+      .all(now) as unknown as RawFileRow[];
     return rows.map(rawToFile);
   }
 

@@ -1,7 +1,6 @@
 import { chmodSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 
 import { CURRENT_SCHEMA_VERSION, MIGRATIONS } from "./schema.js";
 
@@ -15,16 +14,15 @@ export class OperatorDatabaseError extends Error {
 /**
  * Open an in-memory SQLite database, run a trivial query, and close it.
  *
- * Used as a startup-time smoke check by the operator entrypoint: if
- * `better-sqlite3`'s native binding is missing or built for the wrong
- * Node ABI, this throws synchronously before any port is bound. That
- * matters because the operator's failure mode is supposed to be
- * fail-fast — a bound port without a working SQLite store leaves the
- * supervisor stuck on a `/healthz` poll that will never succeed and
- * (worse) the parent's only signal is "did not become healthy."
+ * Used as a startup-time smoke check by the operator entrypoint. SQLite
+ * itself ships inside the Node binary (via `node:sqlite`), so this no
+ * longer guards a native-binding ABI mismatch — but it still cheaply
+ * confirms the store is reachable before any port is bound. The operator
+ * is supposed to fail fast: a bound port without a working store leaves
+ * the supervisor stuck on a `/healthz` poll that will never succeed.
  */
 export function smokeCheckSqliteBinding(): void {
-  const db = new Database(":memory:");
+  const db = new DatabaseSync(":memory:");
   try {
     db.prepare("SELECT 1").get();
   } finally {
@@ -42,18 +40,18 @@ export function smokeCheckSqliteBinding(): void {
  * The file is forced to mode 0600 immediately after creation. On Windows
  * this is a no-op.
  */
-export function openOperatorDatabase(path: string): Database.Database {
+export function openOperatorDatabase(path: string): DatabaseSync {
   mkdirSync(dirname(path), { recursive: true });
-  const db = new Database(path);
+  const db = new DatabaseSync(path);
   try {
     try {
       chmodSync(path, 0o600);
     } catch {
       // best-effort
     }
-    db.pragma("journal_mode = WAL");
-    db.pragma("foreign_keys = ON");
-    db.pragma("busy_timeout = 3000");
+    db.exec("PRAGMA journal_mode = WAL");
+    db.exec("PRAGMA foreign_keys = ON");
+    db.exec("PRAGMA busy_timeout = 3000");
 
     runMigrations(db);
   } catch (err) {
@@ -64,7 +62,7 @@ export function openOperatorDatabase(path: string): Database.Database {
 }
 
 /** Read the current schema version. Returns 0 for a brand-new DB. */
-export function readSchemaVersion(db: Database.Database): number {
+export function readSchemaVersion(db: DatabaseSync): number {
   const tableRow = db
     .prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
@@ -84,7 +82,7 @@ export function readSchemaVersion(db: Database.Database): number {
   return n;
 }
 
-function runMigrations(db: Database.Database): void {
+function runMigrations(db: DatabaseSync): void {
   let currentVersion = readSchemaVersion(db);
 
   for (const migration of MIGRATIONS) {

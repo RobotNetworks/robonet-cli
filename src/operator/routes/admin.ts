@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import type { DatabaseSync } from "node:sqlite";
 
 import { requireAdmin } from "../auth.js";
 import {
@@ -37,7 +37,7 @@ interface AgentResponse {
 
 interface AdminContext {
   readonly repo: OperatorRepository;
-  readonly db: Database.Database;
+  readonly db: DatabaseSync;
   readonly adminTokenHash: string;
 }
 

@@ -1,7 +1,6 @@
 import { mkdirSync, chmodSync } from "node:fs";
 import { dirname } from "node:path";
-
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 
 import { RobotNetCLIError } from "../errors.js";
 import { UnsafePlaintextEncryptor, type Encryptor } from "./crypto.js";
@@ -112,7 +111,7 @@ export class CredentialStoreError extends RobotNetCLIError {
  * an action and closing at the end is the expected lifecycle.
  */
 export class CredentialStore {
-  readonly #db: Database.Database;
+  readonly #db: DatabaseSync;
   readonly #encryptor: Encryptor;
 
   /**
@@ -125,7 +124,7 @@ export class CredentialStore {
    */
   static open(path: string, opts: { readonly encryptor?: Encryptor } = {}): CredentialStore {
     mkdirSync(dirname(path), { recursive: true });
-    const db = new Database(path);
+    const db = new DatabaseSync(path);
     try {
       // Tighten permissions before any data lands. On Windows this is a no-op.
       try {
@@ -133,11 +132,11 @@ export class CredentialStore {
       } catch {
         // best-effort
       }
-      db.pragma("journal_mode = WAL");
-      db.pragma("foreign_keys = ON");
+      db.exec("PRAGMA journal_mode = WAL");
+      db.exec("PRAGMA foreign_keys = ON");
       // Wait up to 3s on a contended writer before erroring; another app
       // may be holding the lock briefly during a token rotation.
-      db.pragma("busy_timeout = 3000");
+      db.exec("PRAGMA busy_timeout = 3000");
 
       runMigrations(db);
     } catch (err) {
@@ -147,7 +146,7 @@ export class CredentialStore {
     return new CredentialStore(db, opts.encryptor ?? new UnsafePlaintextEncryptor());
   }
 
-  private constructor(db: Database.Database, encryptor: Encryptor) {
+  private constructor(db: DatabaseSync, encryptor: Encryptor) {
     this.#db = db;
     this.#encryptor = encryptor;
   }
@@ -173,7 +172,7 @@ export class CredentialStore {
          FROM admin_tokens WHERE network_name = ?`,
       )
       .get(networkName) as
-      | { network_name: string; token_ciphertext: Buffer; issued_at: number; updated_at: number }
+      | { network_name: string; token_ciphertext: Uint8Array; issued_at: number; updated_at: number }
       | undefined;
     if (!row) return null;
     return {
@@ -219,7 +218,7 @@ export class CredentialStore {
       .prepare(
         `SELECT * FROM agent_credentials WHERE network_name = ? AND handle = ?`,
       )
-      .get(networkName, handle) as RawAgentRow | undefined;
+      .get(networkName, handle) as unknown as RawAgentRow | undefined;
     if (!row) return null;
     return rowToAgent(row, this.#encryptor);
   }
@@ -233,7 +232,7 @@ export class CredentialStore {
       .prepare(
         `SELECT * FROM agent_credentials WHERE network_name = ? ORDER BY handle`,
       )
-      .all(networkName) as RawAgentRow[];
+      .all(networkName) as unknown as RawAgentRow[];
     return rows.map((r) => rowToAgent(r, this.#encryptor));
   }
 
@@ -339,7 +338,7 @@ export class CredentialStore {
   getUserSession(): UserSessionRecord | null {
     const row = this.#db
       .prepare("SELECT * FROM user_sessions WHERE id = 1")
-      .get() as RawUserSessionRow | undefined;
+      .get() as unknown as RawUserSessionRow | undefined;
     if (!row) return null;
     return rowToUserSession(row, this.#encryptor);
   }
@@ -441,7 +440,7 @@ export class CredentialStore {
     const badAdmin: string[] = [];
     const adminRows = this.#db
       .prepare("SELECT network_name, token_ciphertext FROM admin_tokens")
-      .all() as Array<{ network_name: string; token_ciphertext: Buffer }>;
+      .all() as Array<{ network_name: string; token_ciphertext: Uint8Array }>;
     for (const r of adminRows) {
       if (!this.#canDecrypt(r.token_ciphertext)) badAdmin.push(r.network_name);
     }
@@ -462,9 +461,9 @@ export class CredentialStore {
       .all() as Array<{
         network_name: string;
         handle: string;
-        bearer_ciphertext: Buffer;
-        refresh_token_ciphertext: Buffer | null;
-        client_secret_ciphertext: Buffer | null;
+        bearer_ciphertext: Uint8Array;
+        refresh_token_ciphertext: Uint8Array | null;
+        client_secret_ciphertext: Uint8Array | null;
       }>;
     for (const r of agentRows) {
       if (
@@ -490,9 +489,9 @@ export class CredentialStore {
       )
       .get() as
       | {
-          access_token_ciphertext: Buffer;
-          id_token_ciphertext: Buffer | null;
-          refresh_token_ciphertext: Buffer | null;
+          access_token_ciphertext: Uint8Array;
+          id_token_ciphertext: Uint8Array | null;
+          refresh_token_ciphertext: Uint8Array | null;
         }
       | undefined;
     if (userRow !== undefined) {
@@ -515,7 +514,7 @@ export class CredentialStore {
     };
   }
 
-  #canDecrypt(blob: Buffer): boolean {
+  #canDecrypt(blob: Uint8Array): boolean {
     try {
       this.#encryptor.decrypt(blob);
       return true;
@@ -533,20 +532,20 @@ interface RawAgentRow {
   network_name: string;
   handle: string;
   kind: AgentCredentialKind;
-  bearer_ciphertext: Buffer;
+  bearer_ciphertext: Uint8Array;
   bearer_expires_at: number | null;
-  refresh_token_ciphertext: Buffer | null;
+  refresh_token_ciphertext: Uint8Array | null;
   client_id: string | null;
-  client_secret_ciphertext: Buffer | null;
+  client_secret_ciphertext: Uint8Array | null;
   scope: string | null;
   registered_at: number;
   updated_at: number;
 }
 
 interface RawUserSessionRow {
-  access_token_ciphertext: Buffer;
-  id_token_ciphertext: Buffer | null;
-  refresh_token_ciphertext: Buffer | null;
+  access_token_ciphertext: Uint8Array;
+  id_token_ciphertext: Uint8Array | null;
+  refresh_token_ciphertext: Uint8Array | null;
   access_token_expires_at: number | null;
   id_token_expires_at: number | null;
   scope: string | null;
@@ -640,7 +639,7 @@ function validateInput(input: AgentCredentialInput): void {
   }
 }
 
-function runMigrations(db: Database.Database): void {
+function runMigrations(db: DatabaseSync): void {
   // schema_version may not exist on a brand-new DB. Detect via sqlite_master.
   const tableRow = db
     .prepare(
