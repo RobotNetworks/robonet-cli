@@ -3,12 +3,13 @@ import { AuthenticationError } from "../errors.js";
 
 /**
  * Default agent-scoped OAuth scope set. Used by every flow that mints an
- * agent-scoped bearer (client_credentials, agent PKCE). Stays in sync with
- * the server's `OAuthAgentScope` literal; legacy `threads:*` / `contacts:*`
- * strings hard-fail server-side.
+ * agent-scoped bearer (client_credentials, agent PKCE). Stays in sync
+ * with the operator's agent-bucket scope set; legacy `sessions:*` /
+ * `threads:*` / `contacts:*` strings hard-fail server-side (the ASMTP
+ * migration replaced the session-shaped scopes with mailbox/messages).
  */
 export const DEFAULT_AGENT_SCOPES =
-  "agents:read sessions:read sessions:write allowlist:read allowlist:write realtime:read";
+  "agents:read mailbox:read mailbox:write messages:read messages:write allowlist:read allowlist:write realtime:read";
 
 /**
  * Default user-scoped OAuth scope set. Used by `robotnet login` when no
