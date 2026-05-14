@@ -18,11 +18,14 @@ import {
  * `robotnet files` — upload + download attachments referenced by
  * `file` and `image` content parts on envelopes.
  *
- * The upload path returns `{file_id, url}`. The agent embeds the `url`
- * in a content part on the outbound envelope; receivers fetch the bytes
- * on demand. The download path resolves either a bare `file_id` (against
- * the active network) or an absolute URL (typically a signed URL emitted
- * earlier in a `file` part).
+ * Upload returns an opaque `file_…` id (see
+ * {@link import("../asmtp/types.js").PostFileResponse}). The sender
+ * embeds `{type:"file"|"image", file_id}` in a content part on the
+ * outbound envelope; the operator resolves the id to a signed URL at
+ * envelope-accept time so the stored envelope carries a plain `url`
+ * for wire compatibility. Download accepts either a bare `file_…` id
+ * (resolved against the active network) or an absolute URL (typically
+ * a signed URL emitted earlier on a fetched envelope).
  */
 export function registerFilesCommand(program: Command): void {
   const files = defaultHelpOnBare(
@@ -52,7 +55,7 @@ interface DownloadOpts {
 function makeUploadCmd(): Command {
   return new Command("upload")
     .description(
-      "Upload a file. Returns `{file_id, url}` — embed the URL in a file or image content part.",
+      "Upload a file. Prints the `file_…` id — embed it via `file_id` on a `file` or `image` content part.",
     )
     .argument("<path>", "Local path to the file to upload")
     .option("--as <handle>", "Act as this agent handle", handleArg)
@@ -78,10 +81,9 @@ function makeUploadCmd(): Command {
         out(JSON.stringify(result, null, 2));
         return;
       }
-      out(`Uploaded ${result.file_id} (${bytes.length} bytes, ${contentType}).`);
-      out(`  URL: ${result.url}`);
-      out("  Embed it from an envelope:");
-      out(`    { "type": "file", "url": "${result.url}" }`);
+      out(`Uploaded ${result.id} (${bytes.length} bytes, ${contentType}).`);
+      out("  Embed it on an envelope content part:");
+      out(`    { "type": "file", "file_id": "${result.id}" }`);
     });
 }
 

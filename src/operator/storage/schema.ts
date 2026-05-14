@@ -145,9 +145,10 @@ export const MIGRATIONS: readonly Migration[] = [
       --
       -- Upload metadata. Bytes live under the operator's per-network
       -- filesDir (<stateDir>/networks/<name>/files/<id>/<filename>).
-      -- Files are uploaded by an agent, returned to the sender as
-      -- {file_id, url}, and the sender embeds the URL in a content
-      -- part. The download path verifies the bearer can see the file
+      -- Files are uploaded by an agent; the upload returns an opaque
+      -- file_... id, the sender embeds it on a content part via the
+      -- file_id field, and the operator resolves it to a download URL
+      -- at envelope-accept time. The download path verifies the bearer can see the file
       -- (currently: any agent that authenticates against this operator
       -- can fetch any file, the local-dev posture, since the in-tree
       -- operator is single-user). The shape leaves room for a stricter

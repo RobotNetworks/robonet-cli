@@ -130,7 +130,11 @@ function buildRouter(
     adminTokenHash: deps.config.adminTokenHash,
   });
   registerSelfRoutes(router, { repo: deps.repo });
-  registerMessagesRoutes(router, { repo: deps.repo, envelopes: services.envelopes });
+  registerMessagesRoutes(router, {
+    repo: deps.repo,
+    envelopes: services.envelopes,
+    files: services.files,
+  });
   registerMailboxRoutes(router, { repo: deps.repo, mailbox: services.mailbox });
   registerFileRoutes(router, { repo: deps.repo, files: services.files });
   registerSearchRoutes(router, { repo: deps.repo });

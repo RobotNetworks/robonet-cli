@@ -32,13 +32,26 @@ export interface TextPart {
 
 export interface ImagePart {
   readonly type: "image";
-  readonly url: string;
+  /**
+   * Exactly one of `url` / `file_id` is set. `url` is the ASMTP wire
+   * shape — what receivers fetch. `file_id` is the Robot Networks
+   * operator extension: the sender uploads bytes via `POST /files`,
+   * receives an opaque `file_…` id, and embeds that here. The
+   * operator resolves `file_id` to `url` at envelope-accept time, so
+   * the stored envelope always carries `url` for downstream wire
+   * compatibility. Operators that don't host uploads ignore
+   * `file_id` and require `url`.
+   */
+  readonly url?: string;
+  readonly file_id?: string;
   readonly mime_type?: string;
 }
 
 export interface FilePart {
   readonly type: "file";
-  readonly url: string;
+  /** See `ImagePart`. Exactly one of `url` / `file_id` is set. */
+  readonly url?: string;
+  readonly file_id?: string;
   readonly name?: string;
   readonly mime_type?: string;
   readonly size?: number;
@@ -159,14 +172,25 @@ export interface PostReadResponse {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Response from `POST /files`: the operator returns the file's id plus a
- * URL the sender can embed directly in a `file` or `image` content part.
- * The URL is what receivers fetch; the id is retained for follow-up
- * operations (resending, audit).
+ * Response from `POST /files` on a Robot Networks-style operator: the
+ * upload returns an opaque `id` plus metadata. There is no `url` in
+ * the response — the sender embeds `{type:"file", file_id:"file_…"}`
+ * (or `{type:"image", file_id:"file_…"}`) on the outbound envelope
+ * and the operator resolves the id to a signed URL at envelope-accept
+ * time. Receivers fetch bytes via `GET /files/{id}`.
+ *
+ * `status` is the operator's upload lifecycle state; `expires_at` is
+ * an operator-stamped epoch-ms TTL after which the bytes are no
+ * longer addressable (the operator may garbage-collect).
  */
 export interface PostFileResponse {
-  readonly file_id: string;
-  readonly url: string;
+  readonly id: string;
+  readonly status: string;
+  readonly filename: string;
+  readonly content_type: string;
+  readonly size_bytes: number;
+  readonly created_at: number;
+  readonly expires_at: number;
 }
 
 /* -------------------------------------------------------------------------- */

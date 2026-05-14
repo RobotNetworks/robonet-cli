@@ -56,7 +56,15 @@ describe("FilesClient.upload", () => {
     const { calls } = withFetchMock([
       () =>
         new Response(
-          JSON.stringify({ file_id: FILE_ID, url: `${BASE}/files/${FILE_ID}` }),
+          JSON.stringify({
+            id: FILE_ID,
+            status: "ready",
+            filename: "hello.bin",
+            content_type: "application/octet-stream",
+            size_bytes: 4,
+            created_at: 1_700_000_000_000,
+            expires_at: 1_700_000_086_400,
+          }),
           { status: 201 },
         ),
     ]);
@@ -65,8 +73,11 @@ describe("FilesClient.upload", () => {
       filename: "hello.bin",
       contentType: "application/octet-stream",
     });
-    assert.equal(result.file_id, FILE_ID);
-    assert.equal(result.url, `${BASE}/files/${FILE_ID}`);
+    assert.equal(result.id, FILE_ID);
+    assert.equal(result.status, "ready");
+    assert.equal(result.filename, "hello.bin");
+    assert.equal(result.content_type, "application/octet-stream");
+    assert.equal(result.size_bytes, 4);
 
     const call = calls[0]!;
     assert.equal(call.url, `${BASE}/files`);
@@ -103,12 +114,28 @@ describe("FilesClient.upload", () => {
     const { calls } = withFetchMock([
       () =>
         new Response(
-          JSON.stringify({ file_id: FILE_ID, url: `${BASE}/files/${FILE_ID}` }),
+          JSON.stringify({
+            id: FILE_ID,
+            status: "ready",
+            filename: "hello.bin",
+            content_type: "application/octet-stream",
+            size_bytes: 4,
+            created_at: 1_700_000_000_000,
+            expires_at: 1_700_000_086_400,
+          }),
           { status: 201 },
         ),
       () =>
         new Response(
-          JSON.stringify({ file_id: FILE_ID, url: `${BASE}/files/${FILE_ID}` }),
+          JSON.stringify({
+            id: FILE_ID,
+            status: "ready",
+            filename: "hello.bin",
+            content_type: "application/octet-stream",
+            size_bytes: 4,
+            created_at: 1_700_000_000_000,
+            expires_at: 1_700_000_086_400,
+          }),
           { status: 201 },
         ),
     ]);

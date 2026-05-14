@@ -1,5 +1,6 @@
 import { requireAgent } from "../auth.js";
 import type { EnvelopeService } from "../domain/envelopes.js";
+import type { FileService } from "../domain/files.js";
 import { BadRequestError } from "../errors.js";
 import { assertHandle } from "../handles.js";
 import type { OperatorRepository } from "../storage/repository.js";
@@ -10,6 +11,14 @@ import type { Router } from "./router.js";
 interface MessagesRoutesContext {
   readonly repo: OperatorRepository;
   readonly envelopes: EnvelopeService;
+  /**
+   * Used to resolve image/file content parts that supply `file_id`
+   * (operator-hosted upload reference) into a wire-canonical `url` at
+   * envelope-accept time. Without this resolution the stored envelope
+   * would carry only `file_id`, which other ASMTP operators that
+   * don't know about the `file_id` extension can't follow.
+   */
+  readonly files: FileService;
 }
 
 const MAX_BATCH_IDS = 100;
@@ -48,7 +57,10 @@ export function registerMessagesRoutes(
         ? parseEnvelopeIdArray(body.references, "references")
         : undefined;
     const dateMs = parseRequiredTimestamp(body.date_ms, "date_ms");
-    const contentParts = parseContentParts(body.content_parts);
+    const contentParts = resolveFileIdsToUrls(
+      parseContentParts(body.content_parts),
+      ctx.files,
+    );
     const monitor = parseOptionalString(body.monitor, "monitor");
 
     const now = Date.now();
@@ -168,6 +180,25 @@ function parseRequiredTimestamp(raw: unknown, field: string): number {
   return raw;
 }
 
+/**
+ * After validation, walk each image/file part and substitute any
+ * `file_id` reference with the operator's own download URL. Stored
+ * envelopes always carry `url` so downstream ASMTP operators that
+ * don't know about the `file_id` extension can follow the link.
+ */
+function resolveFileIdsToUrls(
+  parts: readonly unknown[],
+  files: FileService,
+): readonly unknown[] {
+  return parts.map((raw) => {
+    const part = raw as Record<string, unknown>;
+    if (part.type !== "image" && part.type !== "file") return part;
+    if (typeof part.file_id !== "string") return part;
+    const { file_id: fileId, ...rest } = part;
+    return { ...rest, url: files.buildFileUrl(fileId as string) };
+  });
+}
+
 function parseContentParts(raw: unknown): readonly unknown[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new BadRequestError(
@@ -204,13 +235,22 @@ function parseContentParts(raw: unknown): readonly unknown[] {
         );
       }
     } else if (type === "image" || type === "file") {
-      if (typeof obj.url !== "string" || obj.url.length === 0) {
+      const hasUrl = typeof obj.url === "string" && obj.url.length > 0;
+      const hasFileId =
+        typeof obj.file_id === "string" && obj.file_id.length > 0;
+      if (!hasUrl && !hasFileId) {
         throw new BadRequestError(
-          `content_parts[${i}].url is required`,
+          `content_parts[${i}] requires either 'url' or 'file_id'`,
           "INVALID_CONTENT",
         );
       }
-      if (obj.url.startsWith("data:")) {
+      if (hasUrl && hasFileId) {
+        throw new BadRequestError(
+          `content_parts[${i}] cannot set both 'url' and 'file_id'`,
+          "INVALID_CONTENT",
+        );
+      }
+      if (hasUrl && (obj.url as string).startsWith("data:")) {
         throw new BadRequestError(
           `content_parts[${i}].url MUST NOT use the data: scheme`,
           "INVALID_CONTENT",

@@ -573,14 +573,23 @@ describe("operator POST /messages + GET /mailbox + GET /messages/{id}", () => {
       body,
     });
     assert.equal(uploadRes.status, 201);
-    const { file_id, url } = (await uploadRes.json()) as {
-      file_id: string;
-      url: string;
+    const uploadBody = (await uploadRes.json()) as {
+      id: string;
+      status: string;
+      filename: string;
+      content_type: string;
+      size_bytes: number;
+      created_at: number;
+      expires_at: number;
     };
-    assert.ok(file_id.startsWith("file_"));
-    assert.ok(url.includes(`/files/${file_id}`));
+    assert.ok(uploadBody.id.startsWith("file_"));
+    assert.equal(uploadBody.status, "ready");
+    assert.equal(uploadBody.filename, "test.png");
+    assert.equal(uploadBody.content_type, "image/png");
+    assert.equal(uploadBody.size_bytes, pngHeader.length);
+    assert.ok(uploadBody.expires_at > uploadBody.created_at);
 
-    const downloadRes = await fetch(url, {
+    const downloadRes = await fetch(`${h.baseUrl}/files/${uploadBody.id}`, {
       headers: { Authorization: `Bearer ${alice.token}` },
     });
     assert.equal(downloadRes.status, 200);

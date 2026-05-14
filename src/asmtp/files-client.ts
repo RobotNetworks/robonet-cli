@@ -1,11 +1,15 @@
 /**
- * Typed client for the URL-mint file surface.
+ * Typed client for the operator-hosted file surface.
  *
- * `POST /files` accepts the bytes and returns `{file_id, url}`. The URL is
- * what the sender embeds in a `file` or `image` content part; the receiver
- * fetches the bytes on demand. `GET /files/{file_id}` resolves an id to a
- * fresh signed URL (operators may return 302 or stream the bytes inline);
- * this client follows 302 redirects and returns whichever bytes land.
+ * `POST /files` accepts the bytes and returns upload metadata keyed by
+ * an opaque `id`. The sender embeds `{type:"file"|"image", file_id}`
+ * on the outbound envelope; the operator resolves `file_id` to a
+ * signed URL at envelope-accept time. There is no `url` in the upload
+ * response — see `PostFileResponse` in `./types.ts`.
+ *
+ * `GET /files/{id}` resolves an id to a fresh signed URL; operators
+ * may either 302 to the signed URL or stream bytes inline. This
+ * client follows 302 redirects and returns whichever bytes land.
  */
 
 import { randomUUID } from "node:crypto";
@@ -43,9 +47,10 @@ export class FilesClient {
   }
 
   /**
-   * Upload a binary to the operator's `POST /files`. Returns `{file_id, url}`
-   * — the `url` is what the sender embeds in a content part on the outbound
-   * envelope. The `file_id` is the stable identifier for follow-up operations.
+   * Upload a binary to the operator's `POST /files`. Returns the
+   * upload metadata (see {@link PostFileResponse}); the sender uses
+   * `result.id` as the `file_id` on the envelope's `file`/`image`
+   * content parts.
    */
   async upload(input: UploadInput): Promise<PostFileResponse> {
     const form = new FormData();

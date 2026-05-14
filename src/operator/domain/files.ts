@@ -2,16 +2,16 @@
  * In-tree operator file service.
  *
  * Bytes live in the per-network filesDir (sibling to `operator.sqlite`);
- * the operator returns a download URL pointing at its own
- * `GET /files/{file_id}` endpoint. The sender embeds that URL on the
- * envelope's content part directly.
+ * the upload returns an opaque `file_…` id. The sender embeds
+ * `{type:"file"|"image", file_id}` on a content part; the operator
+ * resolves `file_id` to its own `GET /files/{id}` URL at envelope-
+ * accept time so the stored envelope carries `url` (wire-canonical).
  *
  * The in-tree operator is dev-only, so the only file-level access check
  * is that the requester is an authenticated agent on this operator — the
  * file is delivered as-is. Operators that need stricter access control
  * layer additional checks at the route layer without changing the wire
- * surface (the URL itself is what the sender embeds and what the
- * receiver fetches).
+ * surface (the URL itself is what the recipient eventually fetches).
  */
 
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -64,10 +64,23 @@ export interface UploadInput {
   readonly bytes: Buffer;
 }
 
+/**
+ * Upload metadata returned to the sender. The in-tree operator stamps
+ * a 24-hour expiry to mirror the canonical Robot Networks shape; the
+ * file is reachable via `GET /files/{id}` until `expiresAt` (a stub
+ * for the dev-only operator — no GC runs in this process).
+ */
 export interface UploadResult {
-  readonly fileId: string;
-  readonly url: string;
+  readonly id: string;
+  readonly status: "ready";
+  readonly filename: string;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+  readonly createdAt: number;
+  readonly expiresAt: number;
 }
+
+const UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
 
 export class FileService {
   readonly #repo: OperatorRepository;
@@ -110,7 +123,16 @@ export class FileService {
       sizeBytes: input.bytes.length,
       relativePath,
     });
-    return { fileId: id, url: this.buildFileUrl(id) };
+    const createdAt = Date.now();
+    return {
+      id,
+      status: "ready",
+      filename: safeName,
+      contentType,
+      sizeBytes: input.bytes.length,
+      createdAt,
+      expiresAt: createdAt + UPLOAD_TTL_MS,
+    };
   }
 
   /** Read the bytes for a stored file. The caller is responsible for

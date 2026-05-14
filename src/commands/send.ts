@@ -27,7 +27,8 @@ import {
  * Recipients are the variadic positional arg. Content is built from
  * `--text`, `--file`, `--image`, and `--data` flags; each flag is
  * repeatable and parts appear in argument order. `--file` / `--image`
- * upload to `POST /files` and embed the returned URL on the envelope.
+ * upload to `POST /files` and embed the returned `file_id` on the
+ * envelope (the operator resolves it to a signed URL on accept).
  */
 export function registerSendCommand(program: Command): void {
   program.addCommand(makeSendCommand());
@@ -215,7 +216,7 @@ async function buildContent(
     const upload = await uploadFile(filesClient!, filePath);
     parts.push({
       type: "file",
-      url: upload.url,
+      file_id: upload.id,
       name: path.basename(filePath),
       mime_type: upload.contentType,
       size: upload.size,
@@ -226,7 +227,7 @@ async function buildContent(
     const upload = await uploadFile(filesClient!, imgPath);
     parts.push({
       type: "image",
-      url: upload.url,
+      file_id: upload.id,
       mime_type: upload.contentType,
     });
   }
@@ -239,7 +240,7 @@ async function buildContent(
 }
 
 interface UploadedFile {
-  readonly url: string;
+  readonly id: string;
   readonly contentType: string;
   readonly size: number;
 }
@@ -258,7 +259,7 @@ async function uploadFile(
   const filename = path.basename(filePath);
   const contentType = guessContentType(filename);
   const result = await client.upload({ bytes, filename, contentType });
-  return { url: result.url, contentType, size: bytes.length };
+  return { id: result.id, contentType, size: bytes.length };
 }
 
 function parseDataLiteral(raw: string): Readonly<Record<string, unknown>> {

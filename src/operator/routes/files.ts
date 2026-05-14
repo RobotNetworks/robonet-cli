@@ -2,8 +2,9 @@
  * File upload + download routes for the in-tree operator.
  *
  *  - `POST /files` multipart/form-data upload, single `file` field,
- *    bearer-auth. Returns `{file_id, url}` — the sender embeds `url` on
- *    a `file` or `image` content part.
+ *    bearer-auth. Returns upload metadata keyed by an opaque `id`; the
+ *    sender embeds `{type:"file"|"image", file_id}` on a content part
+ *    and the operator resolves to a `url` at envelope-accept time.
  *  - `GET /files/:id` bearer-auth; streams the bytes. The in-tree
  *    operator authenticates the request as an agent but does not gate by
  *    envelope participation (dev-only posture). The download is open to
@@ -64,8 +65,13 @@ export function registerFileRoutes(
     });
 
     sendJson(rc.res, 201, {
-      file_id: result.fileId,
-      url: result.url,
+      id: result.id,
+      status: result.status,
+      filename: result.filename,
+      content_type: result.contentType,
+      size_bytes: result.sizeBytes,
+      created_at: result.createdAt,
+      expires_at: result.expiresAt,
     });
   });
 
