@@ -180,6 +180,38 @@ describe("operator POST /messages + GET /mailbox + GET /messages/{id}", () => {
     assert.equal(fetchBody.content_parts[0]!.text, "hello there");
   });
 
+  it("allows an agent to send to itself even under allowlist policy", async () => {
+    // Self-trust: an agent addressing its own mailbox bypasses the
+    // bilateral allowlist gate (mirrors email's To/Cc-yourself). Without
+    // this, an allowlist-policy agent would have to put itself on its
+    // own allowlist before sending to itself.
+    const alice = await registerAgent(h, "@alice.cli", { policy: "allowlist" });
+
+    const envelopeId = "01HW7Z9KQX1MS2D9P5VC3GZ8SE";
+    const sendRes = await fetch(`${h.baseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${alice.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "self-send-1",
+      },
+      body: JSON.stringify(ENVELOPE_TEXT_BODY(envelopeId, [alice.handle])),
+    });
+    assert.equal(sendRes.status, 202);
+
+    // Alice's own mailbox now contains the envelope.
+    const mailboxRes = await fetch(`${h.baseUrl}/mailbox?order=asc`, {
+      headers: { Authorization: `Bearer ${alice.token}` },
+    });
+    assert.equal(mailboxRes.status, 200);
+    const mailboxBody = (await mailboxRes.json()) as {
+      envelope_headers: { id: string; from: string }[];
+    };
+    assert.equal(mailboxBody.envelope_headers.length, 1);
+    assert.equal(mailboxBody.envelope_headers[0]!.id, envelopeId);
+    assert.equal(mailboxBody.envelope_headers[0]!.from, alice.handle);
+  });
+
   it("a non-recipient gets 404 on GET /messages/{id}", async () => {
     const alice = await registerAgent(h, "@alice.cli");
     const bob = await registerAgent(h, "@bob.cli");

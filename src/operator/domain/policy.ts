@@ -45,6 +45,13 @@ export function canInitiate(
   initiator: Handle,
   peer: Handle,
 ): boolean {
+  // Self-trust: an agent may always address itself. Allowlist semantics
+  // are about cross-agent trust and don't apply to self; mirrors email
+  // convention (you can To/Cc yourself). Still requires the agent to
+  // exist on this operator.
+  if (initiator === peer) {
+    return repo.agents.byHandle(initiator) !== null;
+  }
   return isReachable(repo, initiator, peer) && isReachable(repo, peer, initiator);
 }
 
