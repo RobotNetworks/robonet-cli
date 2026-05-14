@@ -17,11 +17,11 @@ interface SearchRoutesContext {
  *  - `GET /search` directory wrapper that aggregates agents (+ empty
  *    people/organisations arrays the in-tree operator has no analogue
  *    for; the CLI's directory render skips empty sections).
- *
- * Envelope-content search is intentionally not exposed — the wire layer
- * is mailbox-shaped and search-on-content is a separate index that lands
- * later. The CLI's `search --scope messages` errors out with a clear
- * "feature pending" message rather than reaching a 404 here.
+ *  - `GET /search/messages` substring search across the caller's own
+ *    mailbox (envelopes the caller is a recipient of). Operator
+ *    extension to ASMTP — not part of the open wire spec. The reference
+ *    implementation here is a LIKE match against `subject` + the JSON-
+ *    encoded body; production operators substitute a real text index.
  */
 export function registerSearchRoutes(
   router: Router,
@@ -63,6 +63,41 @@ export function registerSearchRoutes(
       organizations: [],
     });
   });
+
+  router.add("GET", "/search/messages", (rc) => {
+    const caller = requireAgent(rc.req, ctx.repo.agents);
+    const query = parseQuery(rc.url);
+    const limit = parseMessageSearchLimit(rc.url);
+    const hits = ctx.repo.envelopes.searchForRecipient({
+      recipientHandle: caller.handle,
+      query,
+      limit,
+    });
+    sendJson(rc.res, 200, {
+      envelopes: hits.map((e) => ({
+        envelope_id: e.id,
+        sender_handle: e.fromHandle,
+        recipient_handles: ctx.repo.mailbox.recipientsFor(e.id),
+        subject: e.subject,
+        snippet: null,
+        created_at: e.createdAtMs,
+        date_ms: e.dateMs,
+      })),
+    });
+  });
+}
+
+function parseMessageSearchLimit(url: URL): number {
+  const v = url.searchParams.get("limit");
+  if (v === null || v.length === 0) return 20;
+  const n = Number.parseInt(v, 10);
+  if (!Number.isInteger(n) || n < 1 || n > 50 || String(n) !== v) {
+    throw new BadRequestError(
+      "limit must be an integer between 1 and 50",
+      "INVALID_QUERY",
+    );
+  }
+  return n;
 }
 
 function isVisibleTo(

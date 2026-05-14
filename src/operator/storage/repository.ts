@@ -436,6 +436,43 @@ export class EnvelopesRepo {
     }
     return out;
   }
+
+  /**
+   * Substring search for envelopes a `recipient` is on, matching `query`
+   * against `subject` or the JSON-encoded body. Recipient filter is
+   * enforced via the join: an envelope only surfaces if the caller's
+   * `mailbox_handle` row exists. Results are ordered newest-first by
+   * `(created_at_ms DESC, id DESC)` — matches the admin UI default and
+   * the hosted backend's relevance-ordered shape closely enough for
+   * local-network UX (production operators substitute a real text index).
+   *
+   * `%` and `_` in `query` are escaped so a hostile or accidental
+   * wildcard doesn't widen the match.
+   */
+  searchForRecipient(opts: {
+    readonly recipientHandle: Handle;
+    readonly query: string;
+    readonly limit: number;
+  }): readonly EnvelopeRecord[] {
+    const like = `%${escapeLike(opts.query)}%`;
+    const rows = this.#db
+      .prepare(
+        `SELECT DISTINCT e.*
+         FROM envelopes e
+         JOIN mailbox_entries m ON m.envelope_id = e.id
+         WHERE m.mailbox_handle = ?
+           AND (e.subject LIKE ? ESCAPE '\\' OR e.body_json LIKE ? ESCAPE '\\')
+         ORDER BY e.created_at_ms DESC, e.id DESC
+         LIMIT ?`,
+      )
+      .all(
+        opts.recipientHandle,
+        like,
+        like,
+        opts.limit,
+      ) as unknown as RawEnvelopeRow[];
+    return rows.map(rawToEnvelope);
+  }
 }
 
 /* -------------------------------------------------------------------------- */

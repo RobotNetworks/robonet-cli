@@ -365,6 +365,132 @@ describe("operator POST /messages + GET /mailbox + GET /messages/{id}", () => {
     assert.equal(sendRes.status, 400);
   });
 
+  it("GET /search/messages returns hits the caller is on; non-recipients see zero", async () => {
+    const alice = await registerAgent(h, "@alice.cli");
+    const bob = await registerAgent(h, "@bob.cli");
+    const carol = await registerAgent(h, "@carol.cli");
+
+    // Three envelopes from Alice to Bob with distinct text bodies.
+    const ids = [
+      "01HW7Z9KQX1MS2D9P5VC3GZ800",
+      "01HW7Z9KQX1MS2D9P5VC3GZ801",
+      "01HW7Z9KQX1MS2D9P5VC3GZ802",
+    ];
+    const texts = ["build is green", "deploy failed loudly", "midnight nudge"];
+    for (let i = 0; i < ids.length; i++) {
+      const res = await fetch(`${h.baseUrl}/messages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${alice.token}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": `send-${i}`,
+        },
+        body: JSON.stringify({
+          id: ids[i],
+          to: [bob.handle],
+          date_ms: 1747000000000 + i,
+          content_parts: [{ type: "text", text: texts[i] }],
+        }),
+      });
+      assert.equal(res.status, 202);
+    }
+
+    // Bob searches for "deploy" — one hit, his own envelope.
+    const bobSearch = await fetch(
+      `${h.baseUrl}/search/messages?q=${encodeURIComponent("deploy")}&limit=10`,
+      { headers: { Authorization: `Bearer ${bob.token}` } },
+    );
+    assert.equal(bobSearch.status, 200);
+    const bobBody = (await bobSearch.json()) as {
+      envelopes: {
+        envelope_id: string;
+        sender_handle: string;
+        recipient_handles: string[];
+        subject: string | null;
+        snippet: string | null;
+        created_at: number;
+        date_ms: number;
+      }[];
+    };
+    assert.equal(bobBody.envelopes.length, 1);
+    assert.equal(bobBody.envelopes[0]!.envelope_id, ids[1]);
+    assert.equal(bobBody.envelopes[0]!.sender_handle, alice.handle);
+    assert.deepEqual(bobBody.envelopes[0]!.recipient_handles, [bob.handle]);
+
+    // Carol (a non-recipient of every envelope) searches for the same
+    // term and MUST get zero results — recipient filter is load-bearing.
+    const carolSearch = await fetch(
+      `${h.baseUrl}/search/messages?q=${encodeURIComponent("deploy")}&limit=10`,
+      { headers: { Authorization: `Bearer ${carol.token}` } },
+    );
+    assert.equal(carolSearch.status, 200);
+    const carolBody = (await carolSearch.json()) as { envelopes: unknown[] };
+    assert.equal(
+      carolBody.envelopes.length,
+      0,
+      "search MUST NOT leak envelopes the caller is not a recipient of",
+    );
+  });
+
+  it("GET /search/messages orders newest-first and caps at limit", async () => {
+    const alice = await registerAgent(h, "@alice.cli");
+    const bob = await registerAgent(h, "@bob.cli");
+
+    const ids = [
+      "01HW7Z9KQX1MS2D9P5VC3GZ810",
+      "01HW7Z9KQX1MS2D9P5VC3GZ811",
+      "01HW7Z9KQX1MS2D9P5VC3GZ812",
+    ];
+    for (let i = 0; i < ids.length; i++) {
+      await fetch(`${h.baseUrl}/messages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${alice.token}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": `send-${i}`,
+        },
+        body: JSON.stringify({
+          id: ids[i],
+          to: [bob.handle],
+          date_ms: 1747000000000 + i,
+          content_parts: [{ type: "text", text: "keyword-match" }],
+        }),
+      });
+    }
+
+    const res = await fetch(
+      `${h.baseUrl}/search/messages?q=${encodeURIComponent("keyword-match")}&limit=2`,
+      { headers: { Authorization: `Bearer ${bob.token}` } },
+    );
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      envelopes: { envelope_id: string; created_at: number }[];
+    };
+    assert.equal(body.envelopes.length, 2, "limit MUST cap the page");
+    // Newest-first (created_at DESC). The third envelope inserted has the
+    // highest created_at, so it leads.
+    assert.equal(body.envelopes[0]!.envelope_id, ids[2]);
+    assert.equal(body.envelopes[1]!.envelope_id, ids[1]);
+    assert.ok(
+      body.envelopes[0]!.created_at >= body.envelopes[1]!.created_at,
+      "results MUST be ordered newest-first by created_at",
+    );
+  });
+
+  it("GET /search/messages rejects malformed q with 400", async () => {
+    const alice = await registerAgent(h, "@alice.cli");
+    // q below minimum length.
+    const tooShort = await fetch(`${h.baseUrl}/search/messages?q=a&limit=10`, {
+      headers: { Authorization: `Bearer ${alice.token}` },
+    });
+    assert.equal(tooShort.status, 400);
+    // q missing entirely.
+    const missing = await fetch(`${h.baseUrl}/search/messages?limit=10`, {
+      headers: { Authorization: `Bearer ${alice.token}` },
+    });
+    assert.equal(missing.status, 400);
+  });
+
   it("supports POST /files + GET /files/:id round-trip", async () => {
     const alice = await registerAgent(h, "@alice.cli");
 
