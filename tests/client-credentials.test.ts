@@ -85,7 +85,7 @@ describe("requestClientCredentialsToken", () => {
       clientId: "client-id",
       clientSecret: "client-secret",
       resource: "https://api.example.test",
-      scope: "agents:read sessions:read",
+      scope: "agents:read mailbox:read",
     });
 
     assert.equal(result.accessToken, "tok_123");
@@ -96,7 +96,7 @@ describe("requestClientCredentialsToken", () => {
     assert.equal(params.get("client_id"), "client-id");
     assert.equal(params.get("client_secret"), "client-secret");
     assert.equal(params.get("resource"), "https://api.example.test");
-    assert.equal(params.get("scope"), "agents:read sessions:read");
+    assert.equal(params.get("scope"), "agents:read mailbox:read");
   });
 
   it("throws AuthenticationError on HTTP failure", async () => {

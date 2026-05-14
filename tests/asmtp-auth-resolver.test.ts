@@ -232,7 +232,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
             access_token: "fresh-bearer",
             token_type: "Bearer",
             expires_in: 3600,
-            scope: "sessions:read sessions:write",
+            scope: "mailbox:read mailbox:write",
           }),
           { status: 200 },
         );
@@ -313,7 +313,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
       bearerExpiresAt: Date.now() - 1,
       refreshToken: "rt-old",
       clientId: "public-ci",
-      scope: "sessions:read sessions:write",
+      scope: "mailbox:read mailbox:write",
     });
 
     let tokenBody = "";
@@ -345,7 +345,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
             token_type: "Bearer",
             expires_in: 3600,
             refresh_token: "rt-new",
-            scope: "sessions:read sessions:write",
+            scope: "mailbox:read mailbox:write",
           }),
           { status: 200 },
         );
@@ -388,7 +388,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
       bearerExpiresAt: Date.now() - 1,
       refreshToken: "rt-old",
       clientId: "public-ci",
-      scope: "sessions:read sessions:write",
+      scope: "mailbox:read mailbox:write",
     });
 
     let tokenCalls = 0;
@@ -421,7 +421,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
             token_type: "Bearer",
             expires_in: 3600,
             refresh_token: "rt-new",
-            scope: "sessions:read sessions:write",
+            scope: "mailbox:read mailbox:write",
           }),
           { status: 200 },
         );
@@ -465,7 +465,7 @@ describe("resolveAgentToken — oauth_client_credentials renewal", () => {
       bearerExpiresAt: Date.now() - 1,
       refreshToken: "rt-revoked",
       clientId: "public-ci",
-      scope: "sessions:read sessions:write",
+      scope: "mailbox:read mailbox:write",
     });
 
     const origFetch = globalThis.fetch;

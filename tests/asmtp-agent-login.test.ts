@@ -97,7 +97,7 @@ function mockOAuthFetch(opts: {
             access_token: "minted-bearer",
             token_type: "Bearer",
             expires_in: 3600,
-            scope: "agents:read sessions:read sessions:write",
+            scope: "agents:read mailbox:read mailbox:write",
           },
         ),
         { status: opts.tokenStatus ?? 200 },
@@ -132,7 +132,7 @@ describe("enrollAgentClientCredentials", () => {
       handle: "@cli.bot",
       clientId: "ci-xxx",
       clientSecret: "cs-xxx",
-      scope: "sessions:read sessions:write",
+      scope: "mailbox:read mailbox:write",
     });
 
     assert.equal(minted.bearer, "minted-bearer");
@@ -141,7 +141,7 @@ describe("enrollAgentClientCredentials", () => {
     assert.match(captured.value, /grant_type=client_credentials/);
     assert.match(captured.value, /client_id=ci-xxx/);
     assert.match(captured.value, /client_secret=cs-xxx/);
-    assert.match(captured.value, /scope=sessions/);
+    assert.match(captured.value, /scope=mailbox/);
 
     // Row landed in the store with the renewal material.
     const store = await openProcessCredentialStore(config);
@@ -151,7 +151,7 @@ describe("enrollAgentClientCredentials", () => {
     assert.equal(row!.bearer, "minted-bearer");
     assert.equal(row!.clientId, "ci-xxx");
     assert.equal(row!.clientSecret, "cs-xxx");
-    assert.equal(row!.scope, "agents:read sessions:read sessions:write");
+    assert.equal(row!.scope, "agents:read mailbox:read mailbox:write");
   });
 
   it("propagates an AuthenticationError when the token endpoint rejects", async () => {
@@ -192,7 +192,7 @@ function fakePkceResult(overrides: Partial<PKCELoginResult> = {}): PKCELoginResu
     token: {
       accessToken: "minted-bearer",
       expiresIn: 3600,
-      scope: "agents:read sessions:read sessions:write",
+      scope: "agents:read mailbox:read mailbox:write",
       tokenType: "Bearer",
       resource: "https://api.example/v1",
     },
@@ -283,7 +283,7 @@ describe("renewAgentClientCredentials", () => {
         access_token: "first-bearer",
         token_type: "Bearer",
         expires_in: 3600,
-        scope: "sessions:read",
+        scope: "mailbox:read",
       },
     });
     const config = makeConfig();
@@ -300,7 +300,7 @@ describe("renewAgentClientCredentials", () => {
         access_token: "second-bearer",
         token_type: "Bearer",
         expires_in: 7200,
-        scope: "sessions:read sessions:write",
+        scope: "mailbox:read mailbox:write",
       },
     });
     const fresh = await renewAgentClientCredentials({
@@ -308,7 +308,7 @@ describe("renewAgentClientCredentials", () => {
       handle: "@cli.bot",
       clientId: "ci-xxx",
       clientSecret: "cs-xxx",
-      scope: "sessions:read sessions:write",
+      scope: "mailbox:read mailbox:write",
     });
     assert.equal(fresh, "second-bearer");
 
@@ -316,7 +316,7 @@ describe("renewAgentClientCredentials", () => {
     const row = store.getAgentCredential("global", "@cli.bot");
     assert.ok(row);
     assert.equal(row!.bearer, "second-bearer");
-    assert.equal(row!.scope, "sessions:read sessions:write");
+    assert.equal(row!.scope, "mailbox:read mailbox:write");
     // Expiry should be ~7200s out, not the initial 3600s.
     const remaining = (row!.bearerExpiresAt ?? 0) - Date.now();
     assert.ok(remaining > 3600 * 1000, "expiry advanced past the original");

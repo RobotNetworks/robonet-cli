@@ -18,7 +18,7 @@ function sampleToken(
     accessToken: "access-token",
     tokenType: "Bearer",
     expiresIn: 3600,
-    scope: "sessions:read",
+    scope: "mailbox:read",
     resource,
   };
 }
