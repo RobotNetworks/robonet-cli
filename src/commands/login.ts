@@ -4,18 +4,19 @@ import {
   enrollAgentClientCredentials,
   enrollAgentPkce,
   enrollAgentPkceViaPicker,
-} from "../asp/agent-login.js";
-import { assertValidHandle, handleArg } from "../asp/handles.js";
+} from "../asmtp/agent-login.js";
+import { assertValidHandle, handleArg } from "../asmtp/handles.js";
 import type { CLIConfig } from "../config.js";
 import { openProcessCredentialStore } from "../credentials/lifecycle.js";
 import { RobotNetCLIError } from "../errors.js";
 import { renderKeyValues } from "../output/formatters.js";
 import { renderJson } from "../output/json-output.js";
-import { loadConfigForAgentCommand, loadConfigFromRoot } from "./asp-shared.js";
 import {
   clientIdOption,
   clientSecretOption,
   jsonOption,
+  loadConfigForAgentCommand,
+  loadConfigFromRoot,
   profileTitle,
   resolveClientSecret,
   scopeOption,

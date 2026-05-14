@@ -1,36 +1,33 @@
 /**
- * SQLite schema for the local ASP operator's persistent state.
+ * SQLite schema for the in-tree local operator's persistent state.
  *
  * Lives at `<dataDir>/networks/<name>/operator.sqlite`. Holds agents,
- * allowlist entries, sessions, participants, messages, the per-session
- * event log, per-(handle, session) delivery cursors, and idempotency
- * caches.
+ * allowlist entries, blocks, envelopes, per-recipient mailbox entries,
+ * and file metadata.
  *
  * Notes on the design:
  *
  * - Bearer tokens are stored as sha256 hashes (no plaintext at rest). The
  *   plaintext is returned exactly once at registration time and never
- *   recoverable — admin must rotate to issue a new one.
- * - Sequences are monotonic per-session. The next-sequence counter lives
- *   in `session_sequences`, updated transactionally with each event/message
- *   insert so we never hand out duplicate or skipping numbers under
- *   concurrent writes.
+ *   recoverable; admins rotate to issue a new one.
+ * - One envelope row plus one mailbox_entries row per recipient. The
+ *   envelope id is the spec ULID; the mailbox PK is `(mailbox_handle,
+ *   envelope_id)`; the keyset index is `(mailbox_handle, created_at,
+ *   envelope_id)` so pagination is a tight range scan in either order.
  * - Foreign keys are declared and `PRAGMA foreign_keys = ON` is set in
  *   the database wrapper. Cascading deletes are intentional: dropping an
- *   agent (admin op) walks the participant + cursor + idempotency rows
- *   too.
- * - Robot Networks-specific concepts that aren't in ASP itself (e.g. agent cards
- *   and skills, when they land) get added as additional columns on
- *   `agents`, or as sibling tables that FK to `agents.handle`. The schema
- *   was designed to be extended that way without disturbing protocol
- *   tables.
+ *   agent walks the allowlist + blocks + mailbox + envelopes-they-sent
+ *   rows too.
+ * - Files are local-disk-backed (the in-tree operator is dev-only). The
+ *   `files` table records `(owner_handle, relative_path)` so a network
+ *   reset removes both the metadata and the bytes together.
  *
  * Migrations are forward-only and idempotent. Each entry is a transaction
  * the database wrapper applies if `meta.value` for `schema_version` is
  * below the migration's version.
  */
 
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 1;
 
 interface Migration {
   readonly version: number;
@@ -46,8 +43,6 @@ export const MIGRATIONS: readonly Migration[] = [
         key TEXT NOT NULL PRIMARY KEY,
         value TEXT NOT NULL
       );
-      -- The schema version is itself a meta row so we can evolve other
-      -- meta keys (network_name, spec_version, …) without a separate table.
       INSERT INTO meta (key, value) VALUES ('schema_version', '1');
 
       -- ── Agents ────────────────────────────────────────────────────────
@@ -56,14 +51,19 @@ export const MIGRATIONS: readonly Migration[] = [
       -- sha256 hash so a DB compromise does not leak credentials. The
       -- plaintext is returned exactly once at registration time.
       --
-      -- 'inbound_policy' controls whether an agent must explicitly trust
-      -- a peer to receive sessions from them: 'open' → anyone reachable;
-      -- 'allowlist' → only entries in the allowlist table.
+      -- 'inbound_policy' controls envelope admission: 'open' admits any
+      -- sender; 'allowlist' (default) admits only senders matching an
+      -- entry in the allowlist table.
       CREATE TABLE agents (
         handle TEXT NOT NULL PRIMARY KEY,
         bearer_token_hash TEXT NOT NULL UNIQUE,
         inbound_policy TEXT NOT NULL CHECK (inbound_policy IN ('open', 'allowlist'))
           DEFAULT 'allowlist',
+        display_name TEXT,
+        description TEXT,
+        card_body TEXT,
+        visibility TEXT NOT NULL CHECK (visibility IN ('public', 'private'))
+          DEFAULT 'private',
         metadata_json TEXT,
         created_at_ms INTEGER NOT NULL,
         updated_at_ms INTEGER NOT NULL
@@ -71,8 +71,8 @@ export const MIGRATIONS: readonly Migration[] = [
 
       -- ── Allowlist ─────────────────────────────────────────────────────
       --
-      -- Each row represents one trust grant from owner_handle. 'entry'
-      -- is either a specific handle ("@x.y") or an owner glob ("@x.*").
+      -- Each row represents one trust grant from owner_handle. The entry
+      -- is either a specific handle (@x.y) or an owner glob (@x.*).
       CREATE TABLE allowlist (
         owner_handle TEXT NOT NULL REFERENCES agents(handle) ON DELETE CASCADE,
         entry TEXT NOT NULL,
@@ -80,116 +80,12 @@ export const MIGRATIONS: readonly Migration[] = [
         PRIMARY KEY (owner_handle, entry)
       );
 
-      -- ── Sessions ──────────────────────────────────────────────────────
-      CREATE TABLE sessions (
-        id TEXT NOT NULL PRIMARY KEY,
-        creator_handle TEXT NOT NULL REFERENCES agents(handle),
-        state TEXT NOT NULL CHECK (state IN ('active', 'ended')),
-        topic TEXT,
-        created_at_ms INTEGER NOT NULL,
-        updated_at_ms INTEGER NOT NULL,
-        ended_at_ms INTEGER
-      );
-
-      CREATE INDEX sessions_by_creator ON sessions (creator_handle);
-      CREATE INDEX sessions_by_state ON sessions (state);
-
-      -- ── Participants ──────────────────────────────────────────────────
-      CREATE TABLE participants (
-        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-        handle TEXT NOT NULL,
-        status TEXT NOT NULL CHECK (status IN ('invited', 'joined', 'left')),
-        joined_at_ms INTEGER,
-        left_at_ms INTEGER,
-        PRIMARY KEY (session_id, handle)
-      );
-
-      CREATE INDEX participants_by_handle ON participants (handle);
-
-      -- ── Per-session sequence counter ─────────────────────────────────
-      --
-      -- A separate table so we can UPDATE next_sequence atomically without
-      -- scanning the messages / events tables on every write.
-      CREATE TABLE session_sequences (
-        session_id TEXT NOT NULL PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
-        next_sequence INTEGER NOT NULL DEFAULT 1
-      );
-
-      -- ── Messages ──────────────────────────────────────────────────────
-      --
-      -- Content lives as raw JSON for flexibility: plain string or array of
-      -- typed parts (text/image/file/data). Parsing is the route layer's
-      -- job; the store treats it as opaque.
-      CREATE TABLE messages (
-        id TEXT NOT NULL PRIMARY KEY,
-        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-        sender_handle TEXT NOT NULL,
-        sequence INTEGER NOT NULL,
-        content_json TEXT NOT NULL,
-        idempotency_key TEXT,
-        metadata_json TEXT,
-        created_at_ms INTEGER NOT NULL,
-        UNIQUE (session_id, sequence)
-      );
-
-      -- ── Events ────────────────────────────────────────────────────────
-      --
-      -- The per-session event log. Live delivery + replay-since both walk
-      -- this table. Eligibility filtering (who is allowed to see what)
-      -- happens above this layer at delivery time.
-      CREATE TABLE events (
-        id TEXT NOT NULL PRIMARY KEY,
-        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-        sequence INTEGER NOT NULL,
-        type TEXT NOT NULL,
-        payload_json TEXT NOT NULL,
-        created_at_ms INTEGER NOT NULL,
-        UNIQUE (session_id, sequence)
-      );
-
-      CREATE INDEX events_by_session_sequence ON events (session_id, sequence);
-
-      -- ── Delivery cursors ──────────────────────────────────────────────
-      --
-      -- Per-(handle, session) cursor advancing as events are delivered to
-      -- a participant. Replay-since on connect is "events with
-      -- session_id in my participations and sequence > cursor".
-      CREATE TABLE delivery_cursors (
-        handle TEXT NOT NULL,
-        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-        last_delivered_sequence INTEGER NOT NULL DEFAULT 0,
-        PRIMARY KEY (handle, session_id)
-      );
-
-      -- ── Idempotency ───────────────────────────────────────────────────
-      --
-      -- Per-(session, sender, key) cache so a retry of POST
-      -- /sessions/:id/messages with the same key returns the original
-      -- (message_id, sequence) instead of re-sending.
-      CREATE TABLE idempotency (
-        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-        sender_handle TEXT NOT NULL,
-        key TEXT NOT NULL,
-        message_id TEXT NOT NULL,
-        sequence INTEGER NOT NULL,
-        created_at_ms INTEGER NOT NULL,
-        PRIMARY KEY (session_id, sender_handle, key)
-      );
-    `,
-  },
-  {
-    version: 2,
-    sql: `
       -- ── Blocks ────────────────────────────────────────────────────────
       --
-      -- Per ASP §6.2, a block is a unilateral deny: the blocker no longer
-      -- receives sessions or messages from the blocked agent regardless of
-      -- the blocker's allowlist. The blocked side is not enumerated.
-      --
-      -- 'blocked_handle' is intentionally NOT a foreign key into agents:
-      -- a local network may block a handle owned by an agent that doesn't
-      -- exist on this operator (the protocol allows pre-emptive blocks),
-      -- and tracking off-network handles would still be valid.
+      -- A unilateral deny: the blocker no longer accepts inbound envelopes
+      -- from the blocked agent regardless of policy. blocked_handle is
+      -- intentionally NOT a foreign key into agents so pre-emptive blocks
+      -- of off-network handles are valid.
       CREATE TABLE blocks (
         blocker_handle TEXT NOT NULL REFERENCES agents(handle) ON DELETE CASCADE,
         blocked_handle TEXT NOT NULL,
@@ -199,77 +95,74 @@ export const MIGRATIONS: readonly Migration[] = [
 
       CREATE INDEX blocks_by_blocked ON blocks (blocked_handle);
 
-      INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2');
-    `,
-  },
-  {
-    version: 3,
-    sql: `
-      -- ── Agent profile metadata ───────────────────────────────────────
+      -- ── Envelopes ─────────────────────────────────────────────────────
       --
-      -- v3 grows the agents row with the profile fields exposed by the
-      -- agent profile wire shape: display_name (defaults to the handle
-      -- for backfill), description and card_body (free text), and
-      -- visibility (controls whether other agents can discover this one).
+      -- Canonical envelope record, written once per accepted POST
+      -- /messages. from_handle is the operator-stamped sender; client
+      -- supplies everything else. body_json is the entire envelope
+      -- (content parts and all) serialized verbatim; fetches reconstruct
+      -- it directly. received_ms is the operator's accept-time clock;
+      -- created_at_ms is the envelope-level total-order timestamp
+      -- shared by every recipient copy.
+      CREATE TABLE envelopes (
+        id TEXT NOT NULL PRIMARY KEY,
+        from_handle TEXT NOT NULL REFERENCES agents(handle) ON DELETE CASCADE,
+        subject TEXT,
+        in_reply_to TEXT,
+        date_ms INTEGER NOT NULL,
+        received_ms INTEGER NOT NULL,
+        created_at_ms INTEGER NOT NULL,
+        type_hint TEXT NOT NULL CHECK (type_hint IN ('text', 'image', 'file', 'data', 'mixed')),
+        size_hint INTEGER,
+        monitor_handle TEXT,
+        body_json TEXT NOT NULL
+      );
+
+      CREATE INDEX envelopes_by_from ON envelopes (from_handle, created_at_ms);
+
+      -- ── Mailbox entries ──────────────────────────────────────────────
       --
-      -- 'visibility' is a hard CHECK so the column can't be drifted to
-      -- unrecognized values via direct SQL.
-      ALTER TABLE agents ADD COLUMN display_name TEXT;
-      ALTER TABLE agents ADD COLUMN description TEXT;
-      ALTER TABLE agents ADD COLUMN card_body TEXT;
-      ALTER TABLE agents ADD COLUMN visibility TEXT
-        CHECK (visibility IN ('public', 'private'))
-        DEFAULT 'private';
+      -- One row per recipient of an envelope. Composite key
+      -- (mailbox_handle, envelope_id) keeps lookups by-id fast; the
+      -- secondary index (mailbox_handle, created_at_ms, envelope_id)
+      -- powers the keyset paginator in both asc and desc order.
+      --
+      -- read defaults false on insert; set true on the first
+      -- GET /messages/{id} for that recipient or on POST /mailbox/read.
+      CREATE TABLE mailbox_entries (
+        mailbox_handle TEXT NOT NULL REFERENCES agents(handle) ON DELETE CASCADE,
+        envelope_id TEXT NOT NULL REFERENCES envelopes(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('to', 'cc')),
+        created_at_ms INTEGER NOT NULL,
+        read INTEGER NOT NULL DEFAULT 0 CHECK (read IN (0, 1)),
+        PRIMARY KEY (mailbox_handle, envelope_id)
+      );
 
-      -- Backfill display_name to the handle so existing rows have
-      -- something sensible to render in /agents/me and discovery output.
-      UPDATE agents SET display_name = handle WHERE display_name IS NULL;
+      CREATE INDEX mailbox_entries_by_keyset
+        ON mailbox_entries (mailbox_handle, created_at_ms, envelope_id);
 
-      -- Visibility on existing rows defaults to 'private' (closed by
-      -- default; an admin can promote per-agent via 'admin agent set').
-      UPDATE agents SET visibility = 'private' WHERE visibility IS NULL;
-
-      INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '3');
-    `,
-  },
-  {
-    version: 4,
-    sql: `
       -- ── Files ────────────────────────────────────────────────────────
       --
-      -- v4 adds the operator-extension file upload + claim flow.
-      -- Wire shape: agents POST a file to /files (multipart), get back
-      -- a file_id, and reference it from a session message's content
-      -- ({type: "file", file_id: "..."}). The session-message path
-      -- claims pending files for the message id, and from then on the
-      -- file is deliverable to participants via GET /files/:id.
-      --
-      -- 'relative_path' is relative to the per-network filesDir
-      -- (<stateDir>/networks/<name>/files/) so a 'network reset' nukes
-      -- both the metadata and the bytes in one shot.
-      --
-      -- 'pending' files expire after 1h and are reaped by the upload
-      -- service on a schedule. 'attached' files have expires_at_ms
-      -- cleared and live for the message's lifetime.
+      -- Upload metadata. Bytes live under the operator's per-network
+      -- filesDir (<stateDir>/networks/<name>/files/<id>/<filename>).
+      -- Files are uploaded by an agent, returned to the sender as
+      -- {file_id, url}, and the sender embeds the URL in a content
+      -- part. The download path verifies the bearer can see the file
+      -- (currently: any agent that authenticates against this operator
+      -- can fetch any file, the local-dev posture, since the in-tree
+      -- operator is single-user). The shape leaves room for a stricter
+      -- check later without changing the wire surface.
       CREATE TABLE files (
         id TEXT NOT NULL PRIMARY KEY,
-        status TEXT NOT NULL CHECK (status IN ('pending', 'attached'))
-          DEFAULT 'pending',
-        session_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
-        uploader_handle TEXT NOT NULL REFERENCES agents(handle) ON DELETE CASCADE,
+        owner_handle TEXT NOT NULL REFERENCES agents(handle) ON DELETE CASCADE,
         filename TEXT NOT NULL,
         content_type TEXT NOT NULL,
         size_bytes INTEGER NOT NULL,
         relative_path TEXT NOT NULL,
-        created_at_ms INTEGER NOT NULL,
-        expires_at_ms INTEGER
+        created_at_ms INTEGER NOT NULL
       );
 
-      CREATE INDEX files_by_message ON files (session_message_id);
-      CREATE INDEX files_by_uploader ON files (uploader_handle);
-      CREATE INDEX files_by_pending ON files (status, expires_at_ms);
-
-      INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '4');
+      CREATE INDEX files_by_owner ON files (owner_handle);
     `,
   },
 ];

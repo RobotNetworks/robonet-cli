@@ -1,8 +1,8 @@
 /**
  * SQLite schema for the local credential store.
  *
- * Mirrors the shape of the eventual remote ASP postgres tables — same primary
- * keys, same column meaning — so a future migration is mechanical. The rest
+ * Mirrors the shape of the eventual remote credential tables. Same primary
+ * keys, same column meaning, so a future migration is mechanical. The rest
  * (account_id columns, user_sessions, etc.) lands when those concepts arrive.
  *
  * Migrations are forward-only and idempotent. Each entry is a transaction

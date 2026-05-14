@@ -2,8 +2,7 @@ import type { Command } from "commander";
 
 import { runDoctor } from "../doctor.js";
 import { renderJson } from "../output/json-output.js";
-import { loadConfigFromRoot } from "./asp-shared.js";
-import { jsonOption, profileTitle } from "./shared.js";
+import { jsonOption, loadConfigFromRoot, profileTitle } from "./shared.js";
 
 export function registerDoctorCommand(program: Command): void {
   program

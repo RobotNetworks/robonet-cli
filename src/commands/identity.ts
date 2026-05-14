@@ -1,12 +1,12 @@
 import { Command } from "commander";
 
-import { handleArg } from "../asp/handles.js";
+import { handleArg } from "../asmtp/handles.js";
 import {
   clearDirectoryIdentity,
   findDirectoryIdentityFile,
   writeDirectoryIdentityEntry,
-} from "../asp/identity.js";
-import { loadConfigFromRoot, out } from "./asp-shared.js";
+} from "../asmtp/identity.js";
+import { loadConfigFromRoot, out } from "./shared.js";
 
 /**
  * `robotnet identity` — manage the directory-bound default agent identity.

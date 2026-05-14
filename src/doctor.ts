@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 
 import { discoverOAuth } from "./auth/discovery.js";
-import { findDirectoryIdentityFile } from "./asp/identity.js";
+import { findDirectoryIdentityFile } from "./asmtp/identity.js";
 import type { CLIConfig } from "./config.js";
 import { UnsafePlaintextEncryptor } from "./credentials/crypto.js";
 import { credentialKeyFilePath, credentialsStorePath } from "./credentials/paths.js";

@@ -9,18 +9,20 @@ import type { Duplex } from "node:stream";
 import type { DatabaseSync } from "node:sqlite";
 
 import type { OperatorConfig } from "./config.js";
+import { EnvelopeService } from "./domain/envelopes.js";
 import { FileService } from "./domain/files.js";
-import { SessionService } from "./domain/sessions.js";
+import { MailboxService } from "./domain/mailbox.js";
 import { ConnectionRegistry } from "./domain/transport.js";
 import { NotFoundError } from "./errors.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { buildConnectHandler } from "./routes/connect.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { sendError, sendJson } from "./routes/json.js";
+import { registerMailboxRoutes } from "./routes/mailbox.js";
+import { registerMessagesRoutes } from "./routes/messages.js";
 import { Router, type RouteContext } from "./routes/router.js";
 import { registerSearchRoutes } from "./routes/search.js";
 import { registerSelfRoutes } from "./routes/self.js";
-import { registerSessionRoutes } from "./routes/sessions.js";
 import type { OperatorRepository } from "./storage/repository.js";
 
 /**
@@ -38,13 +40,6 @@ interface OperatorServerDeps {
   readonly config: OperatorConfig;
   readonly repo: OperatorRepository;
   readonly db: DatabaseSync;
-  /**
-   * Override the grace window between a handle's last WS closing and
-   * `session.left{reason: "grace_expired"}` firing. Defaults to 30s in
-   * production. Tests pass tight values (~100ms) to exercise the timer
-   * without sleeping for half a minute.
-   */
-  readonly graceMs?: number;
 }
 
 interface HealthBody {
@@ -59,39 +54,30 @@ interface HealthBody {
  *
  * Endpoints:
  *
- * - `GET /healthz` (or `/health` — alias) — readiness, always public.
- * - `/_admin/*` — admin surface (bearer-auth via the operator admin token).
- * - `/sessions/*` — session surface (bearer-auth via per-agent bearers).
- * - `GET /connect` — WS upgrade for live event delivery.
- *
- * Errors thrown from handlers translate into ASP error envelopes via
- * {@link sendError}.
+ *  - `GET /healthz` / `GET /health` readiness, always public.
+ *  - `/_admin/*` admin surface (bearer auth via the operator admin token).
+ *  - `/agents/me/*`, `/agents/:owner/:name`, `/blocks/*` self + discovery
+ *    surface (agent bearer).
+ *  - `/messages`, `/messages/:id` envelope send and fetch.
+ *  - `/mailbox`, `/mailbox/read` mailbox listing and bulk mark-read.
+ *  - `/files`, `/files/:id` upload and download.
+ *  - `/search`, `/search/agents` agent discovery.
+ *  - `GET /connect` WebSocket upgrade for push frames.
  */
 export function startOperatorServer(
   deps: OperatorServerDeps,
 ): Promise<OperatorHandle> {
-  const registry = new ConnectionRegistry(
-    deps.graceMs !== undefined ? { graceMs: deps.graceMs } : {},
-  );
-  const fileService = new FileService(deps.repo, {
+  const registry = new ConnectionRegistry();
+  const envelopes = new EnvelopeService(deps.repo, deps.db, registry);
+  const mailbox = new MailboxService(deps.repo);
+  const files = new FileService(deps.repo, {
     host: deps.config.host,
     port: deps.config.port,
     filesDir: deps.config.filesDir,
   });
-  const service = new SessionService(deps.repo, deps.db, registry, fileService);
-  // Wire the presence transitions so connection lifecycle drives
-  // session.disconnected / session.reconnected / session.left{grace_expired}.
-  registry.setHooks({
-    onWentOffline: (handle) => service.onAgentWentOffline(handle),
-    onCameBack: (handle) => service.onAgentCameBack(handle),
-    onGraceExpired: (handle) => service.onAgentGraceExpired(handle),
-  });
-  const connect = buildConnectHandler({
-    repo: deps.repo,
-    registry,
-    service,
-  });
-  const router = buildRouter(deps, service, fileService);
+
+  const connect = buildConnectHandler({ repo: deps.repo, registry });
+  const router = buildRouter(deps, { envelopes, mailbox, files });
   const startedAt = Date.now();
 
   const server = createServer((req, res) => {
@@ -127,10 +113,15 @@ export function startOperatorServer(
   });
 }
 
+interface RouterServices {
+  readonly envelopes: EnvelopeService;
+  readonly mailbox: MailboxService;
+  readonly files: FileService;
+}
+
 function buildRouter(
   deps: OperatorServerDeps,
-  service: SessionService,
-  fileService: FileService,
+  services: RouterServices,
 ): Router {
   const router = new Router();
   registerAdminRoutes(router, {
@@ -138,10 +129,11 @@ function buildRouter(
     db: deps.db,
     adminTokenHash: deps.config.adminTokenHash,
   });
-  registerSelfRoutes(router, { repo: deps.repo, sessions: service });
-  registerSessionRoutes(router, { repo: deps.repo, service });
-  registerSearchRoutes(router, { repo: deps.repo, service });
-  registerFileRoutes(router, { repo: deps.repo, files: fileService });
+  registerSelfRoutes(router, { repo: deps.repo });
+  registerMessagesRoutes(router, { repo: deps.repo, envelopes: services.envelopes });
+  registerMailboxRoutes(router, { repo: deps.repo, mailbox: services.mailbox });
+  registerFileRoutes(router, { repo: deps.repo, files: services.files });
+  registerSearchRoutes(router, { repo: deps.repo });
   return router;
 }
 
@@ -155,9 +147,6 @@ async function handleRequest(
   const method = req.method ?? "GET";
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
 
-  // ``/healthz`` is the historical local-operator path (k8s convention);
-  // ``/health`` mirrors the hosted Robot Networks operator so the CLI's doctor
-  // can use one probe across both networks. Both paths return the same body.
   if (
     method === "GET" &&
     (url.pathname === "/healthz" || url.pathname === "/health")
@@ -195,8 +184,6 @@ function closeServer(
   server: Server,
   connect: { readonly closeAll: () => void },
 ): Promise<void> {
-  // Tear down WS connections first so the http server's close() doesn't
-  // wait on long-lived upgrade sockets.
   connect.closeAll();
   return new Promise<void>((resolve, reject) => {
     server.close((err) => {

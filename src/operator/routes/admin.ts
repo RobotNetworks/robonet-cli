@@ -46,7 +46,7 @@ interface AdminContext {
  *
  * All admin routes require the admin bearer (verified via
  * {@link requireAdmin}). Errors are typed {@link OperatorError} subclasses
- * that the route layer's error boundary maps to ASP-shaped envelopes.
+ * that the route layer's error boundary maps to JSON error envelopes.
  */
 export function registerAdminRoutes(router: Router, ctx: AdminContext): void {
   const guard = (handler: (rc: RouteContext) => unknown | Promise<unknown>) => {

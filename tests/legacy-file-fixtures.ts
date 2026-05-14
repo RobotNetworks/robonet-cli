@@ -1,11 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { networkStatePaths } from "../src/asp/credentials.js";
-import { handleToFilenameStem } from "../src/asp/handles.js";
+import { networkStatePaths } from "../src/asmtp/credentials.js";
+import { handleToFilenameStem } from "../src/asmtp/handles.js";
 
 /**
- * Test-only helpers that recreate the on-disk shape `src/asp/credentials.ts`
+ * Test-only helpers that recreate the on-disk shape `src/asmtp/credentials.ts`
  * used to write before the SQLite credential store landed.
  *
  * These exist solely so migration tests can simulate "user upgrades from a

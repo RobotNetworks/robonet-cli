@@ -1,5 +1,4 @@
 import { requireAgent } from "../auth.js";
-import type { SessionService } from "../domain/sessions.js";
 import { BadRequestError, NotFoundError } from "../errors.js";
 import { assertAllowlistEntry, assertHandle } from "../handles.js";
 import type {
@@ -24,17 +23,16 @@ import type { Router } from "./router.js";
  * `requireAgent` resolves the calling agent from the bearer; every write
  * targets that agent's own row and never accepts an out-of-band handle.
  *
- * The local operator's data model is intentionally thinner than the
- * full ASP agent profile — only `(handle, inbound_policy, allowlist)` are
- * stored. The `GET /agents/me` response synthesizes default values for
- * the remaining `AgentResponse` fields (display_name, visibility,
- * paused, …) so the CLI's renderer works uniformly across operators.
+ * The in-tree operator's data model is intentionally thin — only
+ * `(handle, inbound_policy, allowlist)` are stored. The `GET /agents/me`
+ * response synthesizes default values for the remaining `AgentResponse`
+ * fields (display_name, visibility, paused, …) so the CLI's renderer
+ * works uniformly across operators.
  * These defaults are not authoritative metadata; they exist only to
  * satisfy the cross-operator wire shape.
  */
 interface SelfRoutesContext {
   readonly repo: OperatorRepository;
-  readonly sessions: SessionService;
 }
 
 export function registerSelfRoutes(router: Router, ctx: SelfRoutesContext): void {
@@ -123,12 +121,10 @@ export function registerSelfRoutes(router: Router, ctx: SelfRoutesContext): void
       );
     }
     const row = ctx.repo.blocks.add(agent.handle, blockedHandle);
-    // ASP §6.2 — a new block MUST force-leave the blocked agent from
-    // any session both agents are currently participating in. Routing
-    // stops immediately; the blocked agent gets a `session.left` event
-    // shape-identical to a voluntary leave (the spec is explicit that
-    // the blocked agent is not informed it was blocked).
-    ctx.sessions.forceLeaveSharedSessions(agent.handle, blockedHandle);
+    // The block takes effect immediately for future inbound envelopes:
+    // the envelope-accept path checks blocks at admission time. There is
+    // no per-session lifecycle to unwind under the mailbox-shaped wire,
+    // so adding the block row is the entire operation.
     sendJson(rc.res, 201, serializeBlock(row));
   });
 
@@ -227,7 +223,6 @@ function buildAgentDetailResponse(
   const isOwner = target.handle === caller.handle;
   return {
     agent: synthesizeAgentResponse(target),
-    shared_sessions: [],
     viewer: {
       relationship: isOwner ? "owner" : "none",
       can_edit: isOwner,
@@ -355,7 +350,6 @@ function synthesizeAgentResponse(agent: AgentRecord): Record<string, unknown> {
     owner_type: "account",
     owner_id: owner,
     scope: "personal",
-    can_initiate_sessions: true,
     paused: false,
     card_body: agent.cardBody,
     skills: null,

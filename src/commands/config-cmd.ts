@@ -3,8 +3,7 @@ import type { Command } from "commander";
 import { configToJson, configToHumanPayload } from "../config.js";
 import { renderKeyValues } from "../output/formatters.js";
 import { renderJson } from "../output/json-output.js";
-import { loadConfigFromRoot } from "./asp-shared.js";
-import { jsonOption, profileTitle } from "./shared.js";
+import { jsonOption, loadConfigFromRoot, profileTitle } from "./shared.js";
 
 export function registerConfigCommand(program: Command): void {
   const configCmd = program

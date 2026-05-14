@@ -1,20 +1,20 @@
 import { Command, Option } from "commander";
 
-import { resolveAdminClient } from "../asp/auth-resolver.js";
-import { handleArg } from "../asp/handles.js";
+import { resolveAdminClient } from "../asmtp/auth-resolver.js";
+import { handleArg } from "../asmtp/handles.js";
 import type {
   AgentVisibility,
   AgentWire,
   AgentWithTokenWire,
   Handle,
   InboundPolicy,
-} from "../asp/types.js";
+} from "../asmtp/types.js";
 import type { CLIConfig } from "../config.js";
 import { openProcessCredentialStore } from "../credentials/lifecycle.js";
 import { CapabilityNotSupportedError } from "../agents/errors.js";
 import { RobotNetCLIError } from "../errors.js";
 import { renderJson } from "../output/json-output.js";
-import { loadConfigFromRoot, out } from "./asp-shared.js";
+import { loadConfigFromRoot, out } from "./shared.js";
 
 /**
  * `robotnet admin ...` — local-only operations authenticated by

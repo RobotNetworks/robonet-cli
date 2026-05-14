@@ -3,7 +3,6 @@ import * as assert from "node:assert/strict";
 
 import { AccountClient } from "../src/account/client.js";
 import { CapabilityNotSupportedError } from "../src/agents/errors.js";
-import { AspApiError } from "../src/asp/errors.js";
 
 const BASE = "https://api.example/v1";
 const TOKEN = "user-bearer";
@@ -56,7 +55,6 @@ const STUB_AGENT = {
   owner_type: "account",
   owner_id: "acc_01",
   scope: "personal",
-  can_initiate_sessions: true,
   paused: false,
   card_body: null,
   skills: null,
@@ -168,7 +166,6 @@ describe("AccountClient.getAgent", () => {
       new Response(
         JSON.stringify({
           agent: STUB_AGENT,
-          shared_sessions: [],
           viewer: { relationship: "owner", can_edit: true },
         }),
         { status: 200 },
@@ -177,9 +174,7 @@ describe("AccountClient.getAgent", () => {
     const detail = await makeClient().getAgent("@owner.cli");
     assert.equal(detail.agent.canonical_handle, "@owner.cli");
     assert.equal(detail.viewer.relationship, "owner");
-    // Hits the public viewer endpoint (no /account/ prefix) — the
-    // backend doesn't mount a GET at /account/agents/{owner}/{name},
-    // only PATCH/DELETE for the management surface. The viewer
+    // Hits the public viewer endpoint (no /account/ prefix). The viewer
     // endpoint is account-aware and returns the same shape.
     assert.equal(calls[0]!.url, `${BASE}/agents/owner/cli`);
     assert.equal(calls[0]!.init?.method, "GET");
@@ -216,32 +211,6 @@ describe("AccountClient.deleteAgent", () => {
     await makeClient().deleteAgent("@owner.cli");
     assert.equal(calls[0]!.url, `${BASE}/account/agents/owner/cli`);
     assert.equal(calls[0]!.init?.method, "DELETE");
-  });
-});
-
-describe("AccountClient.listSessions", () => {
-  it("hits GET /accounts/me/sessions and forwards filters", async () => {
-    stubFetch(() =>
-      new Response(JSON.stringify({ sessions: [], next_cursor: null }), { status: 200 }),
-    );
-    await makeClient().listSessions({ state: "active", limit: 25 });
-    const url = new URL(calls[0]!.url);
-    assert.equal(url.pathname, "/v1/account/sessions");
-    assert.equal(url.searchParams.get("state"), "active");
-    assert.equal(url.searchParams.get("limit"), "25");
-  });
-
-  it("translates 501 to CapabilityNotSupportedError", async () => {
-    stubFetch(() => new Response("", { status: 501 }));
-    await assert.rejects(
-      () => makeClient().listSessions(),
-      CapabilityNotSupportedError,
-    );
-  });
-
-  it("propagates non-capability errors as AspApiError", async () => {
-    stubFetch(() => new Response("", { status: 500 }));
-    await assert.rejects(() => makeClient().listSessions(), AspApiError);
   });
 });
 

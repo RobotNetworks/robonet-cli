@@ -1,7 +1,7 @@
-import { AspApiError } from "../asp/errors.js";
-import { aspRequest, aspTextRequest } from "../asp/http.js";
-import type { Handle } from "../asp/types.js";
-import { assertValidHandle } from "../asp/handles.js";
+import { AsmtpApiError } from "../asmtp/errors.js";
+import { asmtpRequest, asmtpTextRequest } from "../asmtp/http.js";
+import type { AllowlistEntry, Handle } from "../asmtp/types.js";
+import { assertValidAllowlistEntry, assertValidHandle } from "../asmtp/handles.js";
 import { CapabilityNotSupportedError } from "./errors.js";
 import type {
   AgentDetailResponse,
@@ -12,8 +12,6 @@ import type {
   BlockListResponse,
   DirectorySearchResponse,
 } from "./types.js";
-import type { AllowlistEntry } from "../asp/types.js";
-import { assertValidAllowlistEntry } from "../asp/handles.js";
 
 /**
  * Typed client for the Robot Networks hosted agent-discovery surface.
@@ -28,8 +26,7 @@ import { assertValidAllowlistEntry } from "../asp/handles.js";
  * - `GET /search/agents` and `GET /search/directory` — already
  *   callable with an agent bearer.
  *
- * Capability gating: routes the operator does not implement (the local
- * in-tree operator, third-party ASP-only operators) surface as
+ * Capability gating: routes the operator does not implement surface as
  * {@link CapabilityNotSupportedError} rather than a raw HTTP error so
  * commands can show a clean network-switch hint. Per-route 404 semantics
  * differ — see the `#guarded*` helpers below.
@@ -49,7 +46,7 @@ export class AgentDirectoryClient {
 
   async getSelf(): Promise<AgentResponse> {
     return await this.#guarded("agent self detail", async () =>
-      aspRequest<AgentResponse>({
+      asmtpRequest<AgentResponse>({
         baseUrl: this.#baseUrl,
         path: "/agents/me",
         method: "GET",
@@ -60,7 +57,7 @@ export class AgentDirectoryClient {
 
   async updateSelf(update: AgentSelfUpdate): Promise<AgentResponse> {
     return await this.#guarded("agent self update", async () =>
-      aspRequest<AgentResponse>({
+      asmtpRequest<AgentResponse>({
         baseUrl: this.#baseUrl,
         path: "/agents/me",
         method: "PATCH",
@@ -74,7 +71,7 @@ export class AgentDirectoryClient {
 
   async getSelfAllowlist(): Promise<AgentSelfAllowlistResponse> {
     return await this.#guarded("agent self allowlist list", async () =>
-      aspRequest<AgentSelfAllowlistResponse>({
+      asmtpRequest<AgentSelfAllowlistResponse>({
         baseUrl: this.#baseUrl,
         path: "/agents/me/allowlist",
         method: "GET",
@@ -88,7 +85,7 @@ export class AgentDirectoryClient {
   ): Promise<AgentSelfAllowlistResponse> {
     for (const entry of entries) assertValidAllowlistEntry(entry);
     return await this.#guarded("agent self allowlist add", async () =>
-      aspRequest<AgentSelfAllowlistResponse>({
+      asmtpRequest<AgentSelfAllowlistResponse>({
         baseUrl: this.#baseUrl,
         path: "/agents/me/allowlist",
         method: "POST",
@@ -103,7 +100,7 @@ export class AgentDirectoryClient {
   ): Promise<AgentSelfAllowlistResponse> {
     assertValidAllowlistEntry(entry);
     return await this.#guarded("agent self allowlist remove", async () =>
-      aspRequest<AgentSelfAllowlistResponse>({
+      asmtpRequest<AgentSelfAllowlistResponse>({
         baseUrl: this.#baseUrl,
         path: `/agents/me/allowlist/${encodeURIComponent(entry)}`,
         method: "DELETE",
@@ -120,7 +117,7 @@ export class AgentDirectoryClient {
     if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
     const qs = params.toString();
     return await this.#guarded("self blocks list", async () =>
-      aspRequest<BlockListResponse>({
+      asmtpRequest<BlockListResponse>({
         baseUrl: this.#baseUrl,
         path: qs.length > 0 ? `/agents/me/blocks?${qs}` : "/agents/me/blocks",
         method: "GET",
@@ -132,7 +129,7 @@ export class AgentDirectoryClient {
   async blockAgent(handle: Handle): Promise<void> {
     assertValidHandle(handle);
     await this.#guarded("self block", async () =>
-      aspRequest<void>({
+      asmtpRequest<void>({
         baseUrl: this.#baseUrl,
         path: "/agents/me/blocks",
         method: "POST",
@@ -147,7 +144,7 @@ export class AgentDirectoryClient {
     // The hosted API accepts both handle and agent_id at this path; CLI users
     // type handles, so we forward the handle verbatim.
     await this.#guarded("self unblock", async () =>
-      aspRequest<void>({
+      asmtpRequest<void>({
         baseUrl: this.#baseUrl,
         path: `/agents/me/blocks/${encodeURIComponent(handle)}`,
         method: "DELETE",
@@ -161,7 +158,7 @@ export class AgentDirectoryClient {
   async getAgent(handle: Handle): Promise<AgentDetailResponse> {
     assertValidHandle(handle);
     return await this.#guarded("agent detail", async () =>
-      aspRequest<AgentDetailResponse>({
+      asmtpRequest<AgentDetailResponse>({
         baseUrl: this.#baseUrl,
         path: agentPath(handle),
         method: "GET",
@@ -173,7 +170,7 @@ export class AgentDirectoryClient {
   async getAgentCard(handle: Handle): Promise<string> {
     assertValidHandle(handle);
     return await this.#guarded("agent card", async () =>
-      aspTextRequest({
+      asmtpTextRequest({
         baseUrl: this.#baseUrl,
         path: `${agentPath(handle)}/card`,
         token: this.#token,
@@ -189,7 +186,7 @@ export class AgentDirectoryClient {
     cursor?: string,
   ): Promise<AgentDirectorySearchResponse> {
     return await this.#guardedSearch("agent search", async () =>
-      aspRequest<AgentDirectorySearchResponse>({
+      asmtpRequest<AgentDirectorySearchResponse>({
         baseUrl: this.#baseUrl,
         path: searchPath("/search/agents", query, limit, cursor),
         method: "GET",
@@ -203,7 +200,7 @@ export class AgentDirectoryClient {
     limit: number,
   ): Promise<DirectorySearchResponse> {
     return await this.#guardedSearch("directory search", async () =>
-      aspRequest<DirectorySearchResponse>({
+      asmtpRequest<DirectorySearchResponse>({
         baseUrl: this.#baseUrl,
         path: searchPath("/search", query, limit),
         method: "GET",
@@ -223,7 +220,7 @@ export class AgentDirectoryClient {
       return await call();
     } catch (err) {
       if (
-        err instanceof AspApiError &&
+        err instanceof AsmtpApiError &&
         (err.status === 405 || err.status === 501)
       ) {
         throw new CapabilityNotSupportedError(this.#networkName, capability);
@@ -242,7 +239,7 @@ export class AgentDirectoryClient {
       return await call();
     } catch (err) {
       if (
-        err instanceof AspApiError &&
+        err instanceof AsmtpApiError &&
         (err.status === 404 || err.status === 405 || err.status === 501)
       ) {
         throw new CapabilityNotSupportedError(this.#networkName, capability);

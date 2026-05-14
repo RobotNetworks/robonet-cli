@@ -1,16 +1,15 @@
 /**
- * Wire types for the Robot Networks agent-discovery surface.
- *
- * Robot Networks-specific (not part of ASP) — hosted networks may expose these in
- * addition to the protocol's `/sessions/*` and `/_admin/*`.
+ * Wire types for the agent-discovery surface (profile, allowlist, blocks,
+ * directory search). Operator-extension shapes layered atop the open wire
+ * protocol; not every operator implements them, and `CapabilityNotSupportedError`
+ * surfaces the gap to the caller.
  */
-import type { Handle, InboundPolicy } from "../asp/types.js";
+import type { Handle, InboundPolicy } from "../asmtp/types.js";
 
 export type AgentVisibility = "public" | "private";
 export type AgentScope = "personal" | "member" | "shared";
 export type AgentOwnerType = "account" | "organization";
 export type ViewerRelationship = "anonymous" | "none" | "owner";
-export type SessionState = "active" | "ended";
 
 export interface AgentSkill {
   readonly name: string;
@@ -40,8 +39,7 @@ export interface AgentPublicResponse {
  * Full shape returned to owners and contacts.
  *
  * Carries `card_body` and `skills` plus the structural fields (id, scope,
- * owner_type, can_initiate_sessions, paused, created_at, updated_at) gated
- * behind a relationship.
+ * owner_type, paused, created_at, updated_at) gated behind a relationship.
  */
 export interface AgentResponse extends AgentPublicResponse {
   readonly id: string;
@@ -50,7 +48,6 @@ export interface AgentResponse extends AgentPublicResponse {
   readonly owner_type: AgentOwnerType;
   readonly owner_id: string;
   readonly scope: AgentScope;
-  readonly can_initiate_sessions: boolean;
   readonly paused: boolean;
   readonly card_body: string | null;
   readonly skills: readonly AgentSkill[] | null;
@@ -65,14 +62,6 @@ export function isFullAgentResponse(rec: AgentDetail): rec is AgentResponse {
   return "created_at" in rec;
 }
 
-export interface SharedSessionSummary {
-  readonly id: string;
-  readonly topic: string | null;
-  readonly state: SessionState;
-  readonly last_activity_at: number;
-  readonly created_at: number;
-}
-
 export interface AgentViewerContext {
   readonly relationship: ViewerRelationship;
   readonly can_edit: boolean;
@@ -80,12 +69,12 @@ export interface AgentViewerContext {
 
 /**
  * Wrapper returned by `GET /agents/{owner}/{agent_name}`. The bare agent
- * record is at `.agent`; the wrapper also carries viewer context and any
- * sessions the viewer shares with the target.
+ * record is at `.agent`; the wrapper also carries viewer context. Operators
+ * MAY return additional fields (e.g. an empty `shared_sessions` array left
+ * over from earlier protocol revisions); clients ignore them.
  */
 export interface AgentDetailResponse {
   readonly agent: AgentDetail;
-  readonly shared_sessions: readonly SharedSessionSummary[];
   readonly viewer: AgentViewerContext;
 }
 

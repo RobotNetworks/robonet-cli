@@ -10,7 +10,7 @@ import {
   type NetworkStatus,
   type ReachabilityProbe,
 } from "../src/commands/status.js";
-import { writeDirectoryIdentityEntry } from "../src/asp/identity.js";
+import { writeDirectoryIdentityEntry } from "../src/asmtp/identity.js";
 import { loadConfig } from "../src/config.js";
 import { isolatedXdg } from "./helpers.js";
 

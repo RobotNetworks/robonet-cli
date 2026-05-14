@@ -1,12 +1,13 @@
 import { BadRequestError } from "./errors.js";
 
 /**
- * Handle and allowlist-entry validation, vendored from `asp/schemas/common.json`.
+ * Handle and allowlist-entry validation, vendored from the network's
+ * wire-level handle and allowlist shapes.
  *
- * Independent of the CLI-side `src/asp/handles.ts` so the operator can later
- * be lifted into its own package without dragging the CLI's error hierarchy
- * along. Errors thrown here are {@link BadRequestError} so they map straight
- * to a 400 response.
+ * Independent of the CLI-side `src/asmtp/handles.ts` so the operator can
+ * later be lifted into its own package without dragging the CLI's error
+ * hierarchy along. Errors thrown here are {@link BadRequestError} so they
+ * map straight to a 400 response.
  */
 
 const HANDLE_PATTERN = /^@[a-z0-9_-]+\.[a-z0-9_-]+$/;

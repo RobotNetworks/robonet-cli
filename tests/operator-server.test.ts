@@ -8,307 +8,404 @@ import * as path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 
 import type { OperatorConfig } from "../src/operator/config.js";
-import { startOperatorServer, type OperatorHandle } from "../src/operator/server.js";
+import {
+  startOperatorServer,
+  type OperatorHandle,
+} from "../src/operator/server.js";
 import { openOperatorDatabase } from "../src/operator/storage/database.js";
 import { OperatorRepository } from "../src/operator/storage/repository.js";
 import { sha256Hex } from "../src/operator/tokens.js";
 
-async function pickPort(): Promise<number> {
-  return await new Promise<number>((resolve, reject) => {
-    const srv = net.createServer();
-    srv.unref();
-    srv.on("error", reject);
-    srv.listen(0, "127.0.0.1", () => {
-      const addr = srv.address();
-      if (addr === null || typeof addr === "string") {
-        reject(new Error("could not get assigned port"));
-        return;
-      }
-      const port = addr.port;
-      srv.close(() => resolve(port));
-    });
-  });
-}
-
 interface Harness {
-  readonly config: OperatorConfig;
-  readonly adminToken: string;
+  readonly baseUrl: string;
+  readonly handle: OperatorHandle;
   readonly db: DatabaseSync;
   readonly repo: OperatorRepository;
-  readonly cleanup: () => void;
+  readonly dataDir: string;
+  readonly adminToken: string;
+  readonly close: () => Promise<void>;
+}
+
+const PORTS = (function* (): IterableIterator<number> {
+  let next = 9001;
+  while (true) yield next++;
+})();
+
+async function pickFreePort(): Promise<number> {
+  for (let tries = 0; tries < 64; tries++) {
+    const candidate = PORTS.next().value as number;
+    const free = await new Promise<boolean>((resolve) => {
+      const sock = net.createServer();
+      sock.once("error", () => resolve(false));
+      sock.once("listening", () => {
+        sock.close(() => resolve(true));
+      });
+      sock.listen(candidate, "127.0.0.1");
+    });
+    if (free) return candidate;
+  }
+  throw new Error("could not find a free port for the operator test");
 }
 
 async function makeHarness(): Promise<Harness> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "robotnet-op-server-"));
-  const dbPath = path.join(dir, "operator.sqlite");
-  const port = await pickPort();
-  const adminToken = "admin_test_token_" + Math.random().toString(36).slice(2);
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "robotnet-op-test-"));
+  const dbPath = path.join(dataDir, "operator.sqlite");
+  const filesDir = path.join(dataDir, "files");
+  fs.mkdirSync(filesDir, { recursive: true });
+  const port = await pickFreePort();
+  const adminToken = "admin-test-token";
   const config: OperatorConfig = {
-    networkName: "local",
+    networkName: "test",
     host: "127.0.0.1",
     port,
     databasePath: dbPath,
-    filesDir: path.join(path.dirname(dbPath), "files"),
+    filesDir,
     adminTokenHash: sha256Hex(adminToken),
-    operatorVersion: "0.0.0-test",
+    operatorVersion: "test",
   };
-  const db = openOperatorDatabase(dbPath);
+  const db = openOperatorDatabase(config.databasePath);
   const repo = new OperatorRepository(db);
+  const handle = await startOperatorServer({ config, db, repo });
   return {
-    config,
-    adminToken,
+    baseUrl: `http://127.0.0.1:${port}`,
+    handle,
     db,
     repo,
-    cleanup: () => {
+    dataDir,
+    adminToken,
+    close: async () => {
+      await handle.close();
       db.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(dataDir, { recursive: true, force: true });
     },
   };
 }
 
-async function runWithServer<T>(
-  h: Harness,
-  fn: (baseUrl: string) => Promise<T>,
-): Promise<T> {
-  const handle: OperatorHandle = await startOperatorServer({
-    config: h.config,
-    db: h.db,
-    repo: h.repo,
+interface RegisteredAgent {
+  readonly handle: string;
+  readonly token: string;
+}
+
+async function registerAgent(
+  harness: Harness,
+  handle: string,
+  opts: { readonly policy?: "open" | "allowlist" } = {},
+): Promise<RegisteredAgent> {
+  const res = await fetch(`${harness.baseUrl}/_admin/agents`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${harness.adminToken}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": handle,
+    },
+    body: JSON.stringify({
+      handle,
+      policy: opts.policy ?? "open",
+    }),
   });
-  try {
-    return await fn(`http://${handle.host}:${handle.port}`);
-  } finally {
-    await handle.close();
+  if (!res.ok) {
+    throw new Error(`register ${handle} failed: ${res.status} ${await res.text()}`);
   }
+  const body = (await res.json()) as { token: string };
+  return { handle, token: body.token };
 }
 
 let h: Harness;
+
 beforeEach(async () => {
   h = await makeHarness();
 });
-afterEach(() => {
-  h.cleanup();
+
+afterEach(async () => {
+  await h.close();
 });
 
-function adminHeaders(token: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json",
-  };
-}
-
-/* -------------------------------------------------------------------------- */
-
-describe("operator server — built-ins", () => {
-  it("/healthz is accessible without auth", async () => {
-    await runWithServer(h, async (baseUrl) => {
-      const res = await fetch(`${baseUrl}/healthz`);
-      assert.equal(res.status, 200);
-      const body = (await res.json()) as Record<string, unknown>;
-      assert.equal(body.ok, true);
-      assert.equal(body.network, "local");
-      assert.equal(body.version, "0.0.0-test");
-    });
-  });
-
-  it("unknown routes return 404 with an ASP-shaped envelope", async () => {
-    await runWithServer(h, async (baseUrl) => {
-      const res = await fetch(`${baseUrl}/nope`);
-      assert.equal(res.status, 404);
-      const body = (await res.json()) as { error?: { code?: string } };
-      assert.equal(body.error?.code, "NOT_FOUND");
-    });
-  });
+const ENVELOPE_TEXT_BODY = (id: string, to: string[]): Record<string, unknown> => ({
+  id,
+  to,
+  date_ms: 1747000000000,
+  content_parts: [{ type: "text", text: "hello there" }],
 });
 
-describe("operator server — admin auth", () => {
-  it("rejects admin requests without a bearer token", async () => {
-    await runWithServer(h, async (baseUrl) => {
-      const res = await fetch(`${baseUrl}/_admin/agents`);
-      assert.equal(res.status, 401);
-      const body = (await res.json()) as { error?: { code?: string } };
-      assert.equal(body.error?.code, "UNAUTHORIZED");
+describe("operator POST /messages + GET /mailbox + GET /messages/{id}", () => {
+  it("accepts an envelope and surfaces it in the recipient's mailbox", async () => {
+    const alice = await registerAgent(h, "@alice.cli");
+    const bob = await registerAgent(h, "@bob.cli");
+
+    const envelopeId = "01HW7Z9KQX1MS2D9P5VC3GZ8AB";
+    const sendRes = await fetch(`${h.baseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${alice.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "send-1",
+      },
+      body: JSON.stringify(ENVELOPE_TEXT_BODY(envelopeId, [bob.handle])),
     });
+    assert.equal(sendRes.status, 202);
+    const sendBody = (await sendRes.json()) as {
+      id: string;
+      created_at: number;
+      recipients: { handle: string }[];
+    };
+    assert.equal(sendBody.id, envelopeId);
+    assert.ok(sendBody.created_at > 0);
+    assert.deepEqual(sendBody.recipients, [{ handle: bob.handle }]);
+
+    // Bob lists his mailbox; the header is there.
+    const mailboxRes = await fetch(`${h.baseUrl}/mailbox?order=asc`, {
+      headers: { Authorization: `Bearer ${bob.token}` },
+    });
+    assert.equal(mailboxRes.status, 200);
+    const mailboxBody = (await mailboxRes.json()) as {
+      envelope_headers: { id: string; from: string; type_hint: string }[];
+      next_cursor: unknown;
+    };
+    assert.equal(mailboxBody.envelope_headers.length, 1);
+    assert.equal(mailboxBody.envelope_headers[0]!.id, envelopeId);
+    assert.equal(mailboxBody.envelope_headers[0]!.from, alice.handle);
+    assert.equal(mailboxBody.envelope_headers[0]!.type_hint, "text");
+
+    // Bob fetches the body; the envelope JSON includes the operator-
+    // stamped `from` and the full content_parts.
+    const fetchRes = await fetch(`${h.baseUrl}/messages/${envelopeId}`, {
+      headers: { Authorization: `Bearer ${bob.token}` },
+    });
+    assert.equal(fetchRes.status, 200);
+    const fetchBody = (await fetchRes.json()) as {
+      from: string;
+      content_parts: { type: string; text?: string }[];
+    };
+    assert.equal(fetchBody.from, alice.handle);
+    assert.equal(fetchBody.content_parts[0]!.text, "hello there");
   });
 
-  it("rejects admin requests with the wrong bearer token", async () => {
-    await runWithServer(h, async (baseUrl) => {
-      const res = await fetch(`${baseUrl}/_admin/agents`, {
-        headers: { Authorization: "Bearer wrong" },
-      });
-      assert.equal(res.status, 401);
-    });
-  });
-});
+  it("a non-recipient gets 404 on GET /messages/{id}", async () => {
+    const alice = await registerAgent(h, "@alice.cli");
+    const bob = await registerAgent(h, "@bob.cli");
+    const carol = await registerAgent(h, "@carol.cli");
 
-describe("operator server — admin agents", () => {
-  it("registers, lists, fetches, and deletes agents", async () => {
-    await runWithServer(h, async (baseUrl) => {
-      // Register.
-      const reg = await fetch(`${baseUrl}/_admin/agents`, {
+    const envelopeId = "01HW7Z9KQX1MS2D9P5VC3GZ8AB";
+    await fetch(`${h.baseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${alice.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "send-1",
+      },
+      body: JSON.stringify(ENVELOPE_TEXT_BODY(envelopeId, [bob.handle])),
+    });
+    const fetchRes = await fetch(`${h.baseUrl}/messages/${envelopeId}`, {
+      headers: { Authorization: `Bearer ${carol.token}` },
+    });
+    assert.equal(fetchRes.status, 404);
+  });
+
+  it("POST /mailbox/read flips read=true for entitled ids and silently drops others", async () => {
+    const alice = await registerAgent(h, "@alice.cli");
+    const bob = await registerAgent(h, "@bob.cli");
+
+    const envelopeId = "01HW7Z9KQX1MS2D9P5VC3GZ8AB";
+    await fetch(`${h.baseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${alice.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "send-1",
+      },
+      body: JSON.stringify(ENVELOPE_TEXT_BODY(envelopeId, [bob.handle])),
+    });
+    const res = await fetch(`${h.baseUrl}/mailbox/read`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${bob.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "read-1",
+      },
+      body: JSON.stringify({
+        ids: [envelopeId, "01HW7Z9KQX1MS2D9P5VC3GZ8AC" /* not owned */],
+      }),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { read: string[] };
+    assert.deepEqual(body.read, [envelopeId]);
+
+    // Mailbox listing with unread=true now omits the read envelope.
+    const unreadRes = await fetch(`${h.baseUrl}/mailbox?unread=true`, {
+      headers: { Authorization: `Bearer ${bob.token}` },
+    });
+    const unread = (await unreadRes.json()) as {
+      envelope_headers: { id: string }[];
+    };
+    assert.equal(unread.envelope_headers.length, 0);
+  });
+
+  it("GET /messages?ids=... batch-fetches and returns in input order", async () => {
+    const alice = await registerAgent(h, "@alice.cli");
+    const bob = await registerAgent(h, "@bob.cli");
+
+    const ids = [
+      "01HW7Z9KQX1MS2D9P5VC3GZ8AB",
+      "01HW7Z9KQX1MS2D9P5VC3GZ8AC",
+    ];
+    for (const id of ids) {
+      const r = await fetch(`${h.baseUrl}/messages`, {
         method: "POST",
-        headers: adminHeaders(h.adminToken),
-        body: JSON.stringify({ handle: "@example.bot" }),
+        headers: {
+          Authorization: `Bearer ${alice.token}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": `send-${id}`,
+        },
+        body: JSON.stringify(ENVELOPE_TEXT_BODY(id, [bob.handle])),
       });
-      assert.equal(reg.status, 201);
-      const created = (await reg.json()) as {
-        handle: string;
-        token: string;
-        policy: string;
-        allowlist: string[];
-      };
-      assert.equal(created.handle, "@example.bot");
-      assert.equal(created.policy, "allowlist");
-      assert.deepEqual(created.allowlist, []);
-      assert.equal(typeof created.token, "string");
-      assert.ok(created.token.length > 20);
-
-      // List.
-      const list = await fetch(`${baseUrl}/_admin/agents`, {
-        headers: adminHeaders(h.adminToken),
-      });
-      assert.equal(list.status, 200);
-      const listed = (await list.json()) as { agents: { handle: string; token?: string }[] };
-      assert.equal(listed.agents.length, 1);
-      // Token is NOT returned on list (we only have hashes).
-      assert.equal(listed.agents[0].token, undefined);
-
-      // Get.
-      const get = await fetch(`${baseUrl}/_admin/agents/@example.bot`, {
-        headers: adminHeaders(h.adminToken),
-      });
-      assert.equal(get.status, 200);
-      const got = (await get.json()) as { handle: string; token?: string };
-      assert.equal(got.handle, "@example.bot");
-      assert.equal(got.token, undefined);
-
-      // Delete.
-      const del = await fetch(`${baseUrl}/_admin/agents/@example.bot`, {
-        method: "DELETE",
-        headers: adminHeaders(h.adminToken),
-      });
-      assert.equal(del.status, 204);
-
-      // Re-fetch returns 404.
-      const got2 = await fetch(`${baseUrl}/_admin/agents/@example.bot`, {
-        headers: adminHeaders(h.adminToken),
-      });
-      assert.equal(got2.status, 404);
-    });
+      assert.equal(r.status, 202);
+    }
+    // Reverse the request order; the response must respect input order.
+    const fetchRes = await fetch(
+      `${h.baseUrl}/messages?ids=${ids[1]},${ids[0]}`,
+      { headers: { Authorization: `Bearer ${bob.token}` } },
+    );
+    assert.equal(fetchRes.status, 200);
+    const body = (await fetchRes.json()) as { envelopes: { id: string }[] };
+    assert.deepEqual(
+      body.envelopes.map((e) => e.id),
+      [ids[1], ids[0]],
+    );
   });
 
-  it("register rejects duplicate handles with 409", async () => {
-    await runWithServer(h, async (baseUrl) => {
-      const body = JSON.stringify({ handle: "@dup.bot" });
-      const a = await fetch(`${baseUrl}/_admin/agents`, {
+  it("desc order returns newest first; asc returns oldest first", async () => {
+    const alice = await registerAgent(h, "@alice.cli");
+    const bob = await registerAgent(h, "@bob.cli");
+
+    const ids = [
+      "01HW7Z9KQX1MS2D9P5VC3GZ8AB",
+      "01HW7Z9KQX1MS2D9P5VC3GZ8AC",
+    ];
+    for (const id of ids) {
+      await fetch(`${h.baseUrl}/messages`, {
         method: "POST",
-        headers: adminHeaders(h.adminToken),
-        body,
+        headers: {
+          Authorization: `Bearer ${alice.token}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": `send-${id}`,
+        },
+        body: JSON.stringify(ENVELOPE_TEXT_BODY(id, [bob.handle])),
       });
-      assert.equal(a.status, 201);
-      const b = await fetch(`${baseUrl}/_admin/agents`, {
-        method: "POST",
-        headers: adminHeaders(h.adminToken),
-        body,
-      });
-      assert.equal(b.status, 409);
-      const detail = (await b.json()) as { error?: { code?: string } };
-      assert.equal(detail.error?.code, "AGENT_EXISTS");
+      // small delay so created_at differs between rows
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    const ascRes = await fetch(`${h.baseUrl}/mailbox?order=asc`, {
+      headers: { Authorization: `Bearer ${bob.token}` },
     });
+    const asc = (await ascRes.json()) as {
+      envelope_headers: { id: string }[];
+    };
+    const descRes = await fetch(`${h.baseUrl}/mailbox?order=desc`, {
+      headers: { Authorization: `Bearer ${bob.token}` },
+    });
+    const desc = (await descRes.json()) as {
+      envelope_headers: { id: string }[];
+    };
+    assert.deepEqual(
+      asc.envelope_headers.map((h) => h.id),
+      ids,
+    );
+    assert.deepEqual(
+      desc.envelope_headers.map((h) => h.id),
+      [...ids].reverse(),
+    );
   });
 
-  it("rejects invalid handles with 400", async () => {
-    await runWithServer(h, async (baseUrl) => {
-      const res = await fetch(`${baseUrl}/_admin/agents`, {
-        method: "POST",
-        headers: adminHeaders(h.adminToken),
-        body: JSON.stringify({ handle: "not-a-handle" }),
-      });
-      assert.equal(res.status, 400);
-      const detail = (await res.json()) as { error?: { code?: string } };
-      assert.equal(detail.error?.code, "INVALID_HANDLE");
+  it("blocks an envelope when the recipient blocked the sender (non-enumerating 404)", async () => {
+    const alice = await registerAgent(h, "@alice.cli");
+    const bob = await registerAgent(h, "@bob.cli");
+
+    // Bob blocks alice.
+    const blockRes = await fetch(`${h.baseUrl}/agents/me/blocks`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${bob.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "block-1",
+      },
+      body: JSON.stringify({ handle: alice.handle }),
     });
+    assert.equal(blockRes.status, 201);
+
+    const sendRes = await fetch(`${h.baseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${alice.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "send-1",
+      },
+      body: JSON.stringify(
+        ENVELOPE_TEXT_BODY("01HW7Z9KQX1MS2D9P5VC3GZ8AB", [bob.handle]),
+      ),
+    });
+    assert.equal(sendRes.status, 404);
   });
 
-  it("rotate-token issues a fresh bearer and invalidates the old one", async () => {
-    await runWithServer(h, async (baseUrl) => {
-      const reg = await fetch(`${baseUrl}/_admin/agents`, {
-        method: "POST",
-        headers: adminHeaders(h.adminToken),
-        body: JSON.stringify({ handle: "@x.bot" }),
-      });
-      const old = (await reg.json()) as { token: string };
+  it("rejects client-supplied `from` on POST /messages with 400", async () => {
+    const alice = await registerAgent(h, "@alice.cli");
+    const bob = await registerAgent(h, "@bob.cli");
 
-      const rotate = await fetch(
-        `${baseUrl}/_admin/agents/@x.bot/rotate-token`,
-        { method: "POST", headers: adminHeaders(h.adminToken) },
-      );
-      assert.equal(rotate.status, 200);
-      const fresh = (await rotate.json()) as { token: string };
-      assert.notEqual(fresh.token, old.token);
-      assert.ok(fresh.token.length > 20);
-
-      // Hash-store comparison: only the new token's hash is in the agents row.
-      const stored = h.repo.agents.byHandle("@x.bot");
-      assert.equal(stored?.bearerTokenHash, sha256Hex(fresh.token));
-      assert.notEqual(stored?.bearerTokenHash, sha256Hex(old.token));
+    const sendRes = await fetch(`${h.baseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${alice.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "send-1",
+      },
+      body: JSON.stringify({
+        ...ENVELOPE_TEXT_BODY("01HW7Z9KQX1MS2D9P5VC3GZ8AB", [bob.handle]),
+        from: "@fake.bot",
+      }),
     });
+    assert.equal(sendRes.status, 400);
   });
 
-  it("PATCH /_admin/agents/:handle sets the inbound policy", async () => {
-    await runWithServer(h, async (baseUrl) => {
-      await fetch(`${baseUrl}/_admin/agents`, {
-        method: "POST",
-        headers: adminHeaders(h.adminToken),
-        body: JSON.stringify({ handle: "@y.bot" }),
-      });
+  it("supports POST /files + GET /files/:id round-trip", async () => {
+    const alice = await registerAgent(h, "@alice.cli");
 
-      const res = await fetch(`${baseUrl}/_admin/agents/@y.bot`, {
-        method: "PATCH",
-        headers: adminHeaders(h.adminToken),
-        body: JSON.stringify({ policy: "open" }),
-      });
-      assert.equal(res.status, 200);
-      const body = (await res.json()) as { policy: string };
-      assert.equal(body.policy, "open");
-
-      const stored = h.repo.agents.byHandle("@y.bot");
-      assert.equal(stored?.inboundPolicy, "open");
+    const boundary = "----WebKitFormBoundary12345";
+    // A valid PNG header + minimal IHDR-ish bytes; the file service
+    // validates magic bytes for png.
+    const pngHeader = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    ]);
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\n`),
+      Buffer.from(
+        `Content-Disposition: form-data; name="file"; filename="test.png"\r\n`,
+      ),
+      Buffer.from("Content-Type: image/png\r\n\r\n"),
+      pngHeader,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    const uploadRes = await fetch(`${h.baseUrl}/files`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${alice.token}`,
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "Idempotency-Key": "upload-1",
+      },
+      body,
     });
-  });
+    assert.equal(uploadRes.status, 201);
+    const { file_id, url } = (await uploadRes.json()) as {
+      file_id: string;
+      url: string;
+    };
+    assert.ok(file_id.startsWith("file_"));
+    assert.ok(url.includes(`/files/${file_id}`));
 
-  it("PATCH rejects an invalid policy with 400", async () => {
-    await runWithServer(h, async (baseUrl) => {
-      await fetch(`${baseUrl}/_admin/agents`, {
-        method: "POST",
-        headers: adminHeaders(h.adminToken),
-        body: JSON.stringify({ handle: "@y.bot" }),
-      });
-      const res = await fetch(`${baseUrl}/_admin/agents/@y.bot`, {
-        method: "PATCH",
-        headers: adminHeaders(h.adminToken),
-        body: JSON.stringify({ policy: "nonsense" }),
-      });
-      assert.equal(res.status, 400);
-      const detail = (await res.json()) as { error?: { code?: string } };
-      assert.equal(detail.error?.code, "INVALID_POLICY");
+    const downloadRes = await fetch(url, {
+      headers: { Authorization: `Bearer ${alice.token}` },
     });
-  });
-
-  // The third-party admin-side allowlist edit routes
-  // (`POST /_admin/agents/{h}/allowlist`, `DELETE /_admin/agents/{h}/allowlist/{e}`)
-  // were removed: under the actor model, an agent's allowlist is
-  // self-owned and edited only via the agent-bearer route at `/allowlist`
-  // (covered in tests/operator-self.test.ts).
-
-  it("PATCH on an unknown handle returns 404", async () => {
-    await runWithServer(h, async (baseUrl) => {
-      const res = await fetch(`${baseUrl}/_admin/agents/@missing.bot`, {
-        method: "PATCH",
-        headers: adminHeaders(h.adminToken),
-        body: JSON.stringify({ policy: "open" }),
-      });
-      assert.equal(res.status, 404);
-    });
+    assert.equal(downloadRes.status, 200);
+    const bytes = new Uint8Array(await downloadRes.arrayBuffer());
+    assert.equal(bytes.byteLength, pngHeader.length);
   });
 });

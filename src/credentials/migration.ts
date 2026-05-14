@@ -1,8 +1,8 @@
 import { readFile, readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
-import { networkStatePaths } from "../asp/credentials.js";
-import { isValidHandle } from "../asp/handles.js";
+import { networkStatePaths } from "../asmtp/credentials.js";
+import { isValidHandle } from "../asmtp/handles.js";
 import { loadToken, deleteToken } from "../auth/token-store.js";
 import { CredentialDecryptionError } from "./aes-encryptor.js";
 import type { CredentialStore } from "./store.js";
@@ -17,7 +17,7 @@ import type { CredentialStore } from "./store.js";
  * filesystem stats.
  *
  * Removes successfully-migrated files. After one release where this code
- * has run for everyone, both this function and `src/asp/credentials.ts`'s
+ * has run for everyone, both this function and `src/asmtp/credentials.ts`'s
  * write helpers can be deleted.
  */
 export async function migrateLegacyCredentials(args: {

@@ -4,7 +4,7 @@ import * as assert from "node:assert/strict";
 import { AgentDirectoryClient } from "../src/agents/client.js";
 import { CapabilityNotSupportedError } from "../src/agents/errors.js";
 import { isFullAgentResponse } from "../src/agents/types.js";
-import { AspApiError } from "../src/asp/errors.js";
+import { AsmtpApiError } from "../src/asmtp/errors.js";
 
 const BASE = "https://api.example/v1";
 const TOKEN = "test-bearer";
@@ -61,7 +61,6 @@ const FULL_AGENT = {
   owner_type: "account",
   owner_id: "acct_01",
   scope: "personal",
-  can_initiate_sessions: true,
   paused: false,
   card_body: "# Hello\nI am the CLI.",
   skills: [{ name: "register", description: "register an agent" }],
@@ -75,7 +74,6 @@ describe("AgentDirectoryClient.getAgent", () => {
       new Response(
         JSON.stringify({
           agent: PUBLIC_AGENT,
-          shared_sessions: [],
           viewer: { relationship: "none", can_edit: false },
         }),
         { status: 200 },
@@ -86,7 +84,6 @@ describe("AgentDirectoryClient.getAgent", () => {
     assert.equal(detail.agent.canonical_handle, "@owner.cli");
     assert.equal(isFullAgentResponse(detail.agent), false);
     assert.equal(detail.viewer.relationship, "none");
-    assert.equal(detail.shared_sessions.length, 0);
     assert.equal(calls.length, 1);
     assert.equal(calls[0]!.url, `${BASE}/agents/owner/cli`);
   });
@@ -96,15 +93,6 @@ describe("AgentDirectoryClient.getAgent", () => {
       new Response(
         JSON.stringify({
           agent: FULL_AGENT,
-          shared_sessions: [
-            {
-              id: "sess_01",
-              topic: "intro",
-              state: "active",
-              last_activity_at: 1_700_000_002_000,
-              created_at: 1_700_000_000_000,
-            },
-          ],
           viewer: { relationship: "owner", can_edit: true },
         }),
         { status: 200 },
@@ -117,14 +105,13 @@ describe("AgentDirectoryClient.getAgent", () => {
       assert.equal(detail.agent.skills?.length, 1);
       assert.equal(detail.agent.card_body, "# Hello\nI am the CLI.");
     }
-    assert.equal(detail.shared_sessions.length, 1);
     assert.equal(detail.viewer.relationship, "owner");
     assert.equal(detail.viewer.can_edit, true);
   });
 
-  it("propagates 404 as AspApiError (privacy-preserving 'not visible')", async () => {
+  it("propagates 404 as AsmtpApiError (privacy-preserving 'not visible')", async () => {
     stubFetch(() => new Response("", { status: 404 }));
-    await assert.rejects(() => makeClient().getAgent("@owner.cli"), AspApiError);
+    await assert.rejects(() => makeClient().getAgent("@owner.cli"), AsmtpApiError);
   });
 
   it("translates 501 to CapabilityNotSupportedError", async () => {
@@ -150,11 +137,11 @@ describe("AgentDirectoryClient.getAgentCard", () => {
     assert.equal(calls[0]!.url, `${BASE}/agents/owner/cli/card`);
   });
 
-  it("propagates 404 as AspApiError (the agent doesn't exist or isn't visible)", async () => {
+  it("propagates 404 as AsmtpApiError (the agent doesn't exist or isn't visible)", async () => {
     stubFetch(() => new Response("", { status: 404 }));
     await assert.rejects(
       () => makeClient().getAgentCard("@owner.cli"),
-      AspApiError,
+      AsmtpApiError,
     );
   });
 
@@ -241,9 +228,9 @@ describe("AgentDirectoryClient.searchAgents", () => {
     }
   });
 
-  it("propagates non-capability errors as AspApiError", async () => {
+  it("propagates non-capability errors as AsmtpApiError", async () => {
     stubFetch(() => new Response("", { status: 500 }));
-    await assert.rejects(() => makeClient().searchAgents("x", 5), AspApiError);
+    await assert.rejects(() => makeClient().searchAgents("x", 5), AsmtpApiError);
   });
 });
 

@@ -10,7 +10,7 @@ import { BadRequestError, OperatorError } from "../errors.js";
  * and oversized payloads.
  */
 
-const MAX_BODY_BYTES = 1 << 20; // 1 MiB — generous for ASP request shapes.
+const MAX_BODY_BYTES = 1 << 20; // 1 MiB cap on request bodies.
 
 /** Read the request body, parse as JSON, and validate the top level is an object. */
 export async function parseJsonBody(
@@ -80,7 +80,7 @@ export function sendText(
   res.end(body);
 }
 
-/** Send an ASP-shaped `{error: {code, message}}` envelope at `status`. */
+/** Send an `{error: {code, message}}` envelope at `status`. */
 export function sendError(
   res: ServerResponse,
   err: OperatorError | Error | unknown,

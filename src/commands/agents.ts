@@ -1,12 +1,12 @@
 import { Command } from "commander";
 
-import { resolveAgentToken } from "../asp/auth-resolver.js";
-import { AspApiError } from "../asp/errors.js";
+import { resolveAgentToken } from "../asmtp/auth-resolver.js";
+import { AsmtpApiError } from "../asmtp/errors.js";
 import {
   allowlistEntriesArg,
   assertValidAllowlistEntry,
   handleArg,
-} from "../asp/handles.js";
+} from "../asmtp/handles.js";
 import { AgentDirectoryClient } from "../agents/client.js";
 import { CapabilityNotSupportedError } from "../agents/errors.js";
 import {
@@ -23,8 +23,7 @@ import {
 import type { CLIConfig } from "../config.js";
 import { RobotNetCLIError } from "../errors.js";
 import { pluralize } from "../output/formatters.js";
-import { loadConfigForAgentCommand, out } from "./asp-shared.js";
-import { tokenOption } from "./shared.js";
+import { loadConfigForAgentCommand, out, tokenOption } from "./shared.js";
 
 /**
  * `robotnet agents` — directory/discovery view of agents on the network.
@@ -207,18 +206,61 @@ function makeSearchCmd(): Command {
 }
 
 function makeDirectorySearchCmd(): Command {
-  return makeSearchCommand({
-    description:
-      "Search the network directory for agents, people, and organizations",
-    limitDescription: "Maximum results per section (1..50)",
-    paginated: false,
-    call: (client, q, l) => client.searchDirectory(q, l),
-    render: (r) => {
-      renderAgentSearchResults(r.agents, "Agents");
-      renderPeopleResults(r.people);
-      renderOrganizationResults(r.organizations);
-    },
-  });
+  return new Command("search")
+    .description("Search the network directory")
+    .requiredOption("--query <text>", "Search query (2-100 chars)")
+    .option("--limit <n>", "Maximum results per section (1..50)", parseLimit, 20)
+    .option(
+      "--scope <scope>",
+      "What to search across: 'agents' (default; agents, people, organizations) or 'messages' (envelope content).",
+      parseSearchScope,
+      "agents" as SearchScope,
+    )
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
+    .option("--json", "Emit machine-readable JSON", false)
+    .action(async (opts: DirectorySearchOpts, cmd: Command) => {
+      if (opts.scope === "messages") {
+        // Envelope-content search is not exposed yet — the operator-side
+        // index is still being rebuilt against ASMTP envelopes. Surfacing
+        // the gap with a clear error beats a generic 404 / capability miss.
+        throw new RobotNetCLIError(
+          "Message search is not available yet on the network. " +
+            "It will land once envelope-content search is exposed by the operator. " +
+            "Use --scope agents (default) to search the agent directory in the meantime.",
+        );
+      }
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const client = await buildClient(config, identity.handle, opts.token);
+      const result = await client.searchDirectory(opts.query, opts.limit);
+      if (opts.json) {
+        out(JSON.stringify(result, null, 2));
+        return;
+      }
+      renderAgentSearchResults(result.agents, "Agents");
+      renderPeopleResults(result.people);
+      renderOrganizationResults(result.organizations);
+    });
+}
+
+type SearchScope = "agents" | "messages";
+
+interface DirectorySearchOpts {
+  readonly query: string;
+  readonly limit: number;
+  readonly scope: SearchScope;
+  readonly as?: string;
+  readonly token?: string;
+  readonly json: boolean;
+}
+
+function parseSearchScope(value: string): SearchScope {
+  if (value !== "agents" && value !== "messages") {
+    throw new RobotNetCLIError(
+      `--scope must be 'agents' or 'messages' (got ${JSON.stringify(value)})`,
+    );
+  }
+  return value;
 }
 
 // ── me show / me update ──────────────────────────────────────────────────────
@@ -487,9 +529,10 @@ function parseLimit(value: string): number {
 }
 
 /**
- * Wrap a discovery call so the privacy-preserving 404 from the hosted API
- * surfaces as a plainspoken "not found or not visible" hint instead of a raw
- * `ASP API error 404: http_404` line. Other errors propagate unchanged.
+ * Wrap a discovery call so the privacy-preserving 404 from the operator
+ * surfaces as a plainspoken "not found or not visible" hint instead of a
+ * raw `network error 404: http_404` line. Other errors propagate
+ * unchanged.
  */
 async function runWithNotFoundHint<T>(
   call: () => Promise<T>,
@@ -499,7 +542,7 @@ async function runWithNotFoundHint<T>(
   try {
     return await call();
   } catch (err) {
-    if (err instanceof AspApiError && err.status === 404) {
+    if (err instanceof AsmtpApiError && err.status === 404) {
       throw new RobotNetCLIError(
         `Agent ${targetHandle} not found, or not visible to ${callerHandle}.`,
       );
@@ -517,14 +560,6 @@ function renderAgentDetailResponse(detail: AgentDetailResponse): void {
   // relationship" and would render an awkward bare label.
   if (detail.viewer.relationship === "owner") {
     out(`  Relationship: owner${detail.viewer.can_edit ? " (can edit)" : ""}`);
-  }
-  if (detail.shared_sessions.length > 0) {
-    out("");
-    out(`Shared sessions (${detail.shared_sessions.length}):`);
-    for (const s of detail.shared_sessions) {
-      const topic = s.topic ?? "(no topic)";
-      out(`  - ${s.id}  [${s.state}]  ${topic}`);
-    }
   }
 }
 
@@ -553,9 +588,8 @@ function renderAgentDetail(detail: AgentDetail): void {
   if (detail.card_body !== null && detail.card_body.length > 0) {
     out("");
     out("Card:");
-    // Preserve markdown line breaks; the terminal renders the markdown source
-    // verbatim — matches the documented restoration behaviour from before
-    // the ASP migration.
+    // Preserve markdown line breaks; the terminal renders the markdown
+    // source verbatim.
     for (const line of detail.card_body.split("\n")) {
       out(`  ${line}`);
     }

@@ -12,11 +12,10 @@ import { tailLog } from "../network/logs.js";
 import { networkPaths } from "../network/paths.js";
 import { renderKeyValues } from "../output/formatters.js";
 import { renderJson } from "../output/json-output.js";
-import { loadConfigFromRoot } from "./asp-shared.js";
-import { jsonOption, profileTitle } from "./shared.js";
+import { jsonOption, loadConfigFromRoot, profileTitle } from "./shared.js";
 
 /**
- * `robotnet network ...` — supervise the local ASP operator.
+ * `robotnet network ...` — supervise the in-tree local operator.
  *
  * Strictly local: every subcommand calls into `lifecycle.ts`, which gates
  * on {@link assertLocalNetwork} before doing anything. A remote `oauth`
@@ -35,12 +34,12 @@ import { jsonOption, profileTitle } from "./shared.js";
  */
 export function registerNetworkCommand(program: Command): void {
   const network = new Command("network").description(
-    "Supervise the local ASP operator (start/stop/status/logs/reset)",
+    "Supervise the in-tree local operator (start/stop/status/logs/reset)",
   );
 
   network
     .command("start")
-    .description("Start the local ASP operator. Idempotent: re-running adopts an already-healthy operator.")
+    .description("Start the in-tree local operator. Idempotent: re-running adopts an already-healthy operator.")
     .addOption(jsonOption())
     .action(async (opts: JsonOpts, cmd: Command) => {
       const config = await loadConfigFromRoot(cmd);
@@ -65,7 +64,7 @@ export function registerNetworkCommand(program: Command): void {
 
   network
     .command("stop")
-    .description("Stop the local ASP operator (SIGTERM, then SIGKILL after a grace period).")
+    .description("Stop the in-tree local operator (SIGTERM, then SIGKILL after a grace period).")
     .addOption(jsonOption())
     .action(async (opts: JsonOpts, cmd: Command) => {
       const config = await loadConfigFromRoot(cmd);

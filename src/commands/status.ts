@@ -1,9 +1,8 @@
 import { Command } from "commander";
 
-import { resolveAgentIdentity, type AgentIdentitySource } from "../asp/identity.js";
+import { resolveAgentIdentity, type AgentIdentitySource } from "../asmtp/identity.js";
 import type { CLIConfig, NetworkAuthMode, NetworkConfig } from "../config.js";
-import { loadConfigFromRoot, out } from "./asp-shared.js";
-import { jsonOption } from "./shared.js";
+import { jsonOption, loadConfigFromRoot, out } from "./shared.js";
 
 /**
  * Per-network probe budget. Status is meant to be cheap enough to invoke

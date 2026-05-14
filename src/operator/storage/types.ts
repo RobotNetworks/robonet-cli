@@ -1,20 +1,16 @@
 /**
  * Domain row types returned by the repository layer.
  *
- * These mirror the SQLite columns 1:1 (camelCase rather than snake_case) so
- * the route layer doesn't deal in raw rows. JSON columns are pre-parsed
- * into the appropriate object shapes; nullability matches the schema.
+ * Mirror the SQLite columns 1:1 (camelCase rather than snake_case) so the
+ * route layer doesn't deal in raw rows. JSON columns are pre-parsed.
+ * Nullability matches the schema.
  */
 
 export type Handle = string;
-export type SessionId = string;
-export type MessageId = string;
-export type EventId = string;
-export type Sequence = number;
+export type EnvelopeId = string;
 export type Timestamp = number;
 
 export type InboundPolicy = "open" | "allowlist";
-
 export type AgentVisibility = "public" | "private";
 
 export interface AgentRecord {
@@ -42,88 +38,40 @@ export interface BlockRecord {
   readonly createdAtMs: Timestamp;
 }
 
-export type SessionState = "active" | "ended";
+export type TypeHint = "text" | "image" | "file" | "data" | "mixed";
 
-export interface SessionRecord {
-  readonly id: SessionId;
-  readonly creatorHandle: Handle;
-  readonly state: SessionState;
-  readonly topic: string | null;
+export type MailboxEntryKind = "to" | "cc";
+
+export interface EnvelopeRecord {
+  readonly id: EnvelopeId;
+  readonly fromHandle: Handle;
+  readonly subject: string | null;
+  readonly inReplyTo: EnvelopeId | null;
+  readonly dateMs: Timestamp;
+  readonly receivedMs: Timestamp;
   readonly createdAtMs: Timestamp;
-  readonly updatedAtMs: Timestamp;
-  readonly endedAtMs: Timestamp | null;
+  readonly typeHint: TypeHint;
+  readonly sizeHint: number | null;
+  readonly monitorHandle: string | null;
+  /** Verbatim envelope body (the JSON the operator returns from
+   *  GET /messages/{id}). The route layer reads this directly. */
+  readonly bodyJson: string;
 }
 
-export type ParticipantStatus = "invited" | "joined" | "left";
-
-export interface ParticipantRecord {
-  readonly sessionId: SessionId;
-  readonly handle: Handle;
-  readonly status: ParticipantStatus;
-  readonly joinedAtMs: Timestamp | null;
-  readonly leftAtMs: Timestamp | null;
-}
-
-export interface MessageRecord {
-  readonly id: MessageId;
-  readonly sessionId: SessionId;
-  readonly senderHandle: Handle;
-  readonly sequence: Sequence;
-  readonly content: unknown;
-  readonly idempotencyKey: string | null;
-  readonly metadata: Readonly<Record<string, unknown>> | null;
+export interface MailboxEntryRecord {
+  readonly mailboxHandle: Handle;
+  readonly envelopeId: EnvelopeId;
+  readonly kind: MailboxEntryKind;
   readonly createdAtMs: Timestamp;
+  readonly read: boolean;
 }
 
-/**
- * Wire-shape of a stored session event.
- *
- * `type` is intentionally typed loosely (`string`) at the storage layer —
- * the route/service layer narrows to a discriminated union. Storing it as
- * a free string lets us evolve event types without a schema change.
- */
-export interface EventRecord {
-  readonly id: EventId;
-  readonly sessionId: SessionId;
-  readonly sequence: Sequence;
-  readonly type: string;
-  readonly payload: Readonly<Record<string, unknown>>;
-  readonly createdAtMs: Timestamp;
-}
-
-export interface DeliveryCursorRecord {
-  readonly handle: Handle;
-  readonly sessionId: SessionId;
-  readonly lastDeliveredSequence: Sequence;
-}
-
-export interface IdempotencyRecord {
-  readonly sessionId: SessionId;
-  readonly senderHandle: Handle;
-  readonly key: string;
-  readonly messageId: MessageId;
-  readonly sequence: Sequence;
-  readonly createdAtMs: Timestamp;
-}
-
-export type FileStatus = "pending" | "attached";
-
-/**
- * A file uploaded to the operator's `POST /files` endpoint.
- *
- * `relative_path` is relative to the per-network filesDir
- * (`<stateDir>/networks/<name>/files/`), so a `network reset` removes
- * both the metadata and the bytes together.
- */
 export interface FileRecord {
   readonly id: string;
-  readonly status: FileStatus;
-  readonly sessionMessageId: MessageId | null;
-  readonly uploaderHandle: Handle;
+  readonly ownerHandle: Handle;
   readonly filename: string;
   readonly contentType: string;
   readonly sizeBytes: number;
   readonly relativePath: string;
   readonly createdAtMs: Timestamp;
-  readonly expiresAtMs: Timestamp | null;
 }

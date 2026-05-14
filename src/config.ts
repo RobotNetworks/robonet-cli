@@ -10,11 +10,11 @@ const DEFAULT_NETWORK = "global";
 const WORKSPACE_CONFIG_DIR = ".robotnet";
 const WORKSPACE_CONFIG_FILE = "config.json";
 
-/** How an agent authenticates to a given ASP network. */
+/** How an agent authenticates to a given network. */
 export type NetworkAuthMode = "oauth" | "agent-token";
 
 /**
- * A named ASP network the CLI can target.
+ * A named network the CLI can target.
  *
  * `oauth` networks (e.g. Robot Networks itself) authenticate via the
  * usual `robotnet login` flow and **must** carry their own `authBaseUrl`
@@ -22,8 +22,8 @@ export type NetworkAuthMode = "oauth" | "agent-token";
  * auth servers and WebSocket gateways, so these belong to the network, not
  * the profile.
  *
- * `agent-token` networks (a `robotnet network start` instance, or any other
- * ASP network that issues bearer tokens at agent registration time)
+ * `agent-token` networks (a `robotnet network start` instance, or any
+ * other network that issues bearer tokens at agent registration time)
  * authenticate per-agent with the token returned by the network at
  * registration. They derive the WebSocket URL from `url` and never consult
  * an OAuth auth server, so `authBaseUrl` / `websocketUrl` should be left

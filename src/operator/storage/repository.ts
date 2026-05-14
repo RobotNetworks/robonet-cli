@@ -6,21 +6,15 @@ import type {
   AgentVisibility,
   AllowlistEntry,
   BlockRecord,
-  DeliveryCursorRecord,
-  EventRecord,
+  EnvelopeId,
+  EnvelopeRecord,
   FileRecord,
-  FileStatus,
   Handle,
-  IdempotencyRecord,
   InboundPolicy,
-  MessageId,
-  MessageRecord,
-  ParticipantRecord,
-  ParticipantStatus,
-  Sequence,
-  SessionId,
-  SessionRecord,
-  SessionState,
+  MailboxEntryKind,
+  MailboxEntryRecord,
+  Timestamp,
+  TypeHint,
 } from "./types.js";
 
 /* -------------------------------------------------------------------------- */
@@ -32,30 +26,19 @@ import type {
  * service layer composes these inside `withTransaction(db, ...)` blocks;
  * the repos themselves don't open transactions so the caller controls
  * atomicity boundaries.
- *
- * Construction is cheap — repos hold prepared statements but no
- * mutable state — so a single instance per operator process is fine.
  */
 export class OperatorRepository {
   readonly agents: AgentsRepo;
   readonly blocks: BlocksRepo;
-  readonly sessions: SessionsRepo;
-  readonly participants: ParticipantsRepo;
-  readonly messages: MessagesRepo;
-  readonly events: EventsRepo;
-  readonly cursors: DeliveryCursorsRepo;
-  readonly idempotency: IdempotencyRepo;
+  readonly envelopes: EnvelopesRepo;
+  readonly mailbox: MailboxRepo;
   readonly files: FilesRepo;
 
   constructor(db: DatabaseSync) {
     this.agents = new AgentsRepo(db);
     this.blocks = new BlocksRepo(db);
-    this.sessions = new SessionsRepo(db);
-    this.participants = new ParticipantsRepo(db);
-    this.messages = new MessagesRepo(db);
-    this.events = new EventsRepo(db);
-    this.cursors = new DeliveryCursorsRepo(db);
-    this.idempotency = new IdempotencyRepo(db);
+    this.envelopes = new EnvelopesRepo(db);
+    this.mailbox = new MailboxRepo(db);
     this.files = new FilesRepo(db);
   }
 }
@@ -128,17 +111,6 @@ export class AgentsRepo {
     return got;
   }
 
-  /**
-   * Apply a partial profile update to an existing agent. Returns the
-   * updated record, or `null` if no agent exists with that handle.
-   *
-   * Each field is independently optional: omitting a field leaves the
-   * stored value untouched. Passing `null` for `description` or
-   * `cardBody` clears it. `displayName` cannot be cleared (the wire
-   * shape requires a non-null display name; clearing would force the
-   * read path to fall back to the handle, which is what register does
-   * by default anyway).
-   */
   updateProfile(
     handle: Handle,
     input: UpdateAgentProfileInput,
@@ -195,30 +167,10 @@ export class AgentsRepo {
     return rows.map(rawToAgent);
   }
 
-  /**
-   * Substring search across `handle` and `display_name`. Case-insensitive
-   * via SQLite's `LIKE` (which is ASCII case-insensitive by default; for
-   * names with non-ASCII characters callers should match exact prefixes).
-   *
-   * Returns `limit + 1` rows is intentionally not done — the caller
-   * paginates externally if needed. Visibility filtering happens in the
-   * route layer because it depends on caller identity.
-   */
   search(query: string, limit: number): readonly AgentRecord[] {
     return this.searchPage({ query, limit });
   }
 
-  /**
-   * Cursor-paginated agent search.
-   *
-   * Sort key is the agent `handle` (already unique). The cursor — passed
-   * back from the prior response's `next_cursor` — is the handle of the
-   * last row from that page; rows with a strictly greater handle make
-   * up the next page. Visibility filtering happens in the route layer
-   * because it depends on the caller's identity, so a short page does
-   * NOT mean end-of-results — clients should keep paging while
-   * `next_cursor` is non-null.
-   */
   searchPage(args: {
     readonly query: string;
     readonly limit: number;
@@ -239,30 +191,19 @@ export class AgentsRepo {
   }
 
   /**
-   * Remove an agent and all rows that reference it.
-   *
-   * The schema cascades from `agents(handle)` for allowlist and blocks
-   * but NOT for `sessions(creator_handle)`, so a naive `DELETE FROM
-   * agents` raises a foreign-key error whenever the agent has ever
-   * created a session. Cascade through the dependent rows explicitly:
-   *
-   *   1. Sessions the agent created — cascade chains down to
-   *      participants, messages, events, delivery_cursors,
-   *      session_sequences, idempotency via their `sessions(id)` FKs.
-   *   2. Participant rows where the agent is a member of someone
-   *      else's session (no FK from `participants.handle` to agents).
-   *   3. Delivery cursors keyed on the agent's handle (no FK).
-   *   4. The agent row itself.
-   *
-   * Wrapped in a transaction so a partial failure rolls back. Returns
-   * true iff the agent existed.
+   * Remove an agent and all rows that reference it. Cascades through the
+   * dependent FKs (allowlist, blocks, mailbox_entries, files,
+   * envelopes-they-sent). Wrapped in a transaction so a partial failure
+   * rolls back. Returns true iff the agent existed.
    */
   remove(handle: Handle): boolean {
     const changes = withTransaction(this.#db, () => {
-      this.#db.prepare("DELETE FROM sessions WHERE creator_handle = ?").run(handle);
-      this.#db.prepare("DELETE FROM participants WHERE handle = ?").run(handle);
-      this.#db.prepare("DELETE FROM delivery_cursors WHERE handle = ?").run(handle);
-      return this.#db.prepare("DELETE FROM agents WHERE handle = ?").run(handle).changes;
+      // Envelopes the agent SENT cascade their mailbox entries through
+      // `envelopes(id)` cascade. The agent's OWN mailbox entries cascade
+      // through `mailbox_entries.mailbox_handle`. Both cascades fire from
+      // the agent row delete; we don't need explicit cleanup.
+      return this.#db.prepare("DELETE FROM agents WHERE handle = ?").run(handle)
+        .changes;
     });
     return changes > 0;
   }
@@ -305,7 +246,9 @@ export class AgentsRepo {
       )
       .get(ownerHandle, entry) as unknown as RawAllowlistRow | undefined;
     if (got === undefined) {
-      throw new Error(`internal: allowlist row missing after upsert (${ownerHandle}, ${entry})`);
+      throw new Error(
+        `internal: allowlist row missing after upsert (${ownerHandle}, ${entry})`,
+      );
     }
     return rawToAllowlist(got);
   }
@@ -351,11 +294,6 @@ export class BlocksRepo {
     this.#db = db;
   }
 
-  /**
-   * Idempotently record `blockerHandle` blocking `blockedHandle`. Re-issuing
-   * the same block is a no-op for the row but the returned record reflects
-   * the *original* `created_at_ms` so callers see a stable timestamp.
-   */
   add(blockerHandle: Handle, blockedHandle: Handle): BlockRecord {
     const now = Date.now();
     this.#db
@@ -372,7 +310,7 @@ export class BlocksRepo {
       .get(blockerHandle, blockedHandle) as unknown as RawBlockRow | undefined;
     if (got === undefined) {
       throw new Error(
-        `internal: block row missing after upsert (${blockerHandle} → ${blockedHandle})`,
+        `internal: block row missing after upsert (${blockerHandle} > ${blockedHandle})`,
       );
     }
     return rawToBlock(got);
@@ -388,7 +326,19 @@ export class BlocksRepo {
     );
   }
 
-  list(blockerHandle: Handle, opts: { readonly limit?: number; readonly offset?: number } = {}): readonly BlockRecord[] {
+  isBlocked(blockerHandle: Handle, blockedHandle: Handle): boolean {
+    const row = this.#db
+      .prepare(
+        "SELECT 1 FROM blocks WHERE blocker_handle = ? AND blocked_handle = ?",
+      )
+      .get(blockerHandle, blockedHandle);
+    return row !== undefined;
+  }
+
+  list(
+    blockerHandle: Handle,
+    opts: { readonly limit?: number; readonly offset?: number } = {},
+  ): readonly BlockRecord[] {
     const limit = opts.limit ?? 100;
     const offset = opts.offset ?? 0;
     const rows = this.#db
@@ -404,484 +354,237 @@ export class BlocksRepo {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Sessions                                                                    */
+/* Envelopes                                                                   */
 /* -------------------------------------------------------------------------- */
 
-export interface CreateSessionInput {
-  readonly id: SessionId;
-  readonly creatorHandle: Handle;
-  readonly topic?: string | null;
+export interface InsertEnvelopeInput {
+  readonly id: EnvelopeId;
+  readonly fromHandle: Handle;
+  readonly subject: string | null;
+  readonly inReplyTo: EnvelopeId | null;
+  readonly dateMs: Timestamp;
+  readonly receivedMs: Timestamp;
+  readonly createdAtMs: Timestamp;
+  readonly typeHint: TypeHint;
+  readonly sizeHint: number | null;
+  readonly monitorHandle: string | null;
+  readonly bodyJson: string;
 }
 
-export class SessionsRepo {
+export class EnvelopesRepo {
   readonly #db: DatabaseSync;
 
   constructor(db: DatabaseSync) {
     this.#db = db;
   }
 
-  create(input: CreateSessionInput): SessionRecord {
-    const now = Date.now();
+  insert(input: InsertEnvelopeInput): EnvelopeRecord {
     this.#db
       .prepare(
-        `INSERT INTO sessions (id, creator_handle, state, topic, created_at_ms, updated_at_ms)
-         VALUES (?, ?, 'active', ?, ?, ?)`,
-      )
-      .run(input.id, input.creatorHandle, input.topic ?? null, now, now);
-    // Initialise the per-session sequence counter so events can claim
-    // sequences without an extra round-trip on first append.
-    this.#db
-      .prepare(
-        "INSERT INTO session_sequences (session_id, next_sequence) VALUES (?, 1)",
-      )
-      .run(input.id);
-    const got = this.byId(input.id);
-    if (got === null) {
-      throw new Error(`internal: session ${input.id} missing after insert`);
-    }
-    return got;
-  }
-
-  byId(id: SessionId): SessionRecord | null {
-    const row = this.#db
-      .prepare("SELECT * FROM sessions WHERE id = ?")
-      .get(id) as unknown as RawSessionRow | undefined;
-    return row === undefined ? null : rawToSession(row);
-  }
-
-  /**
-   * Sessions where `handle` is a participant (any status), most-recently-
-   * updated first. Used by `GET /sessions` to surface an agent's full
-   * session list. Distinct on session id so multi-status rows don't double
-   * up.
-   */
-  listForHandle(handle: Handle): readonly SessionRecord[] {
-    const rows = this.#db
-      .prepare(
-        `SELECT DISTINCT s.*
-           FROM sessions s
-           INNER JOIN participants p ON p.session_id = s.id
-          WHERE p.handle = ?
-          ORDER BY s.updated_at_ms DESC, s.id DESC`,
-      )
-      .all(handle) as unknown as RawSessionRow[];
-    return rows.map(rawToSession);
-  }
-
-  setState(id: SessionId, state: SessionState): boolean {
-    const now = Date.now();
-    return (
-      this.#db
-        .prepare(
-          `UPDATE sessions
-             SET state = ?,
-                 updated_at_ms = ?,
-                 ended_at_ms = CASE
-                   WHEN ? = 'ended'  THEN COALESCE(ended_at_ms, ?)
-                   WHEN ? = 'active' THEN NULL
-                   ELSE ended_at_ms
-                 END
-           WHERE id = ?`,
-        )
-        .run(state, now, state, now, state, id).changes > 0
-    );
-  }
-
-  /**
-   * Allocate the next sequence number for the session and advance the
-   * counter atomically. Throws if the session does not exist.
-   *
-   * Must be called inside a transaction so the read-and-increment is
-   * serialised against concurrent writers — SQLite's `BEGIN DEFERRED`
-   * (used by `withTransaction`) acquires the writer lock on the first
-   * write and serialises all later writers behind it.
-   */
-  allocateSequence(id: SessionId): Sequence {
-    const row = this.#db
-      .prepare(
-        "SELECT next_sequence FROM session_sequences WHERE session_id = ?",
-      )
-      .get(id) as { next_sequence: number } | undefined;
-    if (row === undefined) {
-      throw new Error(`internal: missing session_sequences row for ${id}`);
-    }
-    const seq = row.next_sequence;
-    this.#db
-      .prepare(
-        "UPDATE session_sequences SET next_sequence = next_sequence + 1 WHERE session_id = ?",
-      )
-      .run(id);
-    return seq;
-  }
-}
-
-/* -------------------------------------------------------------------------- */
-/* Participants                                                                */
-/* -------------------------------------------------------------------------- */
-
-export class ParticipantsRepo {
-  readonly #db: DatabaseSync;
-
-  constructor(db: DatabaseSync) {
-    this.#db = db;
-  }
-
-  add(sessionId: SessionId, handle: Handle, status: ParticipantStatus): ParticipantRecord {
-    const now = Date.now();
-    const joinedAt = status === "joined" ? now : null;
-    const leftAt = status === "left" ? now : null;
-    this.#db
-      .prepare(
-        `INSERT INTO participants (session_id, handle, status, joined_at_ms, left_at_ms)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(sessionId, handle, status, joinedAt, leftAt);
-    const got = this.get(sessionId, handle);
-    if (got === null) {
-      throw new Error(`internal: participant ${sessionId}/${handle} missing after insert`);
-    }
-    return got;
-  }
-
-  setStatus(sessionId: SessionId, handle: Handle, status: ParticipantStatus): boolean {
-    const now = Date.now();
-    return (
-      this.#db
-        .prepare(
-          `UPDATE participants
-             SET status = ?,
-                 joined_at_ms = CASE WHEN ? = 'joined' THEN COALESCE(joined_at_ms, ?) ELSE joined_at_ms END,
-                 left_at_ms   = CASE WHEN ? = 'left'   THEN ? ELSE left_at_ms END
-           WHERE session_id = ? AND handle = ?`,
-        )
-        .run(status, status, now, status, now, sessionId, handle).changes > 0
-    );
-  }
-
-  /**
-   * Reset a participant to `invited` and clear `joined_at_ms` / `left_at_ms`
-   * — used by `reopenSession` so that the wire view of a re-invited prior
-   * participant doesn't carry the stale `joined_at` from before the end.
-   * `setStatus` deliberately preserves those timestamps; this is the only
-   * codepath that explicitly rewinds them.
-   */
-  reinvite(sessionId: SessionId, handle: Handle): boolean {
-    return (
-      this.#db
-        .prepare(
-          `UPDATE participants
-             SET status = 'invited',
-                 joined_at_ms = NULL,
-                 left_at_ms = NULL
-           WHERE session_id = ? AND handle = ?`,
-        )
-        .run(sessionId, handle).changes > 0
-    );
-  }
-
-  get(sessionId: SessionId, handle: Handle): ParticipantRecord | null {
-    const row = this.#db
-      .prepare(
-        "SELECT * FROM participants WHERE session_id = ? AND handle = ?",
-      )
-      .get(sessionId, handle) as unknown as RawParticipantRow | undefined;
-    return row === undefined ? null : rawToParticipant(row);
-  }
-
-  listForSession(sessionId: SessionId): readonly ParticipantRecord[] {
-    const rows = this.#db
-      .prepare("SELECT * FROM participants WHERE session_id = ? ORDER BY handle")
-      .all(sessionId) as unknown as RawParticipantRow[];
-    return rows.map(rawToParticipant);
-  }
-
-  listForHandle(handle: Handle): readonly ParticipantRecord[] {
-    const rows = this.#db
-      .prepare("SELECT * FROM participants WHERE handle = ?")
-      .all(handle) as unknown as RawParticipantRow[];
-    return rows.map(rawToParticipant);
-  }
-}
-
-/* -------------------------------------------------------------------------- */
-/* Messages                                                                    */
-/* -------------------------------------------------------------------------- */
-
-export interface InsertMessageInput {
-  readonly id: string;
-  readonly sessionId: SessionId;
-  readonly senderHandle: Handle;
-  readonly sequence: Sequence;
-  readonly content: unknown;
-  readonly idempotencyKey?: string | null;
-  readonly metadata?: Readonly<Record<string, unknown>> | null;
-}
-
-export class MessagesRepo {
-  readonly #db: DatabaseSync;
-
-  constructor(db: DatabaseSync) {
-    this.#db = db;
-  }
-
-  insert(input: InsertMessageInput): MessageRecord {
-    const now = Date.now();
-    const metadataJson =
-      input.metadata !== undefined && input.metadata !== null
-        ? JSON.stringify(input.metadata)
-        : null;
-    this.#db
-      .prepare(
-        `INSERT INTO messages
-           (id, session_id, sender_handle, sequence, content_json, idempotency_key, metadata_json, created_at_ms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO envelopes (
+           id, from_handle, subject, in_reply_to,
+           date_ms, received_ms, created_at_ms,
+           type_hint, size_hint, monitor_handle, body_json
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.id,
-        input.sessionId,
-        input.senderHandle,
-        input.sequence,
-        JSON.stringify(input.content),
-        input.idempotencyKey ?? null,
-        metadataJson,
-        now,
+        input.fromHandle,
+        input.subject,
+        input.inReplyTo,
+        input.dateMs,
+        input.receivedMs,
+        input.createdAtMs,
+        input.typeHint,
+        input.sizeHint,
+        input.monitorHandle,
+        input.bodyJson,
       );
     const got = this.byId(input.id);
     if (got === null) {
-      throw new Error(`internal: message ${input.id} missing after insert`);
+      throw new Error(`internal: envelope ${input.id} missing after insert`);
     }
     return got;
   }
 
-  byId(id: string): MessageRecord | null {
+  byId(id: EnvelopeId): EnvelopeRecord | null {
     const row = this.#db
-      .prepare("SELECT * FROM messages WHERE id = ?")
-      .get(id) as unknown as RawMessageRow | undefined;
-    return row === undefined ? null : rawToMessage(row);
+      .prepare("SELECT * FROM envelopes WHERE id = ?")
+      .get(id) as unknown as RawEnvelopeRow | undefined;
+    return row === undefined ? null : rawToEnvelope(row);
+  }
+
+  /** Fetch many envelopes by id, preserving the input order (after dedupe). */
+  byIds(ids: readonly EnvelopeId[]): readonly EnvelopeRecord[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(", ");
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM envelopes WHERE id IN (${placeholders})`,
+      )
+      .all(...ids) as unknown as RawEnvelopeRow[];
+    const byId = new Map<string, EnvelopeRecord>();
+    for (const r of rows) byId.set(r.id, rawToEnvelope(r));
+    const seen = new Set<string>();
+    const out: EnvelopeRecord[] = [];
+    for (const id of ids) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const rec = byId.get(id);
+      if (rec !== undefined) out.push(rec);
+    }
+    return out;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Mailbox entries                                                             */
+/* -------------------------------------------------------------------------- */
+
+export interface InsertMailboxEntryInput {
+  readonly mailboxHandle: Handle;
+  readonly envelopeId: EnvelopeId;
+  readonly kind: MailboxEntryKind;
+  readonly createdAtMs: Timestamp;
+}
+
+export interface MailboxKeysetQuery {
+  readonly mailboxHandle: Handle;
+  readonly order: "asc" | "desc";
+  readonly limit: number;
+  readonly unread?: boolean;
+  readonly afterCreatedAt?: Timestamp;
+  readonly afterEnvelopeId?: EnvelopeId;
+  /** Lookback window for `asc` mode, in milliseconds. Defaults to 30s. */
+  readonly lookbackMs?: number;
+}
+
+export class MailboxRepo {
+  readonly #db: DatabaseSync;
+
+  constructor(db: DatabaseSync) {
+    this.#db = db;
+  }
+
+  insert(input: InsertMailboxEntryInput): MailboxEntryRecord {
+    this.#db
+      .prepare(
+        `INSERT INTO mailbox_entries
+           (mailbox_handle, envelope_id, kind, created_at_ms, read)
+         VALUES (?, ?, ?, ?, 0)`,
+      )
+      .run(input.mailboxHandle, input.envelopeId, input.kind, input.createdAtMs);
+    return {
+      mailboxHandle: input.mailboxHandle,
+      envelopeId: input.envelopeId,
+      kind: input.kind,
+      createdAtMs: input.createdAtMs,
+      read: false,
+    };
+  }
+
+  get(
+    mailboxHandle: Handle,
+    envelopeId: EnvelopeId,
+  ): MailboxEntryRecord | null {
+    const row = this.#db
+      .prepare(
+        "SELECT * FROM mailbox_entries WHERE mailbox_handle = ? AND envelope_id = ?",
+      )
+      .get(mailboxHandle, envelopeId) as unknown as RawMailboxRow | undefined;
+    return row === undefined ? null : rawToMailboxEntry(row);
   }
 
   /**
-   * Substring search over messages the caller could have seen.
-   *
-   * Eligibility: the caller must currently be a `joined` participant on the
-   * session, and the message must have been sent at or after they joined.
-   * That mirrors the eligibility envelope that history replay applies — a
-   * caller who has `left` no longer sees new searches; an `invited` caller
-   * has nothing to find yet.
-   *
-   * Optional filters:
-   * - `sessionId` narrows to a single session.
-   * - `counterpartHandle` narrows to sessions that also have the given peer
-   *   as a participant (any status), supporting "what did I say to X".
-   *
-   * The query parameter is treated as a literal substring — `%`, `_`, and
-   * `\\` are escaped before the LIKE wrap so callers searching for those
-   * characters get what they typed. Results ordered most-recent first.
+   * Keyset-paginated list. `asc` applies the 30s lookback overlap on the
+   * timestamp leg; `desc` uses strict tuple compare with no overlap.
    */
-  searchForCaller(args: {
-    readonly callerHandle: Handle;
-    readonly query: string;
-    readonly limit: number;
-    readonly sessionId?: SessionId;
-    readonly counterpartHandle?: Handle;
-  }): readonly MessageRecord[] {
-    const escaped = args.query.replace(/[\\%_]/g, (c) => `\\${c}`);
-    const like = `%${escaped}%`;
+  list(q: MailboxKeysetQuery): readonly MailboxEntryRecord[] {
+    const lookback = q.lookbackMs ?? 30_000;
+    const params: SQLInputValue[] = [q.mailboxHandle];
+    const filters: string[] = ["mailbox_handle = ?"];
 
-    const filters: string[] = [];
-    const params: SQLInputValue[] = [args.callerHandle, like];
-    if (args.sessionId !== undefined) {
-      filters.push("AND m.session_id = ?");
-      params.push(args.sessionId);
+    if (q.unread === true) {
+      filters.push("read = 0");
+    } else if (q.unread === false) {
+      filters.push("read = 1");
     }
-    if (args.counterpartHandle !== undefined) {
+
+    const hasCursor =
+      q.afterCreatedAt !== undefined && q.afterEnvelopeId !== undefined;
+
+    if (q.order === "asc") {
+      if (hasCursor) {
+        // Floor the candidate timestamp at (cursor.created_at - lookback)
+        // so a late-committed envelope past the client's last seen pair
+        // resurfaces on the next page.
+        filters.push("created_at_ms >= ?");
+        params.push(q.afterCreatedAt! - lookback);
+      }
+      const orderClause = "ORDER BY created_at_ms ASC, envelope_id ASC";
+      params.push(q.limit);
+      const rows = this.#db
+        .prepare(
+          `SELECT * FROM mailbox_entries
+           WHERE ${filters.join(" AND ")}
+           ${orderClause}
+           LIMIT ?`,
+        )
+        .all(...params) as unknown as RawMailboxRow[];
+      return rows.map(rawToMailboxEntry);
+    }
+
+    // desc: strict tuple compare, no lookback.
+    if (hasCursor) {
       filters.push(
-        "AND EXISTS (SELECT 1 FROM participants pp WHERE pp.session_id = m.session_id AND pp.handle = ?)",
+        "(created_at_ms < ? OR (created_at_ms = ? AND envelope_id < ?))",
       );
-      params.push(args.counterpartHandle);
+      params.push(q.afterCreatedAt!, q.afterCreatedAt!, q.afterEnvelopeId!);
     }
-    params.push(args.limit);
-
-    const sql = `
-      SELECT m.*
-        FROM messages m
-        INNER JOIN participants p ON p.session_id = m.session_id
-       WHERE p.handle = ?
-         AND p.status = 'joined'
-         AND p.joined_at_ms IS NOT NULL
-         AND m.created_at_ms >= p.joined_at_ms
-         AND m.content_json LIKE ? ESCAPE '\\'
-         ${filters.join("\n         ")}
-       ORDER BY m.created_at_ms DESC, m.id DESC
-       LIMIT ?
-    `;
-    const rows = this.#db.prepare(sql).all(...params) as unknown as RawMessageRow[];
-    return rows.map(rawToMessage);
-  }
-}
-
-/* -------------------------------------------------------------------------- */
-/* Events                                                                      */
-/* -------------------------------------------------------------------------- */
-
-export interface AppendEventInput {
-  readonly id: string;
-  readonly sessionId: SessionId;
-  readonly sequence: Sequence;
-  readonly type: string;
-  readonly payload: Readonly<Record<string, unknown>>;
-}
-
-export class EventsRepo {
-  readonly #db: DatabaseSync;
-
-  constructor(db: DatabaseSync) {
-    this.#db = db;
-  }
-
-  append(input: AppendEventInput): EventRecord {
-    const now = Date.now();
-    this.#db
-      .prepare(
-        `INSERT INTO events (id, session_id, sequence, type, payload_json, created_at_ms)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        input.id,
-        input.sessionId,
-        input.sequence,
-        input.type,
-        JSON.stringify(input.payload),
-        now,
-      );
-    const got = this.byId(input.id);
-    if (got === null) {
-      throw new Error(`internal: event ${input.id} missing after insert`);
-    }
-    return got;
-  }
-
-  byId(id: string): EventRecord | null {
-    const row = this.#db
-      .prepare("SELECT * FROM events WHERE id = ?")
-      .get(id) as unknown as RawEventRow | undefined;
-    return row === undefined ? null : rawToEvent(row);
-  }
-
-  /** Read events for a session past `afterSequence` (exclusive), in order, up to `limit` rows. */
-  listForSessionAfter(
-    sessionId: SessionId,
-    afterSequence: Sequence,
-    limit: number,
-  ): readonly EventRecord[] {
+    const orderClause = "ORDER BY created_at_ms DESC, envelope_id DESC";
+    params.push(q.limit);
     const rows = this.#db
       .prepare(
-        `SELECT * FROM events
-         WHERE session_id = ? AND sequence > ?
-         ORDER BY sequence
+        `SELECT * FROM mailbox_entries
+         WHERE ${filters.join(" AND ")}
+         ${orderClause}
          LIMIT ?`,
       )
-      .all(sessionId, afterSequence, limit) as unknown as RawEventRow[];
-    return rows.map(rawToEvent);
-  }
-}
-
-/* -------------------------------------------------------------------------- */
-/* Delivery cursors                                                            */
-/* -------------------------------------------------------------------------- */
-
-export class DeliveryCursorsRepo {
-  readonly #db: DatabaseSync;
-
-  constructor(db: DatabaseSync) {
-    this.#db = db;
+      .all(...params) as unknown as RawMailboxRow[];
+    return rows.map(rawToMailboxEntry);
   }
 
-  /** Returns 0 when no cursor row exists (i.e. no events have been delivered to this handle for this session). */
-  get(handle: Handle, sessionId: SessionId): Sequence {
-    const row = this.#db
-      .prepare(
-        "SELECT last_delivered_sequence FROM delivery_cursors WHERE handle = ? AND session_id = ?",
-      )
-      .get(handle, sessionId) as { last_delivered_sequence: number } | undefined;
-    return row?.last_delivered_sequence ?? 0;
-  }
-
-  /** Idempotent — only advances when `sequence` strictly exceeds the stored cursor. */
-  advance(handle: Handle, sessionId: SessionId, sequence: Sequence): void {
-    this.#db
-      .prepare(
-        `INSERT INTO delivery_cursors (handle, session_id, last_delivered_sequence)
-         VALUES (?, ?, ?)
-         ON CONFLICT (handle, session_id) DO UPDATE SET
-           last_delivered_sequence = MAX(excluded.last_delivered_sequence, last_delivered_sequence)`,
-      )
-      .run(handle, sessionId, sequence);
-  }
-
-  listForHandle(handle: Handle): readonly DeliveryCursorRecord[] {
-    const rows = this.#db
-      .prepare("SELECT * FROM delivery_cursors WHERE handle = ?")
-      .all(handle) as unknown as RawCursorRow[];
-    return rows.map(rawToCursor);
-  }
-}
-
-/* -------------------------------------------------------------------------- */
-/* Idempotency                                                                 */
-/* -------------------------------------------------------------------------- */
-
-export interface InsertIdempotencyInput {
-  readonly sessionId: SessionId;
-  readonly senderHandle: Handle;
-  readonly key: string;
-  readonly messageId: string;
-  readonly sequence: Sequence;
-}
-
-export class IdempotencyRepo {
-  readonly #db: DatabaseSync;
-
-  constructor(db: DatabaseSync) {
-    this.#db = db;
-  }
-
-  lookup(
-    sessionId: SessionId,
-    senderHandle: Handle,
-    key: string,
-  ): IdempotencyRecord | null {
-    const row = this.#db
-      .prepare(
-        `SELECT * FROM idempotency
-         WHERE session_id = ? AND sender_handle = ? AND key = ?`,
-      )
-      .get(sessionId, senderHandle, key) as unknown as RawIdempotencyRow | undefined;
-    return row === undefined ? null : rawToIdempotency(row);
-  }
-
-  record(input: InsertIdempotencyInput): IdempotencyRecord {
-    const now = Date.now();
-    this.#db
-      .prepare(
-        `INSERT INTO idempotency (session_id, sender_handle, key, message_id, sequence, created_at_ms)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        input.sessionId,
-        input.senderHandle,
-        input.key,
-        input.messageId,
-        input.sequence,
-        now,
-      );
-    const got = this.lookup(input.sessionId, input.senderHandle, input.key);
-    if (got === null) {
-      throw new Error(
-        `internal: idempotency row missing after insert (${input.sessionId}/${input.senderHandle}/${input.key})`,
-      );
+  /**
+   * Mark `(mailbox_handle, envelope_id)` rows as read for the ids the
+   * caller owns. Returns the ids actually flipped (already-read rows are
+   * silently skipped); ids the caller doesn't own never appear in the
+   * result, preserving non-enumeration of other agents' mailboxes.
+   */
+  markRead(
+    mailboxHandle: Handle,
+    envelopeIds: readonly EnvelopeId[],
+  ): readonly EnvelopeId[] {
+    if (envelopeIds.length === 0) return [];
+    const flipped: EnvelopeId[] = [];
+    const stmt = this.#db.prepare(
+      "UPDATE mailbox_entries SET read = 1 WHERE mailbox_handle = ? AND envelope_id = ?",
+    );
+    for (const id of envelopeIds) {
+      const info = stmt.run(mailboxHandle, id);
+      if (info.changes > 0) flipped.push(id);
     }
-    return got;
+    return flipped;
+  }
+
+  /** Recipient handles for an envelope (`to` + `cc`), in insertion order. */
+  recipientsFor(envelopeId: EnvelopeId): readonly Handle[] {
+    const rows = this.#db
+      .prepare(
+        "SELECT mailbox_handle FROM mailbox_entries WHERE envelope_id = ? ORDER BY rowid",
+      )
+      .all(envelopeId) as unknown as { mailbox_handle: string }[];
+    return rows.map((r) => r.mailbox_handle);
   }
 }
 
@@ -891,14 +594,11 @@ export class IdempotencyRepo {
 
 export interface RegisterFileInput {
   readonly id: string;
-  readonly uploaderHandle: Handle;
+  readonly ownerHandle: Handle;
   readonly filename: string;
   readonly contentType: string;
   readonly sizeBytes: number;
   readonly relativePath: string;
-  /** Pending TTL — when ``null``, the row is created already-attached
-   *  (not used today; reserved for inline create-and-claim flows). */
-  readonly expiresAtMs: number | null;
 }
 
 export class FilesRepo {
@@ -913,20 +613,17 @@ export class FilesRepo {
     this.#db
       .prepare(
         `INSERT INTO files (
-          id, status, session_message_id, uploader_handle,
-          filename, content_type, size_bytes, relative_path,
-          created_at_ms, expires_at_ms
-        ) VALUES (?, 'pending', NULL, ?, ?, ?, ?, ?, ?, ?)`,
+          id, owner_handle, filename, content_type, size_bytes, relative_path, created_at_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.id,
-        input.uploaderHandle,
+        input.ownerHandle,
         input.filename,
         input.contentType,
         input.sizeBytes,
         input.relativePath,
         now,
-        input.expiresAtMs,
       );
     const got = this.byId(input.id);
     if (got === null) {
@@ -935,78 +632,16 @@ export class FilesRepo {
     return got;
   }
 
-  /** Look up a row by id without ownership check. Used by the download
-   *  route after the eligibility check (caller is a session participant
-   *  on the message that owns this file). */
   byId(id: string): FileRecord | null {
     const row = this.#db
       .prepare("SELECT * FROM files WHERE id = ?")
       .get(id) as unknown as RawFileRow | undefined;
     return row === undefined ? null : rawToFile(row);
   }
-
-  /** Fetch a pending row only if owned by ``uploaderHandle``. The
-   *  ownership check is the non-enumeration boundary for the upload
-   *  → claim flow: callers can't probe other agents' uploads. */
-  pendingForUploader(id: string, uploaderHandle: Handle): FileRecord | null {
-    const row = this.#db
-      .prepare(
-        `SELECT * FROM files
-         WHERE id = ? AND uploader_handle = ? AND status = 'pending'`,
-      )
-      .get(id, uploaderHandle) as unknown as RawFileRow | undefined;
-    return row === undefined ? null : rawToFile(row);
-  }
-
-  /** Flip ``pending`` → ``attached`` for the given ids, only when each
-   *  is still owned by ``uploaderHandle`` and pending. Returns the
-   *  count of rows actually claimed. */
-  claimMany(
-    ids: readonly string[],
-    sessionMessageId: MessageId,
-    uploaderHandle: Handle,
-  ): number {
-    if (ids.length === 0) return 0;
-    const stmt = this.#db.prepare(
-      `UPDATE files
-         SET status = 'attached',
-             session_message_id = ?,
-             expires_at_ms = NULL
-       WHERE id = ?
-         AND uploader_handle = ?
-         AND status = 'pending'`,
-    );
-    let count = 0;
-    for (const id of ids) {
-      const result = stmt.run(sessionMessageId, id, uploaderHandle);
-      count += Number(result.changes);
-    }
-    return count;
-  }
-
-  /** Returns the rows that should be deleted from disk + DB by the
-   *  background sweeper. */
-  expiredPending(now: number): readonly FileRecord[] {
-    const rows = this.#db
-      .prepare(
-        `SELECT * FROM files
-         WHERE status = 'pending' AND expires_at_ms IS NOT NULL AND expires_at_ms < ?`,
-      )
-      .all(now) as unknown as RawFileRow[];
-    return rows.map(rawToFile);
-  }
-
-  /** Delete a pending row by id; returns true if a row was removed. */
-  removePending(id: string): boolean {
-    const result = this.#db
-      .prepare("DELETE FROM files WHERE id = ? AND status = 'pending'")
-      .run(id);
-    return result.changes > 0;
-  }
 }
 
 /* -------------------------------------------------------------------------- */
-/* Raw row → domain mappers                                                    */
+/* Raw row > domain mappers                                                    */
 /* -------------------------------------------------------------------------- */
 
 interface RawAgentRow {
@@ -1028,70 +663,36 @@ interface RawAllowlistRow {
   created_at_ms: number;
 }
 
-interface RawSessionRow {
+interface RawEnvelopeRow {
   id: string;
-  creator_handle: string;
-  state: SessionState;
-  topic: string | null;
+  from_handle: string;
+  subject: string | null;
+  in_reply_to: string | null;
+  date_ms: number;
+  received_ms: number;
   created_at_ms: number;
-  updated_at_ms: number;
-  ended_at_ms: number | null;
+  type_hint: TypeHint;
+  size_hint: number | null;
+  monitor_handle: string | null;
+  body_json: string;
 }
 
-interface RawParticipantRow {
-  session_id: string;
-  handle: string;
-  status: ParticipantStatus;
-  joined_at_ms: number | null;
-  left_at_ms: number | null;
-}
-
-interface RawMessageRow {
-  id: string;
-  session_id: string;
-  sender_handle: string;
-  sequence: number;
-  content_json: string;
-  idempotency_key: string | null;
-  metadata_json: string | null;
+interface RawMailboxRow {
+  mailbox_handle: string;
+  envelope_id: string;
+  kind: MailboxEntryKind;
   created_at_ms: number;
-}
-
-interface RawEventRow {
-  id: string;
-  session_id: string;
-  sequence: number;
-  type: string;
-  payload_json: string;
-  created_at_ms: number;
-}
-
-interface RawCursorRow {
-  handle: string;
-  session_id: string;
-  last_delivered_sequence: number;
-}
-
-interface RawIdempotencyRow {
-  session_id: string;
-  sender_handle: string;
-  key: string;
-  message_id: string;
-  sequence: number;
-  created_at_ms: number;
+  read: number;
 }
 
 interface RawFileRow {
   id: string;
-  status: FileStatus;
-  session_message_id: string | null;
-  uploader_handle: string;
+  owner_handle: string;
   filename: string;
   content_type: string;
   size_bytes: number;
   relative_path: string;
   created_at_ms: number;
-  expires_at_ms: number | null;
 }
 
 function parseJsonObject(json: string): Readonly<Record<string, unknown>> {
@@ -1108,11 +709,6 @@ function parseOptionalJsonObject(
   return json === null ? null : parseJsonObject(json);
 }
 
-/**
- * Escape `%` and `_` so they're treated as literals in a `LIKE` pattern.
- * Backslash itself is escaped first; the `ESCAPE '\\'` clause in the
- * caller's prepared statement honors the escape sequence.
- */
 function escapeLike(input: string): string {
   return input.replace(/\\/g, "\\\\").replace(/[%_]/g, "\\$&");
 }
@@ -1122,9 +718,6 @@ function rawToAgent(row: RawAgentRow): AgentRecord {
     handle: row.handle,
     bearerTokenHash: row.bearer_token_hash,
     inboundPolicy: row.inbound_policy,
-    // Backfilled by migration v3 to row.handle, but a column-default-less
-    // row could still be NULL on a hand-edited DB; fall back to the handle
-    // so the wire shape never carries a null display_name.
     displayName: row.display_name ?? row.handle,
     description: row.description,
     cardBody: row.card_body,
@@ -1143,82 +736,40 @@ function rawToAllowlist(row: RawAllowlistRow): AllowlistEntry {
   };
 }
 
-function rawToSession(row: RawSessionRow): SessionRecord {
+function rawToEnvelope(row: RawEnvelopeRow): EnvelopeRecord {
   return {
     id: row.id,
-    creatorHandle: row.creator_handle,
-    state: row.state,
-    topic: row.topic,
+    fromHandle: row.from_handle,
+    subject: row.subject,
+    inReplyTo: row.in_reply_to,
+    dateMs: row.date_ms,
+    receivedMs: row.received_ms,
     createdAtMs: row.created_at_ms,
-    updatedAtMs: row.updated_at_ms,
-    endedAtMs: row.ended_at_ms,
+    typeHint: row.type_hint,
+    sizeHint: row.size_hint,
+    monitorHandle: row.monitor_handle,
+    bodyJson: row.body_json,
   };
 }
 
-function rawToParticipant(row: RawParticipantRow): ParticipantRecord {
+function rawToMailboxEntry(row: RawMailboxRow): MailboxEntryRecord {
   return {
-    sessionId: row.session_id,
-    handle: row.handle,
-    status: row.status,
-    joinedAtMs: row.joined_at_ms,
-    leftAtMs: row.left_at_ms,
-  };
-}
-
-function rawToMessage(row: RawMessageRow): MessageRecord {
-  return {
-    id: row.id,
-    sessionId: row.session_id,
-    senderHandle: row.sender_handle,
-    sequence: row.sequence,
-    content: JSON.parse(row.content_json) as unknown,
-    idempotencyKey: row.idempotency_key,
-    metadata: parseOptionalJsonObject(row.metadata_json),
+    mailboxHandle: row.mailbox_handle,
+    envelopeId: row.envelope_id,
+    kind: row.kind,
     createdAtMs: row.created_at_ms,
-  };
-}
-
-function rawToEvent(row: RawEventRow): EventRecord {
-  return {
-    id: row.id,
-    sessionId: row.session_id,
-    sequence: row.sequence,
-    type: row.type,
-    payload: parseJsonObject(row.payload_json),
-    createdAtMs: row.created_at_ms,
-  };
-}
-
-function rawToCursor(row: RawCursorRow): DeliveryCursorRecord {
-  return {
-    handle: row.handle,
-    sessionId: row.session_id,
-    lastDeliveredSequence: row.last_delivered_sequence,
-  };
-}
-
-function rawToIdempotency(row: RawIdempotencyRow): IdempotencyRecord {
-  return {
-    sessionId: row.session_id,
-    senderHandle: row.sender_handle,
-    key: row.key,
-    messageId: row.message_id,
-    sequence: row.sequence,
-    createdAtMs: row.created_at_ms,
+    read: row.read === 1,
   };
 }
 
 function rawToFile(row: RawFileRow): FileRecord {
   return {
     id: row.id,
-    status: row.status,
-    sessionMessageId: row.session_message_id,
-    uploaderHandle: row.uploader_handle,
+    ownerHandle: row.owner_handle,
     filename: row.filename,
     contentType: row.content_type,
     sizeBytes: row.size_bytes,
     relativePath: row.relative_path,
     createdAtMs: row.created_at_ms,
-    expiresAtMs: row.expires_at_ms,
   };
 }

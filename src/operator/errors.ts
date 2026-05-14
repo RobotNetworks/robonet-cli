@@ -1,6 +1,6 @@
 /**
- * Operator-side typed errors that translate cleanly to ASP HTTP error
- * envelopes.
+ * Operator-side typed errors that translate cleanly to JSON error
+ * envelopes on the wire.
  *
  * Every public error code surfaced over the wire is defined here as a
  * subclass with the matching `status` and `code`. The route layer's error

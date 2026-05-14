@@ -3,25 +3,25 @@ import * as path from "node:path";
 
 import { Command } from "commander";
 
-import { resolveAgentBearer } from "../asp/auth-resolver.js";
-import { handleArg } from "../asp/handles.js";
-import { AspFilesClient } from "../asp/files-client.js";
+import { resolveAgentBearer } from "../asmtp/auth-resolver.js";
+import { FilesClient } from "../asmtp/files-client.js";
+import { handleArg } from "../asmtp/handles.js";
 import { RobotNetCLIError } from "../errors.js";
-import { loadConfigForAgentCommand, out } from "./asp-shared.js";
-import { tokenOption } from "./shared.js";
+import { loadConfigForAgentCommand, out, tokenOption } from "./shared.js";
 
 /**
  * `robotnet files` — upload + download attachments referenced by
- * messages in `{type:"file", file_id:"…"}` parts.
+ * `file` and `image` content parts on envelopes.
  *
- * Auth resolution mirrors `robotnet session ...`: the agent is
- * resolved by `--as` / `ROBOTNET_AGENT` / workspace identity, and the
- * bearer comes from the credential store unless `--token` overrides
- * it.
+ * The upload path returns `{file_id, url}`. The agent embeds the `url`
+ * in a content part on the outbound envelope; receivers fetch the bytes
+ * on demand. The download path resolves either a bare `file_id` (against
+ * the active network) or an absolute URL (typically a signed URL emitted
+ * earlier in a `file` part).
  */
 export function registerFilesCommand(program: Command): void {
   const files = new Command("files").description(
-    "Upload and download files referenced by session messages",
+    "Upload and download files referenced by envelope content parts",
   );
   files.addCommand(makeUploadCmd());
   files.addCommand(makeDownloadCmd());
@@ -45,7 +45,7 @@ interface DownloadOpts {
 function makeUploadCmd(): Command {
   return new Command("upload")
     .description(
-      "Upload a file to the network. Returns a `file_id` that can be referenced from a session message.",
+      "Upload a file. Returns `{file_id, url}` — embed the URL in a file or image content part.",
     )
     .argument("<path>", "Local path to the file to upload")
     .option("--as <handle>", "Act as this agent handle", handleArg)
@@ -65,18 +65,16 @@ function makeUploadCmd(): Command {
         identity.handle,
         opts.token,
       );
-      const client = new AspFilesClient(baseUrl, token);
+      const client = new FilesClient(baseUrl, token);
       const result = await client.upload({ bytes, filename, contentType });
       if (opts.json) {
         out(JSON.stringify(result, null, 2));
         return;
       }
-      out(
-        `Uploaded ${result.id} (${result.size_bytes} bytes, ${result.content_type}).`,
-      );
-      out(
-        `  Reference it from a message: { "type": "file", "file_id": "${result.id}" }`,
-      );
+      out(`Uploaded ${result.file_id} (${bytes.length} bytes, ${contentType}).`);
+      out(`  URL: ${result.url}`);
+      out("  Embed it from an envelope:");
+      out(`    { "type": "file", "url": "${result.url}" }`);
     });
 }
 
@@ -107,7 +105,7 @@ function makeDownloadCmd(): Command {
         identity.handle,
         opts.token,
       );
-      const client = new AspFilesClient(baseUrl, token);
+      const client = new FilesClient(baseUrl, token);
       const result = await client.download(idOrUrl);
 
       const targetPath = opts.out ?? null;
@@ -169,4 +167,3 @@ function guessContentType(filename: string): string {
   const ext = path.extname(filename).toLowerCase();
   return KNOWN_TYPES_BY_EXT[ext] ?? "application/octet-stream";
 }
-

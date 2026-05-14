@@ -3,7 +3,6 @@ import { Command, Option } from "commander";
 import { AccountClient } from "../account/client.js";
 import type {
   AccountResponse,
-  AccountSessionView,
   AgentCreate,
   AgentUpdate,
 } from "../account/types.js";
@@ -15,9 +14,9 @@ import {
   type AgentResponse,
   type AgentVisibility,
 } from "../agents/types.js";
-import { resolveUserToken } from "../asp/auth-resolver.js";
-import { handleArg } from "../asp/handles.js";
-import type { Handle, InboundPolicy } from "../asp/types.js";
+import { resolveUserToken } from "../asmtp/auth-resolver.js";
+import { handleArg } from "../asmtp/handles.js";
+import type { Handle, InboundPolicy } from "../asmtp/types.js";
 import { discoverOAuth } from "../auth/discovery.js";
 import { performPkceLogin } from "../auth/pkce.js";
 import type { CLIConfig } from "../config.js";
@@ -25,8 +24,13 @@ import { openProcessCredentialStore } from "../credentials/lifecycle.js";
 import { RobotNetCLIError } from "../errors.js";
 import { renderKeyValues } from "../output/formatters.js";
 import { renderJson } from "../output/json-output.js";
-import { loadConfigFromRoot, out } from "./asp-shared.js";
-import { jsonOption, profileTitle, scopeOption } from "./shared.js";
+import {
+  jsonOption,
+  loadConfigFromRoot,
+  out,
+  profileTitle,
+  scopeOption,
+} from "./shared.js";
 
 /**
  * `robotnet account` — operations against the calling **account** (the
@@ -56,7 +60,6 @@ export function registerAccountCommand(program: Command): void {
   account.addCommand(makeLoginCmd());
   account.addCommand(makeLogoutCmd());
   account.addCommand(makeShowCmd());
-  account.addCommand(makeSessionsCmd());
   account.addCommand(makeAccountAgentCommand());
 
   program.addCommand(account);
@@ -176,38 +179,6 @@ function makeShowCmd(): Command {
 
 // ── account sessions ─────────────────────────────────────────────────────────
 
-function makeSessionsCmd(): Command {
-  return new Command("sessions")
-    .description(
-      "List sessions across every agent the calling account owns or can act as",
-    )
-    .option("--state <state>", "Filter by state: 'active' or 'ended'", parseSessionState)
-    .option("--limit <n>", "Maximum results per page (1..100)", parseLimit, 50)
-    .option("--json", "Emit machine-readable JSON", false)
-    .action(async (opts: SessionsOpts, cmd: Command) => {
-      const config = await loadConfigFromRoot(cmd);
-      const client = await buildClient(config);
-      const result = await client.listSessions({
-        ...(opts.state !== undefined ? { state: opts.state } : {}),
-        limit: opts.limit,
-      });
-      if (opts.json) {
-        out(JSON.stringify(result, null, 2));
-        return;
-      }
-      renderAccountSessions(result.sessions);
-      if (result.next_cursor !== null) {
-        out(`(more — pass --limit higher or use cursor=${result.next_cursor})`);
-      }
-    });
-}
-
-interface SessionsOpts {
-  readonly state?: "active" | "ended";
-  readonly limit: number;
-  readonly json: boolean;
-}
-
 // ── account agent ───────────────────────────────────────────────────────────
 
 function makeAccountAgentCommand(): Command {
@@ -247,14 +218,10 @@ function makeAgentCreateCmd(): Command {
       "Full agent handle. The owner segment must match your account username (e.g. @nick.bot).",
       handleArg,
     )
-    .option("--display-name <text>", "Human-readable display name (1–100 chars)")
+    .option("--display-name <text>", "Human-readable display name (1-100 chars)")
     .option("--description <text>", "Short description (max 500 chars)")
     .addOption(visibilityOption())
     .addOption(inboundPolicyOption())
-    .option(
-      "--no-can-initiate",
-      "Disallow this agent from initiating outbound sessions (default: allowed)",
-    )
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (handle: Handle, opts: AgentCreateOpts, cmd: Command) => {
       const config = await loadConfigFromRoot(cmd);
@@ -268,7 +235,6 @@ function makeAgentCreateCmd(): Command {
         ...(opts.inboundPolicy !== undefined
           ? { inbound_policy: opts.inboundPolicy }
           : {}),
-        ...(opts.canInitiate === false ? { can_initiate_sessions: false } : {}),
       };
       const created = await client.createAgent(body);
       if (opts.json) {
@@ -289,8 +255,6 @@ interface AgentCreateOpts {
   readonly description?: string;
   readonly visibility?: AgentVisibility;
   readonly inboundPolicy?: InboundPolicy;
-  /** commander's `--no-can-initiate` produces `canInitiate: false` here. */
-  readonly canInitiate: boolean;
   readonly json: boolean;
 }
 
@@ -471,21 +435,10 @@ function renderRemoteAgent(agent: AgentResponse): void {
   if (agent.description !== null && agent.description.length > 0) {
     out(`  Description:  ${agent.description}`);
   }
-  if (!agent.can_initiate_sessions) {
-    out("  Outbound:     disabled (cannot initiate sessions)");
-  }
 }
 
 function renderRemoteAgentDetail(detail: AgentDetailResponse): void {
   renderRemoteAgentSummary(detail.agent);
-  if (detail.shared_sessions.length > 0) {
-    out("");
-    out(`Shared sessions (${detail.shared_sessions.length}):`);
-    for (const s of detail.shared_sessions) {
-      const topic = s.topic ?? "(no topic)";
-      out(`  - ${s.id}  [${s.state}]  ${topic}`);
-    }
-  }
 }
 
 function renderRemoteAgentSummary(detail: AgentDetail): void {
@@ -498,9 +451,6 @@ function renderRemoteAgentSummary(detail: AgentDetail): void {
   }
   if (!isFullAgentResponse(detail)) return;
   if (detail.paused) out("  Paused:       true");
-  if (!detail.can_initiate_sessions) {
-    out("  Outbound:     disabled (cannot initiate sessions)");
-  }
 }
 
 // ── shared helpers ───────────────────────────────────────────────────────────
@@ -526,15 +476,6 @@ function parseLimit(value: string): number {
   return n;
 }
 
-function parseSessionState(value: string): "active" | "ended" {
-  if (value !== "active" && value !== "ended") {
-    throw new RobotNetCLIError(
-      `--state must be 'active' or 'ended' (got ${JSON.stringify(value)})`,
-    );
-  }
-  return value;
-}
-
 // ── renderers ────────────────────────────────────────────────────────────────
 
 function renderAccountSummary(acc: AccountResponse): void {
@@ -549,14 +490,3 @@ function renderAccountSummary(acc: AccountResponse): void {
   out(`  Account id:   ${acc.id}`);
 }
 
-function renderAccountSessions(sessions: readonly AccountSessionView[]): void {
-  if (sessions.length === 0) {
-    out("(no sessions)");
-    return;
-  }
-  for (const s of sessions) {
-    const topic = s.topic ?? "(no topic)";
-    const participants = s.participants.map((p) => p.handle).join(", ");
-    out(`${s.id}  [${s.state}]  ${participants || "(none)"}  ${topic}`);
-  }
-}

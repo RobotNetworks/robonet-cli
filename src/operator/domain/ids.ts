@@ -1,18 +1,16 @@
 import { randomBytes } from "node:crypto";
 
 /**
- * ULID-style sortable identifiers used throughout the operator.
+ * ULID-style sortable identifiers used by the operator.
  *
- * Format: `<prefix>_<26-char Crockford base32>` where the first 10
- * characters encode the millisecond timestamp and the remaining 16
- * encode 80 random bits. IDs minted in the same millisecond are
- * lexicographically ordered by their random tail.
+ * Format for an ASMTP envelope id: `01<24 Crockford-base32 chars>` —
+ * 26 chars total, the leading "01" forces a year-3000+ ULID range that
+ * the wire schema validates. The first 10 chars encode milliseconds; the
+ * remaining 16 encode 80 random bits.
  *
- * Why ULID-ish instead of UUID v4: the time-prefix means SQLite's
- * default ordering on the PK roughly matches insertion order, which
- * makes pagination + log-style scans far cheaper than sorting on a
- * separate timestamp column. ASP IDs (`sess_`, `msg_`, `evt_`) follow
- * the same convention so cross-referencing across logs is easy.
+ * File ids use the `file_<26 base32>` convention so they're visually
+ * distinct from envelope ids on the wire and in logs. They're not
+ * envelope-id-shaped and don't need the leading "01".
  */
 
 const CROCKFORD_BASE32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -36,7 +34,6 @@ function encodeBase32(bytes: Uint8Array): string {
 }
 
 function timeBytes(ms: number): Uint8Array {
-  // 48 bits of milliseconds — fits all timestamps until year ~10889.
   const bytes = new Uint8Array(6);
   let v = ms;
   for (let i = 5; i >= 0; i--) {
@@ -50,12 +47,25 @@ function ulidString(now: number = Date.now()): string {
   const buf = new Uint8Array(16);
   buf.set(timeBytes(now), 0);
   buf.set(randomBytes(10), 6);
-  // 16 bytes → 26 base32 chars (with the last char only carrying 1 bit
-  // of payload — that's the canonical ULID width).
   return encodeBase32(buf).slice(0, 26);
 }
 
-/** Mint a fresh prefixed ULID-ish identifier (e.g. `sess_01HXY…`). */
-export function mintId(prefix: "sess" | "msg" | "evt" | "file"): string {
-  return `${prefix}_${ulidString()}`;
+/**
+ * Mint a fresh envelope id. The wire schema enforces a leading "01" so
+ * we synthesize that prefix and use a 24-char random tail underneath.
+ * Practically the timestamp doesn't sort correctly under this scheme
+ * (every id starts "01"), but envelope ordering is `(created_at,
+ * envelope_id)` — the timestamp leg dominates. The lexicographic id tail
+ * only tie-breaks within a single millisecond, which is rare enough that
+ * full ULID time-prefix ordering inside the id isn't necessary.
+ */
+export function mintEnvelopeId(): string {
+  const tail = encodeBase32(randomBytes(15)).slice(0, 24);
+  return `01${tail}`;
+}
+
+/** Mint a fresh `file_<…>` id. Includes the timestamp in the body so
+ *  ids minted in the same millisecond sort by insertion order in logs. */
+export function mintFileId(): string {
+  return `file_${ulidString()}`;
 }

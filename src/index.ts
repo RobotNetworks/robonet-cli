@@ -12,11 +12,11 @@ import { registerConfigCommand } from "./commands/config-cmd.js";
 import { registerDoctorCommand } from "./commands/doctor-cmd.js";
 import { registerFilesCommand } from "./commands/files.js";
 import { registerIdentityCommand } from "./commands/identity.js";
+import { registerInboxCommand } from "./commands/inbox.js";
 import { registerListenCommand } from "./commands/listen.js";
 import { registerLoginCommand } from "./commands/login.js";
-import { registerMessagesCommand } from "./commands/messages.js";
 import { registerNetworkCommand } from "./commands/network.js";
-import { registerSessionCommand } from "./commands/session.js";
+import { registerSendCommand } from "./commands/send.js";
 import { registerStatusCommand } from "./commands/status.js";
 import { RobotNetCLIError } from "./errors.js";
 
@@ -29,7 +29,7 @@ program
   .option("--profile <name>", "Use a named local Robot Networks profile")
   .option(
     "--network <name>",
-    "Target a named ASP network (defaults to the profile's `default_network`, " +
+    "Target a named network (defaults to the profile's `default_network`, " +
       "the workspace `.robotnet/config.json` `network` field, or the built-in `global` network)",
   );
 
@@ -43,10 +43,10 @@ registerAdminCommand(program);
 registerAccountCommand(program);
 registerAgentsCommand(program);
 registerMeCommand(program);
-registerSessionCommand(program);
-registerFilesCommand(program);
-registerMessagesCommand(program);
+registerSendCommand(program);
+registerInboxCommand(program);
 registerListenCommand(program);
+registerFilesCommand(program);
 registerSearchCommand(program);
 
 program.parseAsync(process.argv).catch((err) => {

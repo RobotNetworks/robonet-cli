@@ -1,21 +1,18 @@
 /**
- * File upload + download routes for the local operator.
+ * File upload + download routes for the in-tree operator.
  *
- * Wire shape:
- *
- * - ``POST /files`` — multipart/form-data upload, single ``file`` field,
- *   bearer-auth as the calling agent. Returns ``{id, status, filename,
- *   content_type, size_bytes, created_at, expires_at}``.
- *
- * - ``GET /files/:id`` — bearer-auth as a session participant who can
- *   see the message that owns this file. Streams the bytes. Returns 404
- *   for non-existent / not-yet-attached / non-participant access (the
- *   non-enumeration posture).
+ *  - `POST /files` multipart/form-data upload, single `file` field,
+ *    bearer-auth. Returns `{file_id, url}` — the sender embeds `url` on
+ *    a `file` or `image` content part.
+ *  - `GET /files/:id` bearer-auth; streams the bytes. The in-tree
+ *    operator authenticates the request as an agent but does not gate by
+ *    envelope participation (dev-only posture). The download is open to
+ *    any authenticated agent.
  */
 
 import { requireAgent } from "../auth.js";
 import type { FileService } from "../domain/files.js";
-import { BadRequestError, NotFoundError } from "../errors.js";
+import { BadRequestError } from "../errors.js";
 import type { OperatorRepository } from "../storage/repository.js";
 import { sendJson } from "./json.js";
 import type { Router } from "./router.js";
@@ -59,57 +56,22 @@ export function registerFileRoutes(
     const body = await readBody(rc.req);
     const part = parseSingleMultipartFile(body, boundary);
 
-    const result = ctx.files.uploadFile({
-      uploaderHandle: agent.handle,
+    const result = ctx.files.upload({
+      ownerHandle: agent.handle,
       filename: part.filename,
       contentType: part.contentType,
       bytes: part.bytes,
     });
 
     sendJson(rc.res, 201, {
-      id: result.id,
-      status: "pending",
-      filename: result.filename,
-      content_type: result.contentType,
-      size_bytes: result.sizeBytes,
-      created_at: result.createdAtMs,
-      expires_at: result.expiresAtMs,
+      file_id: result.fileId,
+      url: result.url,
     });
   });
 
-  router.add("GET", "/files/:id", async (rc) => {
-    const agent = requireAgent(rc.req, ctx.repo.agents);
+  router.add("GET", "/files/:id", (rc) => {
+    requireAgent(rc.req, ctx.repo.agents);
     const id = rc.params.id;
-
-    const row = ctx.repo.files.byId(id);
-    if (row === null) {
-      throw new NotFoundError("not found");
-    }
-    if (row.status === "pending") {
-      // Pending uploads are visible only to their uploader.
-      if (row.uploaderHandle !== agent.handle) {
-        throw new NotFoundError("not found");
-      }
-    } else {
-      // Attached: any session participant who can see the owning
-      // message can fetch. Invited-only participants cannot — they're
-      // not eligible for message content per ASP §6.4.
-      if (row.sessionMessageId === null) {
-        throw new NotFoundError("not found");
-      }
-      const message = ctx.repo.messages.byId(row.sessionMessageId);
-      if (message === null) {
-        throw new NotFoundError("not found");
-      }
-      const participant = ctx.repo.participants.get(
-        message.sessionId,
-        agent.handle,
-      );
-      if (participant === null || participant.status === "invited") {
-        throw new NotFoundError("not found");
-      }
-    }
-
     const served = ctx.files.serveById(id);
     rc.res.statusCode = 200;
     rc.res.setHeader("Content-Type", served.row.contentType);
@@ -144,10 +106,9 @@ interface MultipartFilePart {
 }
 
 /**
- * Minimal multipart/form-data parser — extracts a single ``file`` field
+ * Minimal multipart/form-data parser — extracts a single `file` field
  * with a Content-Disposition filename and Content-Type header. Rejects
- * any other field shape with a 400; the local operator is the only
- * caller and we control both sides.
+ * any other field shape with a 400.
  */
 function parseSingleMultipartFile(
   body: Buffer,
