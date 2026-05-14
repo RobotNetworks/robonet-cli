@@ -52,7 +52,10 @@ function makeConfig(): CLIConfig {
 describe("watermarkPath", () => {
   it("places the file under <stateDir>/networks/<network>/watermarks/<handle-stem>.json", () => {
     const p = watermarkPath("/tmp/state", "local", "@me.dev");
-    assert.equal(p, "/tmp/state/networks/local/watermarks/me.dev.json");
+    assert.equal(
+      p,
+      path.join("/tmp/state", "networks", "local", "watermarks", "me.dev.json"),
+    );
   });
 });
 
