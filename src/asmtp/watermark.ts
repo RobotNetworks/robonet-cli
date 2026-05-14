@@ -9,24 +9,35 @@ import type { EnvelopeId, MailboxCursor, Timestamp } from "./types.js";
  * Per-identity catch-up watermark persisted alongside the rest of the
  * CLI's per-profile state.
  *
- * The wire protocol is at-least-once: a client paginating asc with a
- * cursor and a flapping WS may both see the same envelope. The watermark
- * answers two questions:
+ * `GET /mailbox` uses a strict tuple compare on the cursor, so REST
+ * pagination on its own never returns the same envelope twice. The
+ * watermark exists because `listen` consumes the WS push stream
+ * alongside the REST catch-up surface, and the two can race: a push
+ * frame for envelope X can arrive while a catch-up REST page is still
+ * in flight, or a reconnect's REST catch-up can overlap with the
+ * resubscribed WS replay.
+ *
+ * The watermark answers two questions:
  *
  * 1. **Where do I resume `GET /mailbox?order=asc` from?** Pass
- *    `(last_seen_created_at, last_seen_envelope_id)` so the operator
- *    starts at the lookback window above that pair.
- * 2. **Have I already processed this envelope?** Dedupe against the
- *    bounded `dedup_ids` map so a duplicate frame (REST + WS, brief
- *    disconnect, etc.) doesn't surface to the agent twice.
+ *    `(last_seen_created_at, last_seen_envelope_id)` and the operator
+ *    returns rows strictly after that pair.
+ * 2. **Have I already processed this envelope?** Dedup against the
+ *    bounded `dedup_ids` map so a duplicate frame (REST + WS race,
+ *    brief disconnect, etc.) doesn't surface to the agent twice.
  *
  * The map is pruned on every advance: entries with
- * `created_at < last_seen_created_at - LOOKBACK_OVERLAP_MS` fall outside
- * the lookback window and can't be duplicated anymore.
+ * `created_at < last_seen_created_at - DEDUP_RETENTION_MS` are far
+ * enough behind the cursor that no in-flight surface can resurrect
+ * them.
  */
 
-/** Operator-mandated lookback overlap for `order=asc` mailbox catch-up. */
-export const LOOKBACK_OVERLAP_MS = 30_000;
+/**
+ * How long to keep envelope ids in the local dedup map. Bounds memory
+ * while still covering any realistic REST + WS race window; 30 s is a
+ * generous upper bound on push-vs-REST visibility skew.
+ */
+export const DEDUP_RETENTION_MS = 30_000;
 
 /** On-disk shape of one identity's watermark. */
 export interface WatermarkFile {
@@ -71,8 +82,8 @@ export function watermarkPath(
 /**
  * Load the watermark for `(network, handle)` from the configured profile's
  * state directory. Returns a fresh-install value on missing file or
- * unparseable JSON — the protocol's lookback overlap absorbs the
- * recoverable case of "we forgot one envelope" without re-delivery harm.
+ * unparseable JSON — at worst the next session re-walks the mailbox from
+ * the head, which is cheap and idempotent at the consumer level.
  *
  * `overridePath` lets the caller route the watermark elsewhere (useful
  * for tests, and for the `--watermark <path>` listen flag).
@@ -98,8 +109,7 @@ export async function loadWatermark(
     parsed = JSON.parse(raw);
   } catch {
     // Corruption recovery: treat a malformed file as a fresh install.
-    // The operator's lookback overlap means we re-fetch at most ~30s of
-    // history, which is cheap.
+    // Worst case the next catch-up re-walks from the start of the mailbox.
     return emptyWatermark();
   }
   return normalize(parsed);
@@ -139,8 +149,9 @@ export async function saveWatermark(
  *  - Each `(envelope_id, created_at)` pair is added to the dedup map so a
  *    later duplicate frame is caught.
  *  - Entries whose `created_at` falls below the new
- *    `last_seen_created_at - LOOKBACK_OVERLAP_MS` are dropped; they can't
- *    appear in any future `order=asc` page from the operator's lookback.
+ *    `last_seen_created_at - DEDUP_RETENTION_MS` are dropped; they are
+ *    far enough behind the cursor that no in-flight REST or WS surface
+ *    can resurrect them.
  */
 export function advanceWatermark(
   current: WatermarkFile,
@@ -158,7 +169,7 @@ export function advanceWatermark(
     }
   }
 
-  const cutoff = topCreatedAt - LOOKBACK_OVERLAP_MS;
+  const cutoff = topCreatedAt - DEDUP_RETENTION_MS;
   const pruned: Record<EnvelopeId, Timestamp> = {};
   for (const [id, ts] of Object.entries(dedup)) {
     if (ts >= cutoff) pruned[id] = ts;

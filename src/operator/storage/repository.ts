@@ -493,8 +493,6 @@ export interface MailboxKeysetQuery {
   readonly unread?: boolean;
   readonly afterCreatedAt?: Timestamp;
   readonly afterEnvelopeId?: EnvelopeId;
-  /** Lookback window for `asc` mode, in milliseconds. Defaults to 30s. */
-  readonly lookbackMs?: number;
 }
 
 export class MailboxRepo {
@@ -534,11 +532,13 @@ export class MailboxRepo {
   }
 
   /**
-   * Keyset-paginated list. `asc` applies the 30s lookback overlap on the
-   * timestamp leg; `desc` uses strict tuple compare with no overlap.
+   * Keyset-paginated list. Both `asc` and `desc` use a strict tuple compare
+   * on `(created_at, envelope_id)` for the cursor — pages do not overlap and
+   * paginated reads never return the same row twice. Callers that consume WS
+   * push frames alongside REST pages may still see the same envelope via
+   * both surfaces concurrently, so they SHOULD dedupe by envelope_id.
    */
   list(q: MailboxKeysetQuery): readonly MailboxEntryRecord[] {
-    const lookback = q.lookbackMs ?? 30_000;
     const params: SQLInputValue[] = [q.mailboxHandle];
     const filters: string[] = ["mailbox_handle = ?"];
 
@@ -551,35 +551,26 @@ export class MailboxRepo {
     const hasCursor =
       q.afterCreatedAt !== undefined && q.afterEnvelopeId !== undefined;
 
-    if (q.order === "asc") {
-      if (hasCursor) {
-        // Floor the candidate timestamp at (cursor.created_at - lookback)
-        // so a late-committed envelope past the client's last seen pair
-        // resurfaces on the next page.
-        filters.push("created_at_ms >= ?");
-        params.push(q.afterCreatedAt! - lookback);
-      }
-      const orderClause = "ORDER BY created_at_ms ASC, envelope_id ASC";
-      params.push(q.limit);
-      const rows = this.#db
-        .prepare(
-          `SELECT * FROM mailbox_entries
-           WHERE ${filters.join(" AND ")}
-           ${orderClause}
-           LIMIT ?`,
-        )
-        .all(...params) as unknown as RawMailboxRow[];
-      return rows.map(rawToMailboxEntry);
-    }
-
-    // desc: strict tuple compare, no lookback.
     if (hasCursor) {
-      filters.push(
-        "(created_at_ms < ? OR (created_at_ms = ? AND envelope_id < ?))",
-      );
+      // SQLite supports row-value comparison; the explicit OR form is used
+      // here so the plan is identical to the desc branch and so the query
+      // works even if the SQLite build doesn't optimize tuple compares well.
+      if (q.order === "asc") {
+        filters.push(
+          "(created_at_ms > ? OR (created_at_ms = ? AND envelope_id > ?))",
+        );
+      } else {
+        filters.push(
+          "(created_at_ms < ? OR (created_at_ms = ? AND envelope_id < ?))",
+        );
+      }
       params.push(q.afterCreatedAt!, q.afterCreatedAt!, q.afterEnvelopeId!);
     }
-    const orderClause = "ORDER BY created_at_ms DESC, envelope_id DESC";
+
+    const orderClause =
+      q.order === "asc"
+        ? "ORDER BY created_at_ms ASC, envelope_id ASC"
+        : "ORDER BY created_at_ms DESC, envelope_id DESC";
     params.push(q.limit);
     const rows = this.#db
       .prepare(

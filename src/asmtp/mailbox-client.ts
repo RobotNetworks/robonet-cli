@@ -25,10 +25,10 @@ export interface ListMailboxOptions {
 /**
  * Typed client for `GET /mailbox` and `POST /mailbox/read`.
  *
- * `asc` is forward catch-up with a 30s lookback overlap — clients dedupe
- * by `envelope_id`. `desc` is strict backward browsing (newest first, no
- * lookback). See the protocol whitepaper section 10.1 for the full
- * semantics and the per-leg cursor contract.
+ * Both `asc` (forward catch-up) and `desc` (backward browsing) apply a
+ * strict tuple compare on the cursor so consecutive pages don't overlap.
+ * See the protocol whitepaper section 10.1 for the full semantics and
+ * the per-leg cursor contract.
  */
 export class MailboxClient {
   readonly #baseUrl: string;

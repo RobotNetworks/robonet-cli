@@ -5,7 +5,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 
 import {
-  LOOKBACK_OVERLAP_MS,
+  DEDUP_RETENTION_MS,
   advanceWatermark,
   hasSeen,
   loadWatermark,
@@ -125,7 +125,7 @@ describe("advanceWatermark", () => {
       },
     };
     const next = advanceWatermark(start, [
-      { id: "01HW7Z9KQX1MS2D9P5VC3GZ8AC", created_at: 1000 + LOOKBACK_OVERLAP_MS + 5_000 },
+      { id: "01HW7Z9KQX1MS2D9P5VC3GZ8AC", created_at: 1000 + DEDUP_RETENTION_MS + 5_000 },
     ]);
     // `old` (created_at 0) is well below the new lookback floor; pruned.
     assert.equal("old" in next.dedup_ids, false);
