@@ -21,13 +21,16 @@ export function websocketOrApiResource(discovery: OAuthDiscovery): string {
 }
 
 /**
- * Resource indicators (RFC 8707) to pass to the token endpoint when
- * minting an agent bearer. Returns BOTH the API and WebSocket
- * resources whenever discovery surfaces them, so the resulting
- * token's `aud` claim covers both surfaces — without this, calling
- * `robotnet listen` on a freshly-minted bearer 401s on the WebSocket
- * handshake against any operator that enforces audience binding on
- * the WebSocket route.
+ * Resource indicators (RFC 8707) to pass to the token endpoint.
+ *
+ * - ``audience="agent"`` returns BOTH the API and WebSocket resources so
+ *   the minted agent bearer's `aud` claim covers both surfaces; without
+ *   the WebSocket resource, `robotnet listen` 401s on the WS handshake
+ *   against any operator that enforces audience binding on the WS route.
+ * - ``audience="user"`` returns only the API resource. User-scoped
+ *   tokens have no agent principal and so cannot validly target the
+ *   WebSocket surface; operators that enforce this policy 400 the
+ *   token exchange when a user-mode client requests the WS audience.
  *
  * Falls back to the network's base URL when discovery returns
  * neither — matches the legacy behavior so agent-token / single-
@@ -36,10 +39,13 @@ export function websocketOrApiResource(discovery: OAuthDiscovery): string {
 export function collectResources(
   discovery: OAuthDiscovery,
   network: import("../config.js").NetworkConfig,
+  audience: "user" | "agent",
 ): string[] {
   const resources = new Set<string>();
   if (discovery.apiResource) resources.add(discovery.apiResource);
-  if (discovery.websocketResource) resources.add(discovery.websocketResource);
+  if (audience === "agent" && discovery.websocketResource) {
+    resources.add(discovery.websocketResource);
+  }
   if (resources.size === 0) {
     resources.add(network.url.replace(/\/+$/, ""));
   }

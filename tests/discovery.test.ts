@@ -56,7 +56,7 @@ describe("collectResources", () => {
   // Regression for the WS-handshake 401 bug: bearers minted with only
   // the API resource fail audience validation against any operator
   // that enforces audience binding on the WebSocket route.
-  it("returns BOTH api + websocket resources when discovery surfaces both", () => {
+  it("returns BOTH api + websocket resources for agent audience when discovery surfaces both", () => {
     const discovery: OAuthDiscovery = {
       authorizationEndpoint: "https://auth.test/authorize",
       tokenEndpoint: "https://auth.test/token",
@@ -64,13 +64,29 @@ describe("collectResources", () => {
       apiResource: "https://api.test/v1",
       websocketResource: "wss://ws.test",
     };
-    assert.deepEqual(collectResources(discovery, NETWORK), [
+    assert.deepEqual(collectResources(discovery, NETWORK, "agent"), [
       "https://api.test/v1",
       "wss://ws.test",
     ]);
   });
 
-  it("dedupes when api + ws resources are identical", () => {
+  // Regression for the user-mode "Unsupported resource audience" 400:
+  // operators reject the WS resource on user-scoped grants because no
+  // agent principal exists.
+  it("omits the websocket resource for user audience even when discovery surfaces one", () => {
+    const discovery: OAuthDiscovery = {
+      authorizationEndpoint: "https://auth.test/authorize",
+      tokenEndpoint: "https://auth.test/token",
+      registrationEndpoint: "https://auth.test/register",
+      apiResource: "https://api.test/v1",
+      websocketResource: "wss://ws.test",
+    };
+    assert.deepEqual(collectResources(discovery, NETWORK, "user"), [
+      "https://api.test/v1",
+    ]);
+  });
+
+  it("dedupes when api + ws resources are identical (agent)", () => {
     const discovery: OAuthDiscovery = {
       authorizationEndpoint: "https://auth.test/authorize",
       tokenEndpoint: "https://auth.test/token",
@@ -78,7 +94,7 @@ describe("collectResources", () => {
       apiResource: "https://api.test/v1",
       websocketResource: "https://api.test/v1",
     };
-    assert.deepEqual(collectResources(discovery, NETWORK), [
+    assert.deepEqual(collectResources(discovery, NETWORK, "agent"), [
       "https://api.test/v1",
     ]);
   });
@@ -91,7 +107,7 @@ describe("collectResources", () => {
       apiResource: "https://api.test/v1",
       websocketResource: null,
     };
-    assert.deepEqual(collectResources(discovery, NETWORK), [
+    assert.deepEqual(collectResources(discovery, NETWORK, "agent"), [
       "https://api.test/v1",
     ]);
   });
@@ -104,7 +120,7 @@ describe("collectResources", () => {
       apiResource: null,
       websocketResource: null,
     };
-    assert.deepEqual(collectResources(discovery, NETWORK), [
+    assert.deepEqual(collectResources(discovery, NETWORK, "agent"), [
       "https://api.test/v1",
     ]);
   });

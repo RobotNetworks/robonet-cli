@@ -61,6 +61,13 @@ export type AgentLoginTarget =
 interface CorePkceOptions {
   readonly network: NetworkConfig;
   readonly discovery: OAuthDiscovery;
+  /**
+   * Audience bucket for the issued token. Drives which `resource`
+   * indicators the token endpoint receives (RFC 8707). User-mode
+   * tokens cannot validly target the WebSocket surface; agent-mode
+   * tokens must, or `robotnet listen` 401s on the WS handshake.
+   */
+  readonly audience: "user" | "agent";
   readonly scope?: string;
   readonly clientName?: string;
   /**
@@ -89,9 +96,13 @@ interface CorePkceOptions {
  * failure.
  */
 export async function performPkceLogin(
-  options: CorePkceOptions,
+  options: Omit<CorePkceOptions, "audience">,
 ): Promise<PKCELoginResult> {
-  return await runPkceFlow({ ...options, scope: options.scope ?? DEFAULT_USER_SCOPES });
+  return await runPkceFlow({
+    ...options,
+    audience: "user",
+    scope: options.scope ?? DEFAULT_USER_SCOPES,
+  });
 }
 
 /**
@@ -128,6 +139,7 @@ export async function performAgentPkceLogin(args: {
   return await runPkceFlow({
     network: args.network,
     discovery: args.discovery,
+    audience: "agent",
     scope: args.scope ?? DEFAULT_AGENT_SCOPES,
     ...(args.clientName !== undefined ? { clientName: args.clientName } : {}),
     extraAuthParams: extraParams,
@@ -143,6 +155,7 @@ async function runPkceFlow(options: CorePkceOptions): Promise<PKCELoginResult> {
   const {
     network,
     discovery,
+    audience,
     // Each public entrypoint (`performPkceLogin`, `performAgentPkceLogin`)
     // sets its own scope default; we never silently fall back here so a
     // missing scope is loud rather than mis-bucketed.
@@ -189,13 +202,13 @@ async function runPkceFlow(options: CorePkceOptions): Promise<PKCELoginResult> {
 
     const code = await loopback.awaitCode(state);
 
-    // Mint the bearer with BOTH the API and WebSocket audiences. Per RFC
-    // 8707, repeated `resource` parameters bind the resulting access
-    // token to all listed audiences. Without the WebSocket resource the
-    // bearer's `aud` claim covers only the API surface, and
-    // `robotnet listen` 401s on the WebSocket handshake against any
-    // operator that enforces audience binding on the WebSocket route.
-    const resources = collectResources(discovery, network);
+    // Per RFC 8707, repeated `resource` parameters bind the resulting
+    // access token to all listed audiences. Agent-mode flows include
+    // both API and WebSocket so the bearer covers `robotnet listen`;
+    // user-mode flows include only the API resource because operators
+    // reject the WS audience for user-scoped grants (no agent
+    // principal to dispatch frames to).
+    const resources = collectResources(discovery, network, audience);
     const tokenResult = await requestAuthorizationCodeToken({
       tokenEndpoint: discovery.tokenEndpoint,
       clientId,

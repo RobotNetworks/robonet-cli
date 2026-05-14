@@ -308,7 +308,7 @@ export async function renewAgentPkce(args: {
   // Refresh must request the same audience set the original token had,
   // otherwise the renewed bearer drops the WebSocket audience and
   // `robotnet listen` 401s on the next reconnect.
-  const resources = collectResources(discovery, args.config.network);
+  const resources = collectResources(discovery, args.config.network, "agent");
   const exchanged = await requestRefreshTokenExchange({
     tokenEndpoint: discovery.tokenEndpoint,
     clientId: args.clientId,
