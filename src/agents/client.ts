@@ -11,6 +11,7 @@ import type {
   AgentSelfUpdate,
   BlockListResponse,
   DirectorySearchResponse,
+  EnvelopeSearchResponse,
 } from "./types.js";
 
 /**
@@ -203,6 +204,26 @@ export class AgentDirectoryClient {
       asmtpRequest<DirectorySearchResponse>({
         baseUrl: this.#baseUrl,
         path: searchPath("/search", query, limit),
+        method: "GET",
+        token: this.#token,
+      }),
+    );
+  }
+
+  /**
+   * Full-text search across the caller's own mailbox (envelopes the
+   * caller is a recipient of). Operator extension to ASMTP — not part
+   * of the wire spec — so operators that don't implement it surface
+   * cleanly through {@link CapabilityNotSupportedError}.
+   */
+  async searchMessages(
+    query: string,
+    limit: number,
+  ): Promise<EnvelopeSearchResponse> {
+    return await this.#guardedSearch("message search", async () =>
+      asmtpRequest<EnvelopeSearchResponse>({
+        baseUrl: this.#baseUrl,
+        path: searchPath("/search/messages", query, limit),
         method: "GET",
         token: this.#token,
       }),

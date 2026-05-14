@@ -273,6 +273,46 @@ describe("AgentDirectoryClient.searchDirectory", () => {
   });
 });
 
+describe("AgentDirectoryClient.searchMessages", () => {
+  it("calls GET /search/messages with q+limit and returns the envelopes array", async () => {
+    stubFetch(() =>
+      new Response(
+        JSON.stringify({
+          envelopes: [
+            {
+              envelope_id: "01HW7Z9KQX1MS2D9P5VC3GZ800",
+              sender_handle: "@alice.test",
+              recipient_handles: ["@owner.cli"],
+              subject: "Build status",
+              snippet: "the build is green",
+              created_at: 1_700_000_000_001,
+              date_ms: 1_700_000_000_000,
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const result = await makeClient().searchMessages("build status", 5);
+    assert.equal(result.envelopes.length, 1);
+    assert.equal(result.envelopes[0]!.envelope_id, "01HW7Z9KQX1MS2D9P5VC3GZ800");
+    assert.equal(result.envelopes[0]!.sender_handle, "@alice.test");
+    assert.equal(result.envelopes[0]!.snippet, "the build is green");
+    const url = new URL(calls[0]!.url);
+    assert.equal(url.pathname, "/v1/search/messages");
+    assert.equal(url.searchParams.get("q"), "build status");
+    assert.equal(url.searchParams.get("limit"), "5");
+  });
+
+  it("translates 404 to CapabilityNotSupportedError (no domain-level 404 on /search)", async () => {
+    stubFetch(() => new Response("", { status: 404 }));
+    await assert.rejects(
+      () => makeClient().searchMessages("x", 5),
+      CapabilityNotSupportedError,
+    );
+  });
+});
+
 describe("AgentDirectoryClient.getSelf / updateSelf", () => {
   it("getSelf returns the full AgentResponse from /agents/me", async () => {
     stubFetch(() => new Response(JSON.stringify(FULL_AGENT), { status: 200 }));

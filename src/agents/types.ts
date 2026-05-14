@@ -128,6 +128,27 @@ export interface DirectorySearchResponse {
   readonly organizations: readonly OrganizationSearchResult[];
 }
 
+/**
+ * One hit from envelope-content search. Operator extension to ASMTP;
+ * not part of the open wire spec. Returns envelope headers (no
+ * `content_parts`) — the caller fetches bodies separately via
+ * `GET /messages/{id}` if needed.
+ */
+export interface EnvelopeSearchResult {
+  readonly envelope_id: string;
+  readonly sender_handle: string;
+  readonly recipient_handles: readonly string[];
+  readonly subject?: string | null;
+  readonly snippet?: string | null;
+  readonly created_at: number;
+  readonly date_ms: number;
+}
+
+/** Response from `GET /search/messages`. Results are ordered by relevance descending. */
+export interface EnvelopeSearchResponse {
+  readonly envelopes: readonly EnvelopeSearchResult[];
+}
+
 /** Body of `PATCH /agents/me`. */
 export interface AgentSelfUpdate {
   readonly display_name?: string;

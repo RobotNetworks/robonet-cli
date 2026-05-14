@@ -17,6 +17,7 @@ import {
   type AgentSearchResult,
   type AgentSelfUpdate,
   type BlockedAgent,
+  type EnvelopeSearchResult,
   type OrganizationSearchResult,
   type PersonSearchResult,
 } from "../agents/types.js";
@@ -220,18 +221,20 @@ function makeDirectorySearchCmd(): Command {
     .addOption(tokenOption())
     .option("--json", "Emit machine-readable JSON", false)
     .action(async (opts: DirectorySearchOpts, cmd: Command) => {
-      if (opts.scope === "messages") {
-        // Envelope-content search is not exposed yet — the operator-side
-        // index is still being rebuilt against ASMTP envelopes. Surfacing
-        // the gap with a clear error beats a generic 404 / capability miss.
-        throw new RobotNetCLIError(
-          "Message search is not available yet on the network. " +
-            "It will land once envelope-content search is exposed by the operator. " +
-            "Use --scope agents (default) to search the agent directory in the meantime.",
-        );
-      }
       const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
       const client = await buildClient(config, identity.handle, opts.token);
+      if (opts.scope === "messages") {
+        // Envelope-content search across the caller's own mailbox.
+        // Operator extension — operators that don't implement it
+        // surface through CapabilityNotSupportedError from the client.
+        const result = await client.searchMessages(opts.query, opts.limit);
+        if (opts.json) {
+          out(JSON.stringify(result, null, 2));
+          return;
+        }
+        renderEnvelopeSearchResults(result.envelopes);
+        return;
+      }
       const result = await client.searchDirectory(opts.query, opts.limit);
       if (opts.json) {
         out(JSON.stringify(result, null, 2));
@@ -635,6 +638,23 @@ function renderOrganizationResults(
   }
   for (const o of results) {
     out(`  ${o.slug}  ${o.name}`);
+  }
+}
+
+function renderEnvelopeSearchResults(
+  results: readonly EnvelopeSearchResult[],
+): void {
+  out(`Messages (${results.length})`);
+  if (results.length === 0) {
+    out("  (no matches)");
+    return;
+  }
+  for (const e of results) {
+    const subject = e.subject ?? "(no subject)";
+    out(`  ${e.envelope_id}  from ${e.sender_handle}  ${subject}`);
+    if (e.snippet !== undefined && e.snippet !== null && e.snippet.length > 0) {
+      out(`    ${e.snippet}`);
+    }
   }
 }
 
