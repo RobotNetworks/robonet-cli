@@ -1,4 +1,5 @@
 import { Command, Option } from "commander";
+import * as fs from "node:fs";
 import * as readline from "node:readline";
 
 import {
@@ -206,4 +207,42 @@ function describeNetworkSource(config: CLIConfig): string {
 /** Write a line to stdout (newline-terminated). */
 export function out(line: string): void {
   process.stdout.write(`${line}\n`);
+}
+
+// ── @file argument convention ────────────────────────────────────────
+
+/**
+ * Resolve a flag value that may be either a literal string or an `@<path>`
+ * reference to a UTF-8 file. Matches the convention used by `send --data`.
+ *
+ * Empty string is preserved (callers that interpret it as "clear" still do so);
+ * `@` alone is rejected so users see a clear error rather than a read of `.`.
+ */
+export function readStringOrFile(value: string, flag: string): string {
+  if (!value.startsWith("@")) return value;
+  const filePath = value.slice(1);
+  if (filePath.length === 0) {
+    throw new RobotNetCLIError(`${flag} '@' must be followed by a file path`);
+  }
+  try {
+    return fs.readFileSync(filePath, "utf8");
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new RobotNetCLIError(`Could not read ${flag} file ${filePath}: ${detail}`);
+  }
+}
+
+// ── Group command default-help action ────────────────────────────────
+
+/**
+ * Configure a group command (parent of subcommands, no leaf action of its own)
+ * to print help and exit 0 when invoked without a subcommand. Commander's
+ * default behavior is to print help and exit 1, which is unfriendly for users
+ * who type a parent like `robotnet me` expecting to discover its subcommands.
+ */
+export function defaultHelpOnBare(cmd: Command): Command {
+  cmd.action(() => {
+    cmd.help();
+  });
+  return cmd;
 }

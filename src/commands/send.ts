@@ -14,7 +14,12 @@ import type {
   Handle,
 } from "../asmtp/types.js";
 import { RobotNetCLIError } from "../errors.js";
-import { loadConfigForAgentCommand, out, tokenOption } from "./shared.js";
+import {
+  loadConfigForAgentCommand,
+  out,
+  readStringOrFile,
+  tokenOption,
+} from "./shared.js";
 
 /**
  * `robotnet send` — assemble and send one envelope.
@@ -42,13 +47,13 @@ function makeSendCommand(): Command {
     )
     .option(
       "--file <path>",
-      "Upload <path> and embed it as a file content part (repeatable)",
+      "Upload <path> and embed it as a file content part (repeatable; content type inferred from extension)",
       collectRepeatable,
       [] as string[],
     )
     .option(
       "--image <path>",
-      "Upload <path> and embed it as an image content part (repeatable)",
+      "Upload <path> and embed it as an image content part (repeatable; content type inferred from extension)",
       collectRepeatable,
       [] as string[],
     )
@@ -248,16 +253,7 @@ async function uploadFile(
 }
 
 function parseDataLiteral(raw: string): Readonly<Record<string, unknown>> {
-  let text = raw;
-  if (raw.startsWith("@")) {
-    const filePath = raw.slice(1);
-    try {
-      text = fs.readFileSync(filePath, "utf8");
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      throw new RobotNetCLIError(`Could not read --data file ${filePath}: ${detail}`);
-    }
-  }
+  const text = readStringOrFile(raw, "--data");
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);

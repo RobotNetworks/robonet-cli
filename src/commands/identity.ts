@@ -6,7 +6,7 @@ import {
   findDirectoryIdentityFile,
   writeDirectoryIdentityEntry,
 } from "../asmtp/identity.js";
-import { loadConfigFromRoot, out } from "./shared.js";
+import { defaultHelpOnBare, loadConfigFromRoot, out } from "./shared.js";
 
 /**
  * `robotnet identity` — manage the directory-bound default agent identity.
@@ -18,8 +18,10 @@ import { loadConfigFromRoot, out } from "./shared.js";
  * workspace settings intact.
  */
 export function registerIdentityCommand(program: Command): void {
-  const identity = new Command("identity").description(
-    "Manage the directory-bound agent identity (.robotnet/config.json `agent` field)",
+  const identity = defaultHelpOnBare(
+    new Command("identity").description(
+      "Manage the directory-bound agent identity (.robotnet/config.json `agent` field)",
+    ),
   );
 
   identity.addCommand(makeSetCmd());

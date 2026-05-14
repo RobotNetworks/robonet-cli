@@ -12,7 +12,12 @@ import { tailLog } from "../network/logs.js";
 import { networkPaths } from "../network/paths.js";
 import { renderKeyValues } from "../output/formatters.js";
 import { renderJson } from "../output/json-output.js";
-import { jsonOption, loadConfigFromRoot, profileTitle } from "./shared.js";
+import {
+  defaultHelpOnBare,
+  jsonOption,
+  loadConfigFromRoot,
+  profileTitle,
+} from "./shared.js";
 
 /**
  * `robotnet network ...` — supervise the in-tree local operator.
@@ -33,8 +38,10 @@ import { jsonOption, loadConfigFromRoot, profileTitle } from "./shared.js";
  *   delete the local admin token. Confirmation gated by `--yes`.
  */
 export function registerNetworkCommand(program: Command): void {
-  const network = new Command("network").description(
-    "Supervise the in-tree local operator (start/stop/status/logs/reset)",
+  const network = defaultHelpOnBare(
+    new Command("network").description(
+      "Supervise the in-tree local operator (start/stop/status/logs/reset)",
+    ),
   );
 
   network

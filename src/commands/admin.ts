@@ -14,7 +14,12 @@ import { openProcessCredentialStore } from "../credentials/lifecycle.js";
 import { CapabilityNotSupportedError } from "../agents/errors.js";
 import { RobotNetCLIError } from "../errors.js";
 import { renderJson } from "../output/json-output.js";
-import { loadConfigFromRoot, out } from "./shared.js";
+import {
+  defaultHelpOnBare,
+  loadConfigFromRoot,
+  out,
+  readStringOrFile,
+} from "./shared.js";
 
 /**
  * `robotnet admin ...` — local-only operations authenticated by
@@ -28,8 +33,10 @@ import { loadConfigFromRoot, out } from "./shared.js";
  * via `robotnet account agent <verb>`.
  */
 export function registerAdminCommand(program: Command): void {
-  const admin = new Command("admin").description(
-    "Local-network admin commands (authenticated by local_admin_token)",
+  const admin = defaultHelpOnBare(
+    new Command("admin").description(
+      "Local-network admin commands (authenticated by local_admin_token)",
+    ),
   );
 
   admin.addCommand(makeAdminAgentCommand());
@@ -40,8 +47,8 @@ export function registerAdminCommand(program: Command): void {
 // ── admin agent ─────────────────────────────────────────────────────────────
 
 function makeAdminAgentCommand(): Command {
-  const agent = new Command("agent").description(
-    "Manage agents on a local network",
+  const agent = defaultHelpOnBare(
+    new Command("agent").description("Manage agents on a local network"),
   );
 
   agent.addCommand(makeCreateCmd());
@@ -91,8 +98,14 @@ function makeCreateCmd(): Command {
     .description("Create a new agent on the local network")
     .argument("<handle>", "Agent handle (e.g. @nick.bot)", handleArg)
     .option("--display-name <text>", "Display name (defaults to the handle)")
-    .option("--description <text>", "Short description")
-    .option("--card-body <markdown>", "Card body (markdown)")
+    .option(
+      "--description <text-or-@file>",
+      "Short description (literal text, or `@<path>` to read from a file)",
+    )
+    .option(
+      "--card-body <markdown-or-@file>",
+      "Card body (literal markdown, or `@<path>` to read from a file)",
+    )
     .addOption(visibilityOption())
     .addOption(inboundPolicyOption())
     .addOption(localAdminTokenOption())
@@ -101,11 +114,19 @@ function makeCreateCmd(): Command {
       const config = await loadConfigFromRoot(cmd);
       assertLocalNetwork(config, "admin agent create");
       const client = await resolveAdminClient(config, opts.localAdminToken);
+      const description =
+        opts.description !== undefined
+          ? readStringOrFile(opts.description, "--description")
+          : undefined;
+      const cardBody =
+        opts.cardBody !== undefined
+          ? readStringOrFile(opts.cardBody, "--card-body")
+          : undefined;
       const created = await client.registerAgent(handle, {
         ...(opts.inboundPolicy !== undefined ? { policy: opts.inboundPolicy } : {}),
         ...(opts.displayName !== undefined ? { displayName: opts.displayName } : {}),
-        ...(opts.description !== undefined ? { description: opts.description } : {}),
-        ...(opts.cardBody !== undefined ? { cardBody: opts.cardBody } : {}),
+        ...(description !== undefined ? { description } : {}),
+        ...(cardBody !== undefined ? { cardBody } : {}),
         ...(opts.visibility !== undefined ? { visibility: opts.visibility } : {}),
       });
       // Persist the freshly-minted local_bearer so subsequent `me`,
@@ -218,8 +239,14 @@ function makeSetCmd(): Command {
     .description("Update an agent's settings on the local network")
     .argument("<handle>", "Agent handle", handleArg)
     .option("--display-name <text>", "New display name")
-    .option("--description <text>", "New description (empty string clears)")
-    .option("--card-body <markdown>", "New card body (empty string clears)")
+    .option(
+      "--description <text-or-@file>",
+      "New description (literal text, or `@<path>` to read from a file; empty string clears)",
+    )
+    .option(
+      "--card-body <markdown-or-@file>",
+      "New card body (literal markdown, or `@<path>` to read from a file; empty string clears)",
+    )
     .addOption(visibilityOption())
     .addOption(inboundPolicyOption())
     .addOption(localAdminTokenOption())
@@ -275,10 +302,12 @@ function buildSetPayload(opts: SetOpts): {
   if (opts.inboundPolicy !== undefined) update.policy = opts.inboundPolicy;
   if (opts.displayName !== undefined) update.displayName = opts.displayName;
   if (opts.description !== undefined) {
-    update.description = opts.description.length > 0 ? opts.description : null;
+    const resolved = readStringOrFile(opts.description, "--description");
+    update.description = resolved.length > 0 ? resolved : null;
   }
   if (opts.cardBody !== undefined) {
-    update.cardBody = opts.cardBody.length > 0 ? opts.cardBody : null;
+    const resolved = readStringOrFile(opts.cardBody, "--card-body");
+    update.cardBody = resolved.length > 0 ? resolved : null;
   }
   if (opts.visibility !== undefined) update.visibility = opts.visibility;
   return update;

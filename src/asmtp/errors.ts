@@ -14,7 +14,12 @@ export class AsmtpApiError extends RobotNetCLIError {
 
   constructor(status: number, code: string, opts?: { message?: string; detail?: unknown }) {
     const detailHint = formatDetail(opts?.detail);
-    super(opts?.message ?? `network error ${status}: ${code}${detailHint}`);
+    // Lead with the operator's stable code when present (e.g. "NOT_FOUND: not
+    // found"); fall back to "HTTP <status>" when the server didn't emit a
+    // structured `error.code` so the user still sees signal instead of the
+    // synthetic `http_<status>` placeholder.
+    const lead = code.startsWith("http_") ? `HTTP ${status}` : code;
+    super(opts?.message ?? `${lead}${detailHint}`);
     this.name = "AsmtpApiError";
     this.status = status;
     this.code = code;

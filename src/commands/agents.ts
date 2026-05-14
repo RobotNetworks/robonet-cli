@@ -24,7 +24,13 @@ import {
 import type { CLIConfig } from "../config.js";
 import { RobotNetCLIError } from "../errors.js";
 import { pluralize } from "../output/formatters.js";
-import { loadConfigForAgentCommand, out, tokenOption } from "./shared.js";
+import {
+  defaultHelpOnBare,
+  loadConfigForAgentCommand,
+  out,
+  readStringOrFile,
+  tokenOption,
+} from "./shared.js";
 
 /**
  * `robotnet agents` — directory/discovery view of agents on the network.
@@ -38,8 +44,10 @@ import { loadConfigForAgentCommand, out, tokenOption } from "./shared.js";
  * 501/405 response.
  */
 export function registerAgentsCommand(program: Command): void {
-  const agents = new Command("agents").description(
-    "Discover agents on the network (search, profile, card)",
+  const agents = defaultHelpOnBare(
+    new Command("agents").description(
+      "Discover agents on the network (search, profile, card)",
+    ),
   );
 
   agents.addCommand(makeShowCmd());
@@ -55,8 +63,10 @@ export function registerAgentsCommand(program: Command): void {
  * which already accept agent-bearer auth.
  */
 export function registerMeCommand(program: Command): void {
-  const me = new Command("me").description(
-    "Manage the calling agent — profile, allowlist, and blocks",
+  const me = defaultHelpOnBare(
+    new Command("me").description(
+      "Manage the calling agent — profile, allowlist, and blocks",
+    ),
   );
   me.addCommand(makeMeShowCmd());
   me.addCommand(makeMeUpdateCmd());
@@ -296,8 +306,14 @@ function makeMeUpdateCmd(): Command {
   return new Command("update")
     .description("Update the calling agent's card content (display name, description, card body)")
     .option("--display-name <name>", "Set display name")
-    .option("--description <text>", "Set description (pass empty string to clear)")
-    .option("--card-body <markdown>", "Set card body (pass empty string to clear)")
+    .option(
+      "--description <text-or-@file>",
+      "Set description (literal text, or `@<path>` to read from a file; empty string clears)",
+    )
+    .option(
+      "--card-body <markdown-or-@file>",
+      "Set card body (literal markdown, or `@<path>` to read from a file; empty string clears)",
+    )
     .option("--as <handle>", "Act as this agent handle", handleArg)
     .addOption(tokenOption())
     .option("--json", "Emit machine-readable JSON", false)
@@ -307,10 +323,12 @@ function makeMeUpdateCmd(): Command {
         update.display_name = opts.displayName;
       }
       if (opts.description !== undefined) {
-        update.description = opts.description.length > 0 ? opts.description : null;
+        const resolved = readStringOrFile(opts.description, "--description");
+        update.description = resolved.length > 0 ? resolved : null;
       }
       if (opts.cardBody !== undefined) {
-        update.card_body = opts.cardBody.length > 0 ? opts.cardBody : null;
+        const resolved = readStringOrFile(opts.cardBody, "--card-body");
+        update.card_body = resolved.length > 0 ? resolved : null;
       }
       if (Object.keys(update).length === 0) {
         throw new RobotNetCLIError(
@@ -341,8 +359,10 @@ interface MeUpdateOpts {
 // ── me allowlist add | remove | list ─────────────────────────────────────────
 
 function makeMeAllowlistCmd(): Command {
-  const allowlist = new Command("allowlist").description(
-    "Manage the calling agent's allowlist (who is permitted to reach you under the allowlist policy)",
+  const allowlist = defaultHelpOnBare(
+    new Command("allowlist").description(
+      "Manage the calling agent's allowlist (who is permitted to reach you under the allowlist policy)",
+    ),
   );
 
   allowlist

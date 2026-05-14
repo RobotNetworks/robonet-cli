@@ -25,10 +25,12 @@ import { RobotNetCLIError } from "../errors.js";
 import { renderKeyValues } from "../output/formatters.js";
 import { renderJson } from "../output/json-output.js";
 import {
+  defaultHelpOnBare,
   jsonOption,
   loadConfigFromRoot,
   out,
   profileTitle,
+  readStringOrFile,
   scopeOption,
 } from "./shared.js";
 
@@ -53,8 +55,10 @@ import {
  *  - `robotnet agents` — directory lookup of any agent.
  */
 export function registerAccountCommand(program: Command): void {
-  const account = new Command("account").description(
-    "Operations against the calling account (remote networks only)",
+  const account = defaultHelpOnBare(
+    new Command("account").description(
+      "Operations against the calling account (remote networks only)",
+    ),
   );
 
   account.addCommand(makeLoginCmd());
@@ -182,8 +186,8 @@ function makeShowCmd(): Command {
 // ── account agent ───────────────────────────────────────────────────────────
 
 function makeAccountAgentCommand(): Command {
-  const agent = new Command("agent").description(
-    "Manage agents owned by the calling account",
+  const agent = defaultHelpOnBare(
+    new Command("agent").description("Manage agents owned by the calling account"),
   );
 
   agent.addCommand(makeAgentCreateCmd());
@@ -219,7 +223,10 @@ function makeAgentCreateCmd(): Command {
       handleArg,
     )
     .option("--display-name <text>", "Human-readable display name (1-100 chars)")
-    .option("--description <text>", "Short description (max 500 chars)")
+    .option(
+      "--description <text-or-@file>",
+      "Short description, max 500 chars (literal text, or `@<path>` to read from a file)",
+    )
     .addOption(visibilityOption())
     .addOption(inboundPolicyOption())
     .option("--json", "Emit machine-readable JSON", false)
@@ -227,10 +234,14 @@ function makeAgentCreateCmd(): Command {
       const config = await loadConfigFromRoot(cmd);
       const client = await buildClient(config);
       const local_name = parseLocalName(handle);
+      const description =
+        opts.description !== undefined
+          ? readStringOrFile(opts.description, "--description")
+          : undefined;
       const body: AgentCreate = {
         local_name,
         display_name: opts.displayName ?? local_name,
-        ...(opts.description !== undefined ? { description: opts.description } : {}),
+        ...(description !== undefined ? { description } : {}),
         ...(opts.visibility !== undefined ? { visibility: opts.visibility } : {}),
         ...(opts.inboundPolicy !== undefined
           ? { inbound_policy: opts.inboundPolicy }
@@ -344,8 +355,14 @@ function makeAgentSetCmd(): Command {
     .description("Update settings for an agent the account owns")
     .argument("<handle>", "Agent handle", handleArg)
     .option("--display-name <text>", "New display name")
-    .option("--description <text>", "New description (empty string clears)")
-    .option("--card-body <markdown>", "New card body (empty string clears)")
+    .option(
+      "--description <text-or-@file>",
+      "New description (literal text, or `@<path>` to read from a file; empty string clears)",
+    )
+    .option(
+      "--card-body <markdown-or-@file>",
+      "New card body (literal markdown, or `@<path>` to read from a file; empty string clears)",
+    )
     .addOption(visibilityOption())
     .addOption(inboundPolicyOption())
     .option("--paused", "Pause the agent (refuses inbound sessions)")
@@ -355,12 +372,12 @@ function makeAgentSetCmd(): Command {
       const update: { -readonly [K in keyof AgentUpdate]: AgentUpdate[K] } = {};
       if (opts.displayName !== undefined) update.display_name = opts.displayName;
       if (opts.description !== undefined) {
-        update.description =
-          opts.description.length > 0 ? opts.description : null;
+        const resolved = readStringOrFile(opts.description, "--description");
+        update.description = resolved.length > 0 ? resolved : null;
       }
       if (opts.cardBody !== undefined) {
-        update.card_body =
-          opts.cardBody.length > 0 ? opts.cardBody : null;
+        const resolved = readStringOrFile(opts.cardBody, "--card-body");
+        update.card_body = resolved.length > 0 ? resolved : null;
       }
       if (opts.visibility !== undefined) update.visibility = opts.visibility;
       if (opts.inboundPolicy !== undefined) {

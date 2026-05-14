@@ -7,7 +7,12 @@ import { resolveAgentBearer } from "../asmtp/auth-resolver.js";
 import { FilesClient } from "../asmtp/files-client.js";
 import { handleArg } from "../asmtp/handles.js";
 import { RobotNetCLIError } from "../errors.js";
-import { loadConfigForAgentCommand, out, tokenOption } from "./shared.js";
+import {
+  defaultHelpOnBare,
+  loadConfigForAgentCommand,
+  out,
+  tokenOption,
+} from "./shared.js";
 
 /**
  * `robotnet files` — upload + download attachments referenced by
@@ -20,8 +25,10 @@ import { loadConfigForAgentCommand, out, tokenOption } from "./shared.js";
  * earlier in a `file` part).
  */
 export function registerFilesCommand(program: Command): void {
-  const files = new Command("files").description(
-    "Upload and download files referenced by envelope content parts",
+  const files = defaultHelpOnBare(
+    new Command("files").description(
+      "Upload and download files referenced by envelope content parts",
+    ),
   );
   files.addCommand(makeUploadCmd());
   files.addCommand(makeDownloadCmd());
