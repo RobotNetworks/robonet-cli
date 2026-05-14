@@ -14,7 +14,8 @@ import { safeHexEqual, sha256Hex } from "./tokens.js";
  *   operator startup (passed in via `ROBOTNET_OPERATOR_ADMIN_TOKEN_HASH`).
  *   Grants access to the `/_admin/*` surface.
  * - Agent: per-agent bearers stored as sha256 hashes on the `agents` table.
- *   Grants access to that agent's `/sessions/*` and `/connect` surface.
+ *   Grants access to that agent's `/messages`, `/mailbox`, `/files`, and
+ *   `/connect` surface.
  */
 
 const BEARER_RE = /^Bearer\s+(.+)$/i;

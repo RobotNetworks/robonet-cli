@@ -34,8 +34,9 @@ export function smokeCheckSqliteBinding(): void {
  * Open (and migrate) the operator's SQLite file at `path`.
  *
  * Settings: WAL journaling so concurrent readers don't block the writer,
- * `foreign_keys = ON` so the cascade-delete contracts on agents/sessions
- * are enforced, and a 3s `busy_timeout` to absorb brief lock contention.
+ * `foreign_keys = ON` so the cascade-delete contracts on agents,
+ * envelopes, and mailbox entries are enforced, and a 3s `busy_timeout`
+ * to absorb brief lock contention.
  *
  * The file is forced to mode 0600 immediately after creation. On Windows
  * this is a no-op.
