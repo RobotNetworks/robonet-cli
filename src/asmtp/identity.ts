@@ -98,28 +98,50 @@ export async function findDirectoryIdentityFile(
  * Add or overwrite the workspace's `agent` field in
  * `<dir>/.robotnet/config.json`, preserving every other top-level key in
  * the file (`profile`, etc.). Creates the file (and the `.robotnet/`
- * directory) if missing. When the file's `network` field is absent or
- * empty, it is also seeded — the agent is implicitly bound to whichever
- * network resolves at write time.
+ * directory) if missing.
  *
- * Returns the absolute file path.
+ * Network-pin policy:
+ *   - `pinNetwork="seed"` (default): only write the `network` field
+ *     when it's absent or empty in the existing file. Preserves a
+ *     prior pin when the caller didn't intend to change networks.
+ *   - `pinNetwork="overwrite"`: replace the `network` field with
+ *     `args.network` unconditionally. Use when the user explicitly
+ *     selected the network (e.g. `--network` flag or `ROBOTNET_NETWORK`
+ *     env) — otherwise the agent ends up bound to one network while
+ *     the workspace stays pinned to another, and subsequent commands
+ *     refuse with "no agent specified for network X".
+ *
+ * Returns the absolute path and the final persisted `network` value
+ * so the caller can report exactly what was written.
  */
+export interface WriteDirectoryIdentityResult {
+  readonly filePath: string;
+  readonly persistedNetwork: string;
+}
+
 export async function writeDirectoryIdentityEntry(
   dir: string,
-  args: { readonly handle: string; readonly network: string },
-): Promise<string> {
+  args: {
+    readonly handle: string;
+    readonly network: string;
+    readonly pinNetwork?: "seed" | "overwrite";
+  },
+): Promise<WriteDirectoryIdentityResult> {
   assertValidHandle(args.handle);
   const filePath = directoryIdentityPath(dir);
   const existing = await readWorkspaceFileRaw(filePath);
 
   const next: Record<string, unknown> = { ...existing, agent: args.handle };
+  const mode = args.pinNetwork ?? "seed";
   const networkPin = next["network"];
-  if (typeof networkPin !== "string" || networkPin.trim().length === 0) {
+  const networkPinIsBlank =
+    typeof networkPin !== "string" || networkPin.trim().length === 0;
+  if (mode === "overwrite" || networkPinIsBlank) {
     next["network"] = args.network;
   }
 
   await writeWorkspaceFile(filePath, next);
-  return filePath;
+  return { filePath, persistedNetwork: String(next["network"]) };
 }
 
 /**

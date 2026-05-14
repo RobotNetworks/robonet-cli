@@ -46,12 +46,16 @@ function writeRawWorkspaceFile(dir: string, payload: unknown): string {
 
 describe("writeDirectoryIdentityEntry", () => {
   it("creates .robotnet/config.json and seeds the workspace `network` pin", async () => {
-    const filePath = await writeDirectoryIdentityEntry(tmpDir, {
-      handle: "@cli.bot",
-      network: "local",
-    });
+    const { filePath, persistedNetwork } = await writeDirectoryIdentityEntry(
+      tmpDir,
+      {
+        handle: "@cli.bot",
+        network: "local",
+      },
+    );
 
     assert.equal(filePath, directoryIdentityPath(tmpDir));
+    assert.equal(persistedNetwork, "local");
     const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
     assert.deepEqual(parsed, {
       agent: "@cli.bot",
@@ -59,12 +63,12 @@ describe("writeDirectoryIdentityEntry", () => {
     });
   });
 
-  it("overwrites the existing `agent` field and does NOT overwrite an existing `network` pin", async () => {
+  it("default 'seed' mode preserves an existing `network` pin (agent-only update)", async () => {
     await writeDirectoryIdentityEntry(tmpDir, {
       handle: "@me.dev",
       network: "local",
     });
-    await writeDirectoryIdentityEntry(tmpDir, {
+    const { persistedNetwork } = await writeDirectoryIdentityEntry(tmpDir, {
       handle: "@new.bot",
       network: "global",
     });
@@ -77,6 +81,28 @@ describe("writeDirectoryIdentityEntry", () => {
       agent: "@new.bot",
       network: "local",
     });
+    assert.equal(persistedNetwork, "local");
+  });
+
+  it("'overwrite' mode rewrites the `network` pin (matches an explicit --network)", async () => {
+    await writeDirectoryIdentityEntry(tmpDir, {
+      handle: "@me.dev",
+      network: "local",
+    });
+    const { persistedNetwork } = await writeDirectoryIdentityEntry(tmpDir, {
+      handle: "@new.bot",
+      network: "global",
+      pinNetwork: "overwrite",
+    });
+
+    const parsed = JSON.parse(
+      fs.readFileSync(directoryIdentityPath(tmpDir), "utf8"),
+    );
+    assert.deepEqual(parsed, {
+      agent: "@new.bot",
+      network: "global",
+    });
+    assert.equal(persistedNetwork, "global");
   });
 
   it("preserves unrelated keys (`profile`, custom fields) already present in the file", async () => {

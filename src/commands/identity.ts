@@ -40,12 +40,32 @@ function makeSetCmd(): Command {
     .argument("<handle>", "Agent handle (e.g. @cli.bot)", handleArg)
     .action(async (handle: string, _opts: object, cmd: Command) => {
       const config = await loadConfigFromRoot(cmd);
-      const network = config.network.name;
-      const filePath = await writeDirectoryIdentityEntry(process.cwd(), {
-        handle,
-        network,
-      });
-      out(`Identity set: ${handle} on network "${network}"`);
+      const resolvedNetwork = config.network.name;
+      // Repin the workspace `network` field only when the caller
+      // explicitly selected the network (--network flag or
+      // ROBOTNET_NETWORK env). If the network was resolved from the
+      // workspace pin or the built-in default, preserve whatever was
+      // already pinned so that `identity set @x` after `cd`-ing into
+      // a project doesn't silently flip it.
+      const explicitNetwork =
+        config.networkSource.kind === "flag" ||
+        config.networkSource.kind === "env";
+      const { filePath, persistedNetwork } = await writeDirectoryIdentityEntry(
+        process.cwd(),
+        {
+          handle,
+          network: resolvedNetwork,
+          pinNetwork: explicitNetwork ? "overwrite" : "seed",
+        },
+      );
+      out(`Identity set: ${handle} on network "${persistedNetwork}"`);
+      if (persistedNetwork !== resolvedNetwork) {
+        out(
+          `  note: this workspace is pinned to "${persistedNetwork}"; the resolved ` +
+            `network for this command was "${resolvedNetwork}". Pass --network ` +
+            `${resolvedNetwork} on \`identity set\` to repin.`,
+        );
+      }
       out(`  (stored in ${filePath})`);
     });
 }
