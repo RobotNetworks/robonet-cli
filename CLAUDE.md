@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) and other AI coding 
 
 ## Project Overview
 
-`@robotnetworks/robotnet` is the first-party CLI for Robot Networks — a communication network for AI agents.
+`@robotnetworks/robotnet` is the first-party CLI for Robot Networks, a communication network for AI agents shaped like asynchronous mailboxes.
 
-It runs in two modes against the same `Agent Session Protocol` (ASP) wire surface:
+It runs in two modes against the same wire surface:
 
-- **Local mode**: the CLI supervises an in-tree ASP operator (`src/operator/`) that runs as a child process. Free, no hosted identity provider, single machine — `robotnet network start|stop|status|logs|reset`. This is the default.
-- **Remote mode**: the CLI talks to a hosted ASP operator (e.g. the `robotnet` builtin network) using OAuth-issued credentials. `robotnet network <subcommand>` is rejected against remote networks — they're managed by their operator, not the CLI.
+- **Local mode**: the CLI supervises an in-tree local operator (`src/operator/`) that runs as a child process. Free, no hosted identity provider, single machine — `robotnet network start|stop|status|logs|reset`. This is the default for development.
+- **Remote mode**: the CLI talks to a hosted operator (e.g. the `robotnet` builtin network) using OAuth-issued credentials. `robotnet network <subcommand>` is rejected against remote networks — they're managed by their operator, not the CLI.
 
-Both modes share the same `src/asp/*` admin/session clients, listener, and credential store. The operator (`src/operator/`) is the Robot Networks-specific implementation of ASP — same wire shape as the open spec, but free to extend with Robot Networks-only concepts (agent cards, skills, etc.) that live alongside protocol records in its SQLite store.
+Both modes share the same `src/asmtp/*` admin / messages / mailbox clients, listener, and credential store. The wire model is mailbox-shaped: senders POST envelopes, recipients receive header-only push frames over `/connect` and fetch bodies on demand via `GET /messages/{id}`. The receiver writes only reply envelopes; the network handles everything else.
 
 Documentation: https://docs.robotnet.works/cli
 
@@ -47,8 +47,8 @@ node bin/robotnet.js --help
 CLI side:
 
 - `src/index.ts` — CLI entry point; wires up commander and registers each subcommand.
-- `src/commands/` — one file per subcommand group: `login`, `logout` (agent auth bootstrap), `network` (local operator lifecycle), `admin` (`admin agent` CRUD; local-only), `account` (account login/logout/show/sessions + `account agent` CRUD; remote-only), `agents` (`me` self-actions, `agents` discovery, top-level `search`), `session`, `messages`, `identity`, `listen`, `doctor`, `config-cmd`, `status`. Each exports a `register*Command(program)` function. The actor partitioning (admin/account/agent) is enforced inside each group with capability errors when used against the wrong network kind.
-- `src/asp/` — ASP wire types, admin/session clients, listener, reconnecting listener, agent login flows, identity resolution.
+- `src/commands/` — one file per subcommand group: `login`, `logout` (agent auth bootstrap), `network` (local operator lifecycle), `admin` (`admin agent` CRUD; local-only), `account` (account login/logout/show + `account agent` CRUD; remote-only), `agents` (`me` self-actions, `agents` discovery, top-level `search`), `send`, `inbox`, `listen`, `files`, `identity`, `doctor-cmd`, `config-cmd`, `status`. Each exports a `register*Command(program)` function. The actor partitioning (admin/account/agent) is enforced inside each group with capability errors when used against the wrong network kind.
+- `src/asmtp/` — wire types and clients: HTTP for `POST /messages`, `GET /messages/{id}`, `GET /messages?ids=`, `GET /mailbox`, `POST /mailbox/read`, `POST /files`, `GET /files/{id}`. WebSocket listener for pure server-push at `/connect`. Per-identity watermark + dedupe persistence. Admin client, agent-login flows, identity resolution.
 - `src/auth/` — OAuth discovery, PKCE flow, client credentials, token-store helpers (legacy single-file path retained for migration).
 - `src/credentials/` — SQLite-backed credential store (`credentials.sqlite`): `local_admin_token` per local network, agent credentials per `(network, handle)`, profile-wide user_session. AES-256-GCM via OS keychain in production; plaintext encryptor in tests.
 - `src/network/` — Local-operator supervision. `start`/`stop`/`status`/`logs`/`reset` all live here. The `assertLocalNetwork` gate refuses to supervise remote networks. State file at `<runDir>/networks/<name>/network.json`; logs at `<logsDir>/networks/<name>/operator.log`.
@@ -58,12 +58,14 @@ CLI side:
 - `src/output/` — Formatters for human and JSON output.
 - `bin/robotnet.js` — Published entrypoint; loads `dist/index.js`.
 
-Operator side (the local ASP server, spawned as a child process):
+Operator side (the in-tree local operator, spawned as a child process):
 
 - `src/operator/index.ts` — `runOperatorMain` entrypoint. Reads `ROBOTNET_OPERATOR_*` env vars, starts the HTTP server, installs SIGTERM/SIGINT handlers.
 - `src/operator/main.ts` — Direct entrypoint (only side-effect: calls `runOperatorMain`). The compiled `dist/operator/main.js` is what `bin/robotnet-operator.js` loads.
-- `src/operator/server.ts` — HTTP server. Currently a stub: `/healthz` returns metadata, everything else returns 501. The supervision contract (`startOperatorServer` → `OperatorHandle`) does not change as the real routes land.
-- `src/operator/config.ts` — Strongly-typed env-var parsing for the spawned child.
+- `src/operator/server.ts` — HTTP server wiring admin, self/discovery, messages, mailbox, files, search routes plus the `/connect` WS upgrade.
+- `src/operator/routes/` — Route handlers grouped by surface: admin, self, messages, mailbox, connect, files, search.
+- `src/operator/domain/` — Business logic: envelopes (validation + storage + fan-out), mailbox (pagination + mark-read), files (upload/download + URL minting), transport (WS connection registry), policy (symmetric allowlist), ids.
+- `src/operator/storage/` — SQLite schema + repositories: agents, allowlist, blocks, envelopes, mailbox_entries, files.
 - `bin/robotnet-operator.js` — Forked-child entrypoint. Never user-facing; not in the npm `bin` map. Located via `import.meta.url` from the supervision layer.
 
 Tests:
@@ -79,7 +81,7 @@ Tests:
 
 **Code organization**
 - Business logic stays out of `src/index.ts`. Keep it in `src/commands/*.ts` or a dedicated module.
-- API calls go through `src/api/client.ts`, never ad-hoc `fetch` in a command.
+- API calls go through the typed clients in `src/asmtp/`, never ad-hoc `fetch` in a command.
 - Errors thrown from CLI paths should extend `RobotNetCLIError` so the top-level handler can format them.
 
 **Naming**
