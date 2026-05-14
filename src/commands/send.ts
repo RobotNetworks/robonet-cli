@@ -36,8 +36,13 @@ export function registerSendCommand(program: Command): void {
 function makeSendCommand(): Command {
   return new Command("send")
     .description("Send an envelope to one or more recipients")
-    .argument("<recipients...>", "Recipient handles", handlesArg)
+    .argument("<recipients...>", "Recipient handles (To list)", handlesArg)
     .option("--as <handle>", "Act as this agent handle", handleArg)
+    .option(
+      "--cc <handle>",
+      "Add a Cc recipient (repeatable). Same delivery as the To list; the distinction is informational.",
+      handlesArg,
+    )
     .option("--subject <text>", "Optional envelope subject")
     .option(
       "--text <body>",
@@ -88,11 +93,13 @@ function makeSendCommand(): Command {
           "send needs at least one content part. Pass --text, --file, --image, or --data.",
         );
       }
+      const cc = opts.cc ?? [];
       const envelope: EnvelopePost = {
         id: mintEnvelopeId(),
         to: recipients,
         date_ms: Date.now(),
         content_parts: contentParts,
+        ...(cc.length > 0 ? { cc } : {}),
         ...(opts.subject !== undefined ? { subject: opts.subject } : {}),
         ...(opts.inReplyTo !== undefined ? { in_reply_to: opts.inReplyTo } : {}),
         ...(opts.monitor !== undefined ? { monitor: opts.monitor } : {}),
@@ -106,8 +113,9 @@ function makeSendCommand(): Command {
       out(`Sent envelope ${result.id}.`);
       out(`  received_ms: ${result.received_ms}`);
       out(`  created_at:  ${result.created_at}`);
-      if (result.recipients.length > 0) {
-        out(`  recipients:  ${result.recipients.map((r) => r.handle).join(", ")}`);
+      out(`  to:          ${recipients.join(", ")}`);
+      if (cc.length > 0) {
+        out(`  cc:          ${cc.join(", ")}`);
       }
     });
 }
@@ -116,6 +124,7 @@ interface SendOpts {
   readonly as?: string;
   readonly token?: string;
   readonly subject?: string;
+  readonly cc?: Handle[];
   readonly text: string[];
   readonly file: string[];
   readonly image: string[];

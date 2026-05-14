@@ -346,6 +346,59 @@ describe("operator POST /messages + GET /mailbox + GET /messages/{id}", () => {
     assert.equal(sendRes.status, 404);
   });
 
+  it("delivers an envelope to both `to` and `cc` recipients and echoes cc on fetch", async () => {
+    const alice = await registerAgent(h, "@alice.cli");
+    const bob = await registerAgent(h, "@bob.cli");
+    const carol = await registerAgent(h, "@carol.cli");
+
+    const envelopeId = "01HW7Z9KQX1MS2D9P5VC3GZCC0";
+    const sendRes = await fetch(`${h.baseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${alice.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "cc-send-1",
+      },
+      body: JSON.stringify({
+        ...ENVELOPE_TEXT_BODY(envelopeId, [bob.handle]),
+        cc: [carol.handle],
+      }),
+    });
+    assert.equal(sendRes.status, 202);
+    const sendBody = (await sendRes.json()) as {
+      recipients: { handle: string }[];
+    };
+    // All-or-nothing: both bob and carol get accepted in one call.
+    const accepted = sendBody.recipients.map((r) => r.handle).sort();
+    assert.deepEqual(accepted, [bob.handle, carol.handle].sort());
+
+    // Both recipients see the envelope in their mailbox with the same id.
+    for (const recipient of [bob, carol]) {
+      const mailboxRes = await fetch(`${h.baseUrl}/mailbox?order=asc`, {
+        headers: { Authorization: `Bearer ${recipient.token}` },
+      });
+      const body = (await mailboxRes.json()) as {
+        envelope_headers: { id: string; from: string; cc?: string[] }[];
+      };
+      assert.equal(body.envelope_headers.length, 1);
+      assert.equal(body.envelope_headers[0]!.id, envelopeId);
+      assert.deepEqual(body.envelope_headers[0]!.cc, [carol.handle]);
+
+      const fetchRes = await fetch(`${h.baseUrl}/messages/${envelopeId}`, {
+        headers: { Authorization: `Bearer ${recipient.token}` },
+      });
+      assert.equal(fetchRes.status, 200);
+      const fetched = (await fetchRes.json()) as {
+        from: string;
+        to: string[];
+        cc: string[];
+      };
+      assert.equal(fetched.from, alice.handle);
+      assert.deepEqual(fetched.to, [bob.handle]);
+      assert.deepEqual(fetched.cc, [carol.handle]);
+    }
+  });
+
   it("rejects client-supplied `from` on POST /messages with 400", async () => {
     const alice = await registerAgent(h, "@alice.cli");
     const bob = await registerAgent(h, "@bob.cli");
