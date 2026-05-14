@@ -208,13 +208,29 @@ export function registerNetworkCommand(program: Command): void {
       }
 
       const store = await openProcessCredentialStore(config);
-      const dropped = store.deleteLocalAdminToken(config.network.name);
-
-      console.log(
-        `Reset network "${config.network.name}". ` +
-          `Database deleted at ${paths.databaseFile}. ` +
-          (dropped ? "Local admin token cleared." : "No local admin token to clear."),
+      const droppedAdmin = store.deleteLocalAdminToken(config.network.name);
+      const droppedAgents = store.deleteAgentCredentialsForNetwork(
+        config.network.name,
       );
+
+      // Bearers minted against the just-deleted database are unusable on
+      // the next operator boot. Clearing them here means a fresh `admin
+      // agent create` mints a new credential into a clean slot, instead
+      // of the next `me show` failing with "no stored token" — the foot-
+      // gun caught during the v0.2.35 manual QA.
+      const parts: string[] = [
+        `Reset network "${config.network.name}".`,
+        `Database deleted at ${paths.databaseFile}.`,
+        droppedAdmin
+          ? "Local admin token cleared."
+          : "No local admin token to clear.",
+      ];
+      if (droppedAgents > 0) {
+        parts.push(
+          `Cleared ${droppedAgents} stale agent credential${droppedAgents === 1 ? "" : "s"}.`,
+        );
+      }
+      console.log(parts.join(" "));
     });
 
   program.addCommand(network);

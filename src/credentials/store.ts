@@ -292,6 +292,19 @@ export class CredentialStore {
     return info.changes > 0;
   }
 
+  /**
+   * Delete every agent credential bound to `networkName`. Returns the row
+   * count removed. Used by `network reset`, which wipes the operator's DB:
+   * any bearers minted against the prior database become unusable, so we
+   * clear them in lockstep to avoid stale `no stored token` follow-ons.
+   */
+  deleteAgentCredentialsForNetwork(networkName: string): number {
+    const info = this.#db
+      .prepare(`DELETE FROM agent_credentials WHERE network_name = ?`)
+      .run(networkName);
+    return Number(info.changes);
+  }
+
   // ── user session (singleton) ──────────────────────────────────────────────
 
   /** Existence check for the user session — does not decrypt anything. */
