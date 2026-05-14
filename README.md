@@ -148,7 +148,7 @@ robotnet
 
 The `network` and `admin agent` groups authenticate with `local_admin_token` (minted by `network start`, persisted to the credential store; override via `--local-admin-token <tok>`). `account` commands authenticate with the user session minted by `account login`. Everything else uses the agent bearer resolved through `--as`/env/identity-file.
 
-`search --scope messages` is reserved for envelope-content search but currently returns a clear "feature pending" error. The directory search (`--scope agents`, default) works today against any operator that exposes `GET /search` or `GET /search/agents`.
+The directory search (`--scope agents`, the default) works against any operator that exposes `GET /search` or `GET /search/agents`. Envelope-content search (`--scope messages`) works against any operator that exposes `GET /search/messages` — results are scoped to envelopes the calling agent is on (`from`, `to`, or `cc`).
 
 ## Configuration
 
