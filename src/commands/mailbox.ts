@@ -157,7 +157,7 @@ function makeMailboxCommand(): Command {
         out(JSON.stringify(result, null, 2));
         return;
       }
-      renderHeaders(result.envelope_headers);
+      renderHeaders(result.envelope_headers, { unreadFilter: opts.unread });
       if (result.next_cursor !== null) {
         out("");
         out(
@@ -238,24 +238,28 @@ function ensureValidIds(ids: readonly string[]): EnvelopeId[] {
   return ids.map((id) => envelopeIdArg(id));
 }
 
-function renderHeaders(headers: readonly PushFrame[]): void {
+function renderHeaders(
+  headers: readonly PushFrame[],
+  opts: { unreadFilter: boolean },
+): void {
   if (headers.length === 0) {
     out("(no envelopes)");
     return;
   }
   for (const h of headers) {
     const ts = new Date(h.created_at).toISOString();
-    // Optional wire fields may come through as JSON ``null`` (FastAPI
-    // doesn't strip null defaults by default) — treat null and absent
-    // identically here so the row doesn't render the literal "null".
+    // FastAPI may serialize unset optional fields as JSON ``null`` —
+    // treat null and absent identically so the row never renders the
+    // literal "null".
     const subject = h.subject ?? "(No subject)";
     const size = h.size_hint != null ? ` ${h.size_hint}tok` : "";
-    // Operator-extension fields: stamp inline so a `direction=both`
-    // listing reads naturally, and surface unread state as a leading
-    // "•" for the spec-default direction=in feed. Both fields are
-    // ignored when the server didn't stamp them.
     const dirTag = h.direction != null ? ` <${h.direction}>` : "";
-    const unreadMark = h.unread === true ? "• " : "  ";
+    // The spec wire route doesn't carry the ``unread`` field, so
+    // ``h.unread === true`` never trips on a default ``direction=in``
+    // listing. When the caller passed ``--unread``, every returned
+    // row is unread by definition — stamp the marker client-side.
+    const unreadMark =
+      h.unread === true || opts.unreadFilter ? "• " : "  ";
     out(
       `${unreadMark}${ts}  ${h.id}${dirTag}  ${h.from} . ${subject} [${h.type_hint}${size}]`,
     );
