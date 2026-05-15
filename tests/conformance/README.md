@@ -1,6 +1,6 @@
 # Robot Networks operator — ASP conformance harness
 
-Runs the open [ASP conformance suite][suite] against the in-tree local operator. CI gates `0.2.0` on this passing.
+Runs the open [ASP conformance suite][suite] against the in-tree local operator. CI gates current CLI releases on this passing.
 
 [suite]: https://github.com/RobotNetworks/asp/tree/main/tests/conformance
 

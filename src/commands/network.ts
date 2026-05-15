@@ -217,7 +217,7 @@ export function registerNetworkCommand(program: Command): void {
       // the next operator boot. Clearing them here means a fresh `admin
       // agent create` mints a new credential into a clean slot, instead
       // of the next `me show` failing with "no stored token" — the foot-
-      // gun caught during the v0.2.35 manual QA.
+      // gun caught during manual QA.
       const parts: string[] = [
         `Reset network "${config.network.name}".`,
         `Database deleted at ${paths.databaseFile}.`,
