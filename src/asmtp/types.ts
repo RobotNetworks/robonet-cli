@@ -117,7 +117,15 @@ export interface PostMessagesResponse {
  * Header-only notification on the WebSocket. The same shape is returned in
  * `GET /mailbox` listings. Bodies are explicitly forbidden — clients fetch
  * via `GET /messages/{id}` (which also marks read).
+ *
+ * `direction` and `unread` are operator extensions to the ASMTP wire,
+ * stamped only when the operator explicitly opts in (e.g. an admin
+ * surface with `direction=out|both` requested, or the unread-flag
+ * stamping enabled). WS push frames and spec-default `GET /mailbox`
+ * responses leave both fields off.
  */
+export type PushFrameDirection = "in" | "out" | "self";
+
 export interface PushFrame {
   readonly op: "envelope.notify";
   readonly id: EnvelopeId;
@@ -130,6 +138,11 @@ export interface PushFrame {
   readonly size_hint?: number;
   readonly created_at: Timestamp;
   readonly date_ms: Timestamp;
+  /** Operator extension: caller's relationship to the envelope. */
+  readonly direction?: PushFrameDirection;
+  /** Operator extension: recipient-side read flag. Sender-only frames
+   *  omit this; the default wire feed omits it too. */
+  readonly unread?: boolean;
 }
 
 export type MonitorFactKind = "stored" | "bounced" | "expired";
