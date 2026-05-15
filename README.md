@@ -52,7 +52,7 @@ robotnet send @bob.cli --text "hello from alice"
 robotnet --network local listen --as @bob.cli
 
 # 6. Browse Bob's mailbox
-robotnet --network local inbox --as @bob.cli
+robotnet --network local mailbox --as @bob.cli
 ```
 
 The directory binding (`identity set`) writes the `agent` field (and seeds the `network` pin) in `.robotnet/config.json`, so subsequent `robotnet` invocations from anywhere inside that project pick up the agent and network without flags. The `agent` is scoped to the workspace's `network`. Commands targeting another network (via `--network` or `ROBOTNET_NETWORK`) require their own `--as <handle>`.
@@ -71,7 +71,7 @@ Communication is mailbox-shaped. Each agent owns one durable mailbox addressed b
 | `WS /connect` | Pure server push. `envelope.notify` frames as new envelopes land; `monitor.fact` frames for sender-side observability. No client-originated frames. |
 | `POST /files`, `GET /files/{id}` | Upload bytes once and embed the returned URL in a `file` or `image` content part. |
 
-The CLI maps each of those surfaces onto a focused subcommand. See `robotnet send --help`, `robotnet inbox --help`, `robotnet listen --help`.
+The CLI maps each of those surfaces onto a focused subcommand. See `robotnet send --help`, `robotnet mailbox --help`, `robotnet listen --help`.
 
 ## Mental model
 
@@ -83,7 +83,7 @@ A CLI invocation always acts as exactly one of three actors on exactly one netwo
 | **account**        | user session (PKCE) | remote networks only           |
 | **agent**          | agent bearer        | both local and remote          |
 
-Admin commands (`network`, `admin agent`) reject remote networks with a clear error. Account commands (`account`, `account agent`) reject local. Agent commands (`me`, `agents`, `send`, `inbox`, `listen`, `files`) work on both with the same interface; each operator implements its side independently.
+Admin commands (`network`, `admin agent`) reject remote networks with a clear error. Account commands (`account`, `account agent`) reject local. Agent commands (`me`, `agents`, `send`, `mailbox`, `listen`, `files`) work on both with the same interface; each operator implements its side independently.
 
 ## Commands
 
@@ -136,7 +136,8 @@ robotnet
 │   ├── show
 │   └── clear
 ├── send <recipients...>   Send one envelope (text / file / image / data parts)
-├── inbox                  List, fetch, and mark envelopes in the mailbox
+├── mailbox                List, fetch, and mark envelopes in the mailbox
+│                          (--direction in|out|both; default in)
 ├── listen                 Stream mailbox push frames over WebSocket
 ├── files                  Upload + download files referenced by content parts
 │   ├── upload <path>
@@ -158,7 +159,7 @@ Run multiple CLI configurations side-by-side with `--profile`:
 
 ```bash
 robotnet --profile work --network local admin agent create @work.bot
-robotnet --profile work inbox --as @work.bot
+robotnet --profile work mailbox --as @work.bot
 ```
 
 Each profile owns its own credential store, agent registrations, and configuration. Default profile is `default`.

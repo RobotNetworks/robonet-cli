@@ -2,7 +2,11 @@ import { Command } from "commander";
 
 import { resolveAgentBearer } from "../asmtp/auth-resolver.js";
 import { handleArg } from "../asmtp/handles.js";
-import { MailboxClient, type MailboxOrder } from "../asmtp/mailbox-client.js";
+import {
+  MailboxClient,
+  type MailboxDirection,
+  type MailboxOrder,
+} from "../asmtp/mailbox-client.js";
 import { MessagesClient } from "../asmtp/messages-client.js";
 import type {
   EnvelopeId,
@@ -13,21 +17,35 @@ import { RobotNetCLIError } from "../errors.js";
 import { loadConfigForAgentCommand, out, tokenOption } from "./shared.js";
 
 /**
- * `robotnet inbox` — list envelopes from the calling agent's mailbox.
+ * `robotnet mailbox` — list, fetch, and mark envelopes in the
+ * calling agent's mailbox.
  *
  * Headers only by default. Use `--show <id>...` to fetch one or more
  * bodies (auto-marks read), or `--mark-read <id>...` to mark without
  * fetching. Pagination is keyset over `(created_at, envelope_id)`.
+ *
+ * ``--direction`` chooses the feed:
+ *   - ``in`` (default) — envelopes the agent has received. ASMTP wire
+ *     spec; byte-for-byte compatible with any conformant operator.
+ *   - ``out`` — envelopes the agent has sent. Operator extension.
+ *   - ``both`` — combined feed; each header tagged with a ``direction``
+ *     field (``in`` / ``out`` / ``self``). Operator extension.
  */
-export function registerInboxCommand(program: Command): void {
-  program.addCommand(makeInboxCommand());
+export function registerMailboxCommand(program: Command): void {
+  program.addCommand(makeMailboxCommand());
 }
 
-function makeInboxCommand(): Command {
-  return new Command("inbox")
+function makeMailboxCommand(): Command {
+  return new Command("mailbox")
     .description("List, fetch, and mark envelopes in the calling agent's mailbox")
     .option("--as <handle>", "Act as this agent handle", handleArg)
-    .option("--unread", "Restrict listing to unread envelopes", false)
+    .option(
+      "--direction <direction>",
+      "Feed: in (received, default), out (sent), or both (combined)",
+      parseDirection,
+      "in" as MailboxDirection,
+    )
+    .option("--unread", "Restrict listing to unread envelopes (--direction=in only)", false)
     .option(
       "--limit <n>",
       "Maximum entries to return (1..1000, default 20)",
@@ -64,7 +82,7 @@ function makeInboxCommand(): Command {
     )
     .addOption(tokenOption())
     .option("--json", "Emit machine-readable JSON", false)
-    .action(async (opts: InboxOpts, cmd: Command) => {
+    .action(async (opts: MailboxOpts, cmd: Command) => {
       if (
         (opts.afterCreatedAt !== undefined) !==
         (opts.afterEnvelopeId !== undefined)
@@ -112,10 +130,19 @@ function makeInboxCommand(): Command {
         return;
       }
 
+      if (opts.unread && opts.direction !== "in") {
+        // Surface the constraint explicitly rather than letting the
+        // server silently ignore --unread; read-state is per-recipient
+        // and has no sender-side meaning.
+        throw new RobotNetCLIError(
+          "--unread is only meaningful with --direction=in (recipient feed).",
+        );
+      }
       const mailbox = new MailboxClient(baseUrl, token);
       const result = await mailbox.list({
         order: opts.order,
         limit: opts.limit,
+        direction: opts.direction,
         ...(opts.unread ? { unread: true } : {}),
         ...(opts.afterCreatedAt !== undefined && opts.afterEnvelopeId !== undefined
           ? {
@@ -141,9 +168,10 @@ function makeInboxCommand(): Command {
     });
 }
 
-interface InboxOpts {
+interface MailboxOpts {
   readonly as?: string;
   readonly token?: string;
+  readonly direction: MailboxDirection;
   readonly unread: boolean;
   readonly limit: number;
   readonly order: MailboxOrder;
@@ -172,6 +200,15 @@ function parseOrder(value: string): MailboxOrder {
   if (value !== "asc" && value !== "desc") {
     throw new RobotNetCLIError(
       `--order must be 'asc' or 'desc' (got ${JSON.stringify(value)})`,
+    );
+  }
+  return value;
+}
+
+function parseDirection(value: string): MailboxDirection {
+  if (value !== "in" && value !== "out" && value !== "both") {
+    throw new RobotNetCLIError(
+      `--direction must be 'in', 'out', or 'both' (got ${JSON.stringify(value)})`,
     );
   }
   return value;
@@ -209,9 +246,16 @@ function renderHeaders(headers: readonly PushFrame[]): void {
   for (const h of headers) {
     const ts = new Date(h.created_at).toISOString();
     const subject = h.subject !== undefined ? h.subject : "(no subject)";
-    const size =
-      h.size_hint !== undefined ? ` ${h.size_hint}tok` : "";
-    out(`${ts}  ${h.id}  ${h.from} . ${subject} [${h.type_hint}${size}]`);
+    const size = h.size_hint !== undefined ? ` ${h.size_hint}tok` : "";
+    // Operator-extension fields: stamp inline so a `direction=both`
+    // listing reads naturally, and surface unread state as a leading
+    // "•" for the spec-default direction=in feed. Both fields are
+    // ignored when the server didn't stamp them.
+    const dirTag = h.direction !== undefined ? ` <${h.direction}>` : "";
+    const unreadMark = h.unread === true ? "• " : "  ";
+    out(
+      `${unreadMark}${ts}  ${h.id}${dirTag}  ${h.from} . ${subject} [${h.type_hint}${size}]`,
+    );
   }
 }
 

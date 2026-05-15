@@ -8,6 +8,12 @@ import type {
 
 export type MailboxOrder = "asc" | "desc";
 
+/** Filter on the mailbox listing. `in` (default) is the spec-conformant
+ *  recipient feed; `out` and `both` are operator extensions that surface
+ *  the sender side and the union respectively. Operators that don't
+ *  implement the extension silently return the `in` feed. */
+export type MailboxDirection = "in" | "out" | "both";
+
 export interface ListMailboxOptions {
   /** Order entries oldest-first (`asc`, default) or newest-first (`desc`). */
   readonly order?: MailboxOrder;
@@ -20,6 +26,12 @@ export interface ListMailboxOptions {
    * supplied together; sending exactly one returns 400 on the wire.
    */
   readonly after?: MailboxCursor;
+  /**
+   * Direction filter. Omit (or pass `in`) for the spec-conformant
+   * recipient feed; `out` returns the sender-side feed; `both` returns
+   * the combined feed with each header tagged.
+   */
+  readonly direction?: MailboxDirection;
 }
 
 /**
@@ -53,6 +65,9 @@ export class MailboxClient {
     if (opts.after !== undefined) {
       params.set("after_created_at", String(opts.after.created_at));
       params.set("after_envelope_id", opts.after.envelope_id);
+    }
+    if (opts.direction !== undefined) {
+      params.set("direction", opts.direction);
     }
     const qs = params.toString();
     return asmtpRequest<GetMailboxResponse>({
