@@ -245,13 +245,16 @@ function renderHeaders(headers: readonly PushFrame[]): void {
   }
   for (const h of headers) {
     const ts = new Date(h.created_at).toISOString();
-    const subject = h.subject !== undefined ? h.subject : "(no subject)";
-    const size = h.size_hint !== undefined ? ` ${h.size_hint}tok` : "";
+    // Optional wire fields may come through as JSON ``null`` (FastAPI
+    // doesn't strip null defaults by default) — treat null and absent
+    // identically here so the row doesn't render the literal "null".
+    const subject = h.subject ?? "(No subject)";
+    const size = h.size_hint != null ? ` ${h.size_hint}tok` : "";
     // Operator-extension fields: stamp inline so a `direction=both`
     // listing reads naturally, and surface unread state as a leading
     // "•" for the spec-default direction=in feed. Both fields are
     // ignored when the server didn't stamp them.
-    const dirTag = h.direction !== undefined ? ` <${h.direction}>` : "";
+    const dirTag = h.direction != null ? ` <${h.direction}>` : "";
     const unreadMark = h.unread === true ? "• " : "  ";
     out(
       `${unreadMark}${ts}  ${h.id}${dirTag}  ${h.from} . ${subject} [${h.type_hint}${size}]`,
@@ -263,9 +266,9 @@ interface RenderableEnvelope {
   readonly id: EnvelopeId;
   readonly from: string;
   readonly to: readonly string[];
-  readonly cc?: readonly string[];
-  readonly subject?: string;
-  readonly in_reply_to?: EnvelopeId;
+  readonly cc?: readonly string[] | null;
+  readonly subject?: string | null;
+  readonly in_reply_to?: EnvelopeId | null;
   readonly date_ms: Timestamp;
   readonly content_parts: readonly unknown[];
 }
@@ -275,13 +278,13 @@ function formatEnvelope(envelope: RenderableEnvelope): string {
   lines.push(`Envelope ${envelope.id}`);
   lines.push(`  from:    ${envelope.from}`);
   lines.push(`  to:      ${envelope.to.join(", ")}`);
-  if (envelope.cc !== undefined && envelope.cc.length > 0) {
+  if (envelope.cc != null && envelope.cc.length > 0) {
     lines.push(`  cc:      ${envelope.cc.join(", ")}`);
   }
-  if (envelope.subject !== undefined) {
+  if (envelope.subject != null) {
     lines.push(`  subject: ${envelope.subject}`);
   }
-  if (envelope.in_reply_to !== undefined) {
+  if (envelope.in_reply_to != null) {
     lines.push(`  in_reply_to: ${envelope.in_reply_to}`);
   }
   lines.push(`  date_ms: ${envelope.date_ms}`);
