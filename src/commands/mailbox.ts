@@ -158,7 +158,11 @@ function makeMailboxCommand(): Command {
         return;
       }
       renderHeaders(result.envelope_headers, { unreadFilter: opts.unread });
-      if (result.next_cursor !== null) {
+      if (result.next_cursor != null) {
+        // ``!= null`` (not ``!== null``) so we also catch the
+        // ``undefined`` shape the wire emits when FastAPI's
+        // ``response_model_exclude_none=True`` strips the field
+        // rather than leaving an explicit ``null``.
         out("");
         out(
           `(more — resume with --after-created-at ${result.next_cursor.created_at} ` +
