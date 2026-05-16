@@ -2,18 +2,14 @@ import { requireAgent } from "../auth.js";
 import {
   MAILBOX_DEFAULT_LIMIT,
   MAILBOX_MAX_LIMIT,
+  type MailboxDirection,
+  type MailboxItemDirection,
+  type MailboxListItem,
   type MailboxService,
 } from "../domain/mailbox.js";
 import { BadRequestError } from "../errors.js";
-import type {
-  OperatorRepository,
-  EnvelopesRepo,
-} from "../storage/repository.js";
-import type {
-  EnvelopeId,
-  EnvelopeRecord,
-  MailboxEntryRecord,
-} from "../storage/types.js";
+import type { OperatorRepository } from "../storage/repository.js";
+import type { EnvelopeId } from "../storage/types.js";
 import { parseJsonBody, sendJson } from "./json.js";
 import type { Router } from "./router.js";
 
@@ -35,9 +31,16 @@ export function registerMailboxRoutes(
   router.add("GET", "/mailbox", (rc) => {
     const caller = requireAgent(rc.req, ctx.repo.agents);
 
+    const direction = parseDirection(rc.url);
     const order = parseOrder(rc.url);
     const limit = parseLimit(rc.url);
     const unread = parseUnread(rc.url);
+    if (unread === true && direction !== "in") {
+      throw new BadRequestError(
+        "unread=true is only meaningful with direction=in (recipient feed)",
+        "INVALID_QUERY",
+      );
+    }
     const afterCreatedAt = rc.url.searchParams.get("after_created_at");
     const afterEnvelopeId = rc.url.searchParams.get("after_envelope_id");
     if ((afterCreatedAt === null) !== (afterEnvelopeId === null)) {
@@ -58,6 +61,7 @@ export function registerMailboxRoutes(
 
     const result = ctx.mailbox.list({
       caller: caller.handle,
+      direction,
       order,
       limit,
       ...(unread !== undefined ? { unread } : {}),
@@ -70,8 +74,8 @@ export function registerMailboxRoutes(
     });
 
     sendJson(rc.res, 200, {
-      envelope_headers: result.entries.map((entry) =>
-        renderHeader(ctx.repo.envelopes, entry),
+      envelope_headers: result.items.map((item) =>
+        renderHeader(item, direction),
       ),
       next_cursor: result.nextCursor,
     });
@@ -93,6 +97,18 @@ export function registerMailboxRoutes(
     const read = ctx.mailbox.markRead(caller.handle, validated);
     sendJson(rc.res, 200, { read });
   });
+}
+
+function parseDirection(url: URL): MailboxDirection {
+  const v = url.searchParams.get("direction");
+  if (v === null) return "in";
+  if (v !== "in" && v !== "out" && v !== "both") {
+    throw new BadRequestError(
+      "direction must be 'in', 'out', or 'both'",
+      "INVALID_QUERY",
+    );
+  }
+  return v;
 }
 
 function parseOrder(url: URL): "asc" | "desc" {
@@ -155,26 +171,12 @@ function parseEnvelopeId(raw: unknown, field: string): EnvelopeId {
 }
 
 function renderHeader(
-  envelopes: EnvelopesRepo,
-  entry: MailboxEntryRecord,
+  item: MailboxListItem,
+  requestedDirection: MailboxDirection,
 ): Readonly<Record<string, unknown>> {
-  const envelope = envelopes.byId(entry.envelopeId);
-  if (envelope === null) {
-    // The mailbox entry FKs into envelopes(id) so this is unreachable
-    // outside a torn DB.
-    throw new Error(
-      `internal: mailbox row references missing envelope ${entry.envelopeId}`,
-    );
-  }
-  return buildPushFrame(envelope);
-}
-
-function buildPushFrame(
-  envelope: EnvelopeRecord,
-): Readonly<Record<string, unknown>> {
-  // Re-derive the header from the canonical envelope row plus the
-  // per-recipient `to`/`cc` lists captured at insert time. The body JSON
-  // already has those fields verbatim.
+  // Build the push-frame-shaped header from the envelope row plus the
+  // per-recipient `to`/`cc` lists captured in the body JSON at insert.
+  const envelope = item.envelope;
   const body = JSON.parse(envelope.bodyJson) as Record<string, unknown>;
   const frame: Record<string, unknown> = {
     op: "envelope.notify",
@@ -182,12 +184,23 @@ function buildPushFrame(
     from: envelope.fromHandle,
     to: body.to,
     type_hint: envelope.typeHint,
-    created_at: envelope.createdAtMs,
+    created_at: item.createdAtMs,
     date_ms: envelope.dateMs,
   };
   if (body.cc !== undefined) frame.cc = body.cc;
   if (envelope.subject !== null) frame.subject = envelope.subject;
   if (envelope.inReplyTo !== null) frame.in_reply_to = envelope.inReplyTo;
   if (envelope.sizeHint !== null) frame.size_hint = envelope.sizeHint;
+  // Operator-extension fields:
+  //   - ``direction``: stamped on out/both feeds so clients can render
+  //     the caller's relationship; omitted on the spec wire ``in`` feed
+  //     to keep that response byte-compatible with the ASMTP spec.
+  //   - ``unread``: per-recipient read state. Omitted on the spec
+  //     wire ``in`` feed (clients use the ``unread=true`` filter
+  //     instead); surfaced on ``out``/``both`` for richer admin UX.
+  if (requestedDirection !== "in") {
+    frame.direction = item.direction satisfies MailboxItemDirection;
+    if (item.unread !== null) frame.unread = item.unread;
+  }
   return frame;
 }

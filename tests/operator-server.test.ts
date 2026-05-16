@@ -628,4 +628,108 @@ describe("operator POST /messages + GET /mailbox + GET /messages/{id}", () => {
     const bytes = new Uint8Array(await downloadRes.arrayBuffer());
     assert.equal(bytes.byteLength, pngHeader.length);
   });
+
+  it("filters mailbox by direction (in / out / both / self)", async () => {
+    // Regression for the local-operator direction-filter gap: every
+    // direction used to return the same recipient feed. Now `out`
+    // hits envelopes.from_handle, `both` unions, and self-sends are
+    // stamped `self` on the `both` feed.
+    const alice = await registerAgent(h, "@alice.cli", { policy: "allowlist" });
+    const bob = await registerAgent(h, "@bob.cli", { policy: "allowlist" });
+    // Bilateral allowlist so the sends below aren't refused by trust.
+    await fetch(`${h.baseUrl}/agents/me/allowlist`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${alice.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ entries: [bob.handle] }),
+    });
+    await fetch(`${h.baseUrl}/agents/me/allowlist`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${bob.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ entries: [alice.handle] }),
+    });
+
+    const outId = "01HW7Z9KQX1MS2D9P5VC3GZ8A1";
+    const selfId = "01HW7Z9KQX1MS2D9P5VC3GZ8A2";
+    await fetch(`${h.baseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${alice.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": outId,
+      },
+      body: JSON.stringify(ENVELOPE_TEXT_BODY(outId, [bob.handle])),
+    });
+    await fetch(`${h.baseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${alice.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": selfId,
+      },
+      body: JSON.stringify(ENVELOPE_TEXT_BODY(selfId, [alice.handle])),
+    });
+
+    type Header = {
+      id: string;
+      from: string;
+      direction?: string;
+      unread?: boolean;
+    };
+
+    // Alice direction=in: only self-send (where she's a recipient).
+    // Spec wire route — direction/unread fields omitted.
+    const inRes = await fetch(`${h.baseUrl}/mailbox?direction=in&order=asc`, {
+      headers: { Authorization: `Bearer ${alice.token}` },
+    });
+    const inBody = (await inRes.json()) as { envelope_headers: Header[] };
+    assert.equal(inBody.envelope_headers.length, 1);
+    assert.equal(inBody.envelope_headers[0]!.id, selfId);
+    assert.equal(inBody.envelope_headers[0]!.direction, undefined);
+    assert.equal(inBody.envelope_headers[0]!.unread, undefined);
+
+    // Alice direction=out: both envelopes she sent. ``direction`` stamped.
+    const outRes = await fetch(`${h.baseUrl}/mailbox?direction=out&order=asc`, {
+      headers: { Authorization: `Bearer ${alice.token}` },
+    });
+    const outBody = (await outRes.json()) as { envelope_headers: Header[] };
+    assert.equal(outBody.envelope_headers.length, 2);
+    const outIds = outBody.envelope_headers.map((h) => h.id);
+    assert.deepEqual(outIds.sort(), [outId, selfId].sort());
+    // self-send is stamped ``self``, the other ``out``.
+    const directionsById = Object.fromEntries(
+      outBody.envelope_headers.map((h) => [h.id, h.direction]),
+    );
+    assert.equal(directionsById[outId], "out");
+    assert.equal(directionsById[selfId], "self");
+
+    // Alice direction=both: same two envelopes, self stamped ``self``.
+    const bothRes = await fetch(`${h.baseUrl}/mailbox?direction=both&order=asc`, {
+      headers: { Authorization: `Bearer ${alice.token}` },
+    });
+    const bothBody = (await bothRes.json()) as { envelope_headers: Header[] };
+    assert.equal(bothBody.envelope_headers.length, 2);
+    const bothById = Object.fromEntries(
+      bothBody.envelope_headers.map((h) => [h.id, h]),
+    );
+    assert.equal(bothById[outId]!.direction, "out");
+    assert.equal(bothById[selfId]!.direction, "self");
+    // self-send should be unread (alice hasn't fetched it).
+    assert.equal(bothById[selfId]!.unread, true);
+    // out-only row has no recipient side for alice → unread omitted.
+    assert.equal(bothById[outId]!.unread, undefined);
+  });
+
+  it("rejects unread=true with direction != in", async () => {
+    const alice = await registerAgent(h, "@alice.cli");
+    const res = await fetch(`${h.baseUrl}/mailbox?direction=out&unread=true`, {
+      headers: { Authorization: `Bearer ${alice.token}` },
+    });
+    assert.equal(res.status, 400);
+  });
 });

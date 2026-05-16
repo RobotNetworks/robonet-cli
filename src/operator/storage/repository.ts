@@ -495,6 +495,25 @@ export interface MailboxKeysetQuery {
   readonly afterEnvelopeId?: EnvelopeId;
 }
 
+export interface ListForCallerQuery {
+  readonly caller: Handle;
+  readonly direction: "in" | "out" | "both";
+  readonly order: "asc" | "desc";
+  readonly limit: number;
+  /** Only meaningful when ``direction === "in"``. The service layer
+   *  enforces this; the repo trusts its caller. */
+  readonly unread?: boolean;
+  readonly afterCreatedAt?: Timestamp;
+  readonly afterEnvelopeId?: EnvelopeId;
+}
+
+export interface CallerMailboxRow {
+  readonly envelope: EnvelopeRecord;
+  readonly createdAtMs: Timestamp;
+  readonly direction: "in" | "out" | "self";
+  readonly unread: boolean | null;
+}
+
 export class MailboxRepo {
   readonly #db: DatabaseSync;
 
@@ -613,6 +632,160 @@ export class MailboxRepo {
       )
       .all(envelopeId) as unknown as { mailbox_handle: string }[];
     return rows.map((r) => r.mailbox_handle);
+  }
+
+  /**
+   * Direction-aware mailbox listing. Mirrors the dev Python backend's
+   * `list_for_mailbox(direction=...)`:
+   *
+   *  - `in`: rows from `mailbox_entries` (recipient feed; ASMTP wire).
+   *  - `out`: rows from `envelopes` where `from_handle = caller`.
+   *  - `both`: union, with `self` stamped on rows where the caller is
+   *    both sender and a recipient.
+   *
+   * Anchoring on `created_at_ms` is consistent across in/out: the
+   * envelope insert and its per-recipient `mailbox_entries` rows share
+   * one `now_ms()` value, so the keyset compare ordering is stable
+   * across the two surfaces.
+   */
+  listForCaller(q: ListForCallerQuery): readonly CallerMailboxRow[] {
+    if (q.direction === "in") {
+      return this.#listInbound(q);
+    }
+    if (q.direction === "out") {
+      return this.#listOutbound(q);
+    }
+    return this.#listBoth(q);
+  }
+
+  #listInbound(q: ListForCallerQuery): readonly CallerMailboxRow[] {
+    const params: SQLInputValue[] = [q.caller];
+    const filters: string[] = ["m.mailbox_handle = ?"];
+    if (q.unread === true) filters.push("m.read = 0");
+    else if (q.unread === false) filters.push("m.read = 1");
+    this.#appendCursor(filters, params, q, "m.created_at_ms", "m.envelope_id");
+    params.push(q.limit);
+    const rows = this.#db
+      .prepare(
+        `SELECT e.*, m.created_at_ms AS m_created_at_ms, m.read AS m_read
+         FROM mailbox_entries m
+         JOIN envelopes e ON e.id = m.envelope_id
+         WHERE ${filters.join(" AND ")}
+         ${this.#orderClause(q.order, "m.created_at_ms", "m.envelope_id")}
+         LIMIT ?`,
+      )
+      .all(...params) as unknown as (RawEnvelopeRow & {
+        m_created_at_ms: number;
+        m_read: number;
+      })[];
+    return rows.map((r) => ({
+      envelope: rawToEnvelope(r),
+      createdAtMs: r.m_created_at_ms,
+      direction: "in" as const,
+      unread: r.m_read === 0,
+    }));
+  }
+
+  #listOutbound(q: ListForCallerQuery): readonly CallerMailboxRow[] {
+    const params: SQLInputValue[] = [q.caller];
+    const filters: string[] = ["e.from_handle = ?"];
+    this.#appendCursor(filters, params, q, "e.created_at_ms", "e.id");
+    params.push(q.limit);
+    const rows = this.#db
+      .prepare(
+        `SELECT e.* FROM envelopes e
+         WHERE ${filters.join(" AND ")}
+         ${this.#orderClause(q.order, "e.created_at_ms", "e.id")}
+         LIMIT ?`,
+      )
+      .all(...params) as unknown as RawEnvelopeRow[];
+    return rows.map((r) => ({
+      envelope: rawToEnvelope(r),
+      createdAtMs: r.created_at_ms,
+      // Sender side: ``self`` if the caller is also a recipient,
+      // otherwise pure ``out``. One subquery per row would be wasteful;
+      // a single EXISTS check is folded in below via a parameterized
+      // ``self`` test against mailbox_entries.
+      direction: this.#isSelfSend(q.caller, r.id) ? ("self" as const) : ("out" as const),
+      unread: null,
+    }));
+  }
+
+  #listBoth(q: ListForCallerQuery): readonly CallerMailboxRow[] {
+    // Single SELECT keyed off the envelope, joining mailbox_entries
+    // LEFT so the caller can be the sender, a recipient, or both. The
+    // anchor is the envelope's ``created_at_ms`` (shared with any
+    // mailbox_entries row by construction). Self-sends appear once.
+    const params: SQLInputValue[] = [q.caller, q.caller, q.caller];
+    const filters: string[] = ["(e.from_handle = ? OR m.mailbox_handle = ?)"];
+    this.#appendCursor(filters, params, q, "e.created_at_ms", "e.id");
+    params.push(q.limit);
+    const rows = this.#db
+      .prepare(
+        `SELECT e.*,
+                m.mailbox_handle AS m_mailbox_handle,
+                m.read AS m_read
+         FROM envelopes e
+         LEFT JOIN mailbox_entries m
+           ON m.envelope_id = e.id AND m.mailbox_handle = ?
+         WHERE ${filters.join(" AND ")}
+         ${this.#orderClause(q.order, "e.created_at_ms", "e.id")}
+         LIMIT ?`,
+      )
+      .all(...params) as unknown as (RawEnvelopeRow & {
+        m_mailbox_handle: string | null;
+        m_read: number | null;
+      })[];
+    return rows.map((r) => {
+      const isRecipient = r.m_mailbox_handle !== null;
+      const isSender = r.from_handle === q.caller;
+      const direction: "in" | "out" | "self" =
+        isRecipient && isSender ? "self" : isRecipient ? "in" : "out";
+      const unread = isRecipient ? r.m_read === 0 : null;
+      return {
+        envelope: rawToEnvelope(r),
+        createdAtMs: r.created_at_ms,
+        direction,
+        unread,
+      };
+    });
+  }
+
+  #isSelfSend(caller: Handle, envelopeId: EnvelopeId): boolean {
+    const row = this.#db
+      .prepare(
+        "SELECT 1 FROM mailbox_entries WHERE envelope_id = ? AND mailbox_handle = ? LIMIT 1",
+      )
+      .get(envelopeId, caller);
+    return row !== undefined;
+  }
+
+  #appendCursor(
+    filters: string[],
+    params: SQLInputValue[],
+    q: ListForCallerQuery,
+    createdAtCol: string,
+    envelopeIdCol: string,
+  ): void {
+    if (q.afterCreatedAt === undefined || q.afterEnvelopeId === undefined) {
+      return;
+    }
+    if (q.order === "asc") {
+      filters.push(
+        `(${createdAtCol} > ? OR (${createdAtCol} = ? AND ${envelopeIdCol} > ?))`,
+      );
+    } else {
+      filters.push(
+        `(${createdAtCol} < ? OR (${createdAtCol} = ? AND ${envelopeIdCol} < ?))`,
+      );
+    }
+    params.push(q.afterCreatedAt, q.afterCreatedAt, q.afterEnvelopeId);
+  }
+
+  #orderClause(order: "asc" | "desc", createdAtCol: string, envelopeIdCol: string): string {
+    return order === "asc"
+      ? `ORDER BY ${createdAtCol} ASC, ${envelopeIdCol} ASC`
+      : `ORDER BY ${createdAtCol} DESC, ${envelopeIdCol} DESC`;
   }
 }
 
