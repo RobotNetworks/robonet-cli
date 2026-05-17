@@ -51,7 +51,12 @@ async function pickPort(): Promise<number> {
 async function setupHarness(): Promise<Harness> {
   const xdg = isolatedXdg();
   const port = await pickPort();
-  const baseConfig = loadConfig();
+  // ``loadConfig`` defaults to ``process.cwd()`` and walks upward
+  // looking for ``.robotnet/`` — which on a maintainer's machine
+  // finds a personal workspace pin in the repo root (gitignored,
+  // unrelated to the test). Anchor the walk at the test's isolated
+  // tmp dir so resolution is hermetic.
+  const baseConfig = loadConfig(undefined, { cwd: xdg.tmpDir });
   const network: NetworkConfig = {
     name: "local",
     url: `http://127.0.0.1:${port}`,
