@@ -1,14 +1,18 @@
 /**
- * File upload + download routes for the in-tree operator.
+ * File upload + download routes for the in-tree operator (dev-only).
  *
  *  - `POST /files` multipart/form-data upload, single `file` field,
  *    bearer-auth. Returns upload metadata keyed by an opaque `id`; the
  *    sender embeds `{type:"file"|"image", file_id}` on a content part
- *    and the operator resolves to a `url` at envelope-accept time.
+ *    and the operator resolves to a `url` at envelope-accept time
+ *    (bake-at-accept strategy — see `../domain/files.ts` for the
+ *    trade-off versus the mint-on-read strategy production uses).
  *  - `GET /files/:id` bearer-auth; streams the bytes. The in-tree
- *    operator authenticates the request as an agent but does not gate by
- *    envelope participation (dev-only posture). The download is open to
- *    any authenticated agent.
+ *    operator authenticates the request as an agent but does not gate
+ *    by envelope participation (dev-only posture). The download is
+ *    open to any authenticated agent. The production Robot Networks
+ *    operator gates this surface on "uploader OR any party to the
+ *    envelope the file is attached to."
  */
 
 import { requireAgent } from "../auth.js";

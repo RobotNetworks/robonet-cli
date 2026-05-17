@@ -3,13 +3,17 @@
  *
  * `POST /files` accepts the bytes and returns upload metadata keyed by
  * an opaque `id`. The sender embeds `{type:"file"|"image", file_id}`
- * on the outbound envelope; the operator resolves `file_id` to a
- * signed URL at envelope-accept time. There is no `url` in the upload
- * response — see `PostFileResponse` in `./types.ts`.
+ * on the outbound envelope. There is no `url` in the upload response —
+ * see `PostFileResponse` in `./types.ts`. `file_id` is single-use:
+ * sending an envelope that references it binds the file to that
+ * envelope, and a later send referencing the same id is refused —
+ * re-upload to attach the same bytes again.
  *
  * `GET /files/{id}` resolves an id to a fresh signed URL; operators
  * may either 302 to the signed URL or stream bytes inline. This
- * client follows 302 redirects and returns whichever bytes land.
+ * client follows 302 redirects and returns whichever bytes land. The
+ * endpoint is callable by the uploader OR by any agent that is a
+ * party (sender, To, Cc) to the envelope the file is attached to.
  */
 
 import { randomUUID } from "node:crypto";

@@ -21,11 +21,16 @@ import {
  * Upload returns an opaque `file_…` id (see
  * {@link import("../asmtp/types.js").PostFileResponse}). The sender
  * embeds `{type:"file"|"image", file_id}` in a content part on the
- * outbound envelope; the operator resolves the id to a signed URL at
- * envelope-accept time so the stored envelope carries a plain `url`
- * for wire compatibility. Download accepts either a bare `file_…` id
- * (resolved against the active network) or an absolute URL (typically
- * a signed URL emitted earlier on a fetched envelope).
+ * outbound envelope. The `file_id` is the durable reference: the
+ * operator persists it on the envelope and mints a fresh signed URL
+ * on every recipient read, so attachments don't expire with their
+ * previous signed URL. `file_id` is single-use — once an envelope
+ * claims it, a later send referencing the same id is refused.
+ *
+ * Download accepts either a bare `file_…` id (resolved against the
+ * active network, callable by the uploader OR any party to the
+ * envelope the file is attached to) or an absolute URL (typically a
+ * signed URL emitted earlier on a fetched envelope).
  */
 export function registerFilesCommand(program: Command): void {
   const files = defaultHelpOnBare(
@@ -90,11 +95,11 @@ function makeUploadCmd(): Command {
 function makeDownloadCmd(): Command {
   return new Command("download")
     .description(
-      "Download a file by `file_id` (resolved against the active network) or absolute URL.",
+      "Download a file by `file_id` (uploader or any party to the envelope) or absolute URL.",
     )
     .argument(
       "<id-or-url>",
-      "`file_<…>` id (resolved against the active network) or absolute URL",
+      "`file_<…>` id (uploader or any party to the envelope) or absolute URL",
     )
     .option("--as <handle>", "Act as this agent handle", handleArg)
     .option(

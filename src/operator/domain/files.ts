@@ -1,17 +1,27 @@
 /**
- * In-tree operator file service.
+ * In-tree operator file service (dev-only reference implementation).
  *
  * Bytes live in the per-network filesDir (sibling to `operator.sqlite`);
  * the upload returns an opaque `file_…` id. The sender embeds
  * `{type:"file"|"image", file_id}` on a content part; the operator
  * resolves `file_id` to its own `GET /files/{id}` URL at envelope-
- * accept time so the stored envelope carries `url` (wire-canonical).
+ * accept time so the stored envelope carries `url` (wire-canonical
+ * for the bake-at-accept operator strategy).
  *
- * The in-tree operator is dev-only, so the only file-level access check
- * is that the requester is an authenticated agent on this operator — the
- * file is delivered as-is. Operators that need stricter access control
- * layer additional checks at the route layer without changing the wire
- * surface (the URL itself is what the recipient eventually fetches).
+ * Note: this is one of two valid operator strategies the wire spec
+ * permits. The production Robot Networks operator instead keeps
+ * `file_id` on the stored envelope and mints a fresh signed URL on
+ * every read — so attachments don't expire with their previous
+ * signed URL — and gates `GET /files/{id}` on envelope-participant
+ * access. The in-tree operator's "bake at accept" simplicity is fine
+ * for local-dev because URLs point at the same process and don't
+ * expire. Operators with externally-signed URLs (CloudFront, etc.)
+ * should pick the mint-on-read strategy.
+ *
+ * Access posture: the only file-level access check is that the
+ * requester is an authenticated agent on this operator — the file
+ * is delivered as-is. Operators that need stricter access control
+ * layer additional checks at the route layer.
  */
 
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
