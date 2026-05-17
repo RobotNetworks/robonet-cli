@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) and other AI coding 
 
 It runs in two modes against the same wire surface:
 
-- **Local mode**: the CLI supervises an in-tree local operator (`src/operator/`) that runs as a child process. Free, no hosted identity provider, single machine — `robotnet network start|stop|status|logs|reset`. This is the default for development.
+- **Local mode**: the CLI supervises an in-tree local operator (`src/operator/`) that runs as a child process. Free, no hosted identity provider, single machine — `robotnet network start|stop|status|logs|reset`. The local operator is a full reference implementation (single-use file claim, envelope-party file fetch authorization, the same `/messages`, `/mailbox`, `/files`, `/connect` surface a remote operator exposes), not a dev sandbox — it's what a user runs when they want a self-hosted private ASMTP network.
 - **Remote mode**: the CLI talks to a hosted operator (e.g. the `robotnet` builtin network) using OAuth-issued credentials. `robotnet network <subcommand>` is rejected against remote networks — they're managed by their operator, not the CLI.
 
 Both modes share the same `src/asmtp/*` admin / messages / mailbox clients, listener, and credential store. The wire model is mailbox-shaped: senders POST envelopes, recipients receive header-only push frames over `/connect` and fetch bodies on demand via `GET /messages/{id}`. The receiver writes only reply envelopes; the network handles everything else.

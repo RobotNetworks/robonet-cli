@@ -1,23 +1,22 @@
 /**
- * File upload + download routes for the in-tree operator (dev-only).
+ * File upload + download routes for the in-tree operator.
  *
  *  - `POST /files` multipart/form-data upload, single `file` field,
  *    bearer-auth. Returns upload metadata keyed by an opaque `id`; the
  *    sender embeds `{type:"file"|"image", file_id}` on a content part
- *    and the operator resolves to a `url` at envelope-accept time
- *    (bake-at-accept strategy — see `../domain/files.ts` for the
- *    trade-off versus the mint-on-read strategy production uses).
- *  - `GET /files/:id` bearer-auth; streams the bytes. The in-tree
- *    operator authenticates the request as an agent but does not gate
- *    by envelope participation (dev-only posture). The download is
- *    open to any authenticated agent. The production Robot Networks
- *    operator gates this surface on "uploader OR any party to the
- *    envelope the file is attached to."
+ *    and the operator resolves to a `url` at envelope-accept time. The
+ *    accept step ALSO claims the file row to the envelope (single-use
+ *    binding) — see `../domain/envelopes.ts` for the transaction.
+ *  - `GET /files/:id` bearer-auth; streams the bytes. Authorization:
+ *    caller is the uploader OR caller is a party (sender, To, Cc) to
+ *    the envelope the file is attached to. Returns 404 — never 403 —
+ *    for non-matches (non-enumerating). Pending files (no envelope
+ *    binding yet) are uploader-only.
  */
 
 import { requireAgent } from "../auth.js";
 import type { FileService } from "../domain/files.js";
-import { BadRequestError } from "../errors.js";
+import { BadRequestError, NotFoundError } from "../errors.js";
 import type { OperatorRepository } from "../storage/repository.js";
 import { sendJson } from "./json.js";
 import type { Router } from "./router.js";
@@ -80,8 +79,16 @@ export function registerFileRoutes(
   });
 
   router.add("GET", "/files/:id", (rc) => {
-    requireAgent(rc.req, ctx.repo.agents);
+    const agent = requireAgent(rc.req, ctx.repo.agents);
     const id = rc.params.id;
+    const fileRow = ctx.repo.files.byId(id);
+    if (fileRow === null) {
+      throw new NotFoundError("not found");
+    }
+    if (!callerCanFetchFile(ctx.repo, agent.handle, fileRow)) {
+      // Non-enumerating: same 404 the missing-row branch returns.
+      throw new NotFoundError("not found");
+    }
     const served = ctx.files.serveById(id);
     rc.res.statusCode = 200;
     rc.res.setHeader("Content-Type", served.row.contentType);
@@ -92,6 +99,29 @@ export function registerFileRoutes(
     );
     rc.res.end(served.bytes);
   });
+}
+
+
+/**
+ * Visibility predicate for `GET /files/:id`. True when the caller is
+ * the uploader OR is a party (sender, To, Cc) of the envelope the file
+ * is attached to. Pending files (`attachedToEnvelopeId === null`) are
+ * uploader-only — exposing them would skip the claim discipline.
+ */
+function callerCanFetchFile(
+  repo: OperatorRepository,
+  callerHandle: string,
+  fileRow: { ownerHandle: string; attachedToEnvelopeId: string | null },
+): boolean {
+  if (fileRow.ownerHandle === callerHandle) return true;
+  if (fileRow.attachedToEnvelopeId === null) return false;
+  const entry = repo.mailbox.get(callerHandle, fileRow.attachedToEnvelopeId);
+  if (entry !== null) return true;
+  // Sender-side party: caller is not in mailbox_entries but is the
+  // envelope's `from_handle`. The wire-spec entitlement on fetch is
+  // "any party to the envelope" — sender included.
+  const envelope = repo.envelopes.byId(fileRow.attachedToEnvelopeId);
+  return envelope !== null && envelope.fromHandle === callerHandle;
 }
 
 /* ------------------------------------------------------------------ */

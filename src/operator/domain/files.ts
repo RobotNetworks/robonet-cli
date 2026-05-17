@@ -1,27 +1,22 @@
 /**
- * In-tree operator file service (dev-only reference implementation).
+ * In-tree operator file service.
  *
  * Bytes live in the per-network filesDir (sibling to `operator.sqlite`);
  * the upload returns an opaque `file_…` id. The sender embeds
- * `{type:"file"|"image", file_id}` on a content part; the operator
- * resolves `file_id` to its own `GET /files/{id}` URL at envelope-
- * accept time so the stored envelope carries `url` (wire-canonical
- * for the bake-at-accept operator strategy).
+ * `{type:"file"|"image", file_id}` on a content part; the envelope
+ * service's accept transaction claims the file_id to the envelope
+ * (single-use) and resolves the URL form for the canonical stored
+ * envelope body.
  *
- * Note: this is one of two valid operator strategies the wire spec
- * permits. The production Robot Networks operator instead keeps
- * `file_id` on the stored envelope and mints a fresh signed URL on
- * every read — so attachments don't expire with their previous
- * signed URL — and gates `GET /files/{id}` on envelope-participant
- * access. The in-tree operator's "bake at accept" simplicity is fine
- * for local-dev because URLs point at the same process and don't
- * expire. Operators with externally-signed URLs (CloudFront, etc.)
- * should pick the mint-on-read strategy.
+ * URLs point at this operator's own `GET /files/{id}` and stay valid
+ * as long as the operator is reachable — there's no signed-URL TTL
+ * because the operator authenticates each fetch directly.
  *
- * Access posture: the only file-level access check is that the
- * requester is an authenticated agent on this operator — the file
- * is delivered as-is. Operators that need stricter access control
- * layer additional checks at the route layer.
+ * Access posture: `GET /files/{id}` is callable by the uploader OR
+ * by any agent that is a party (sender, To, Cc) of the envelope the
+ * file is attached to. Pending files (not yet bound to an envelope)
+ * are uploader-only. The route layer enforces this; the service is
+ * a thin wrapper over upload + serve.
  */
 
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -78,7 +73,7 @@ export interface UploadInput {
  * Upload metadata returned to the sender. The in-tree operator stamps
  * a 24-hour expiry to mirror the canonical Robot Networks shape; the
  * file is reachable via `GET /files/{id}` until `expiresAt` (a stub
- * for the dev-only operator — no GC runs in this process).
+ * for the in-tree operator — no GC runs in this process today).
  */
 export interface UploadResult {
   readonly id: string;

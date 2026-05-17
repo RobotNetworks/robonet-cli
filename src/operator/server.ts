@@ -68,13 +68,13 @@ export function startOperatorServer(
   deps: OperatorServerDeps,
 ): Promise<OperatorHandle> {
   const registry = new ConnectionRegistry();
-  const envelopes = new EnvelopeService(deps.repo, deps.db, registry);
-  const mailbox = new MailboxService(deps.repo);
   const files = new FileService(deps.repo, {
     host: deps.config.host,
     port: deps.config.port,
     filesDir: deps.config.filesDir,
   });
+  const envelopes = new EnvelopeService(deps.repo, deps.db, registry, files);
+  const mailbox = new MailboxService(deps.repo);
 
   const connect = buildConnectHandler({ repo: deps.repo, registry });
   const router = buildRouter(deps, { envelopes, mailbox, files });
@@ -133,7 +133,6 @@ function buildRouter(
   registerMessagesRoutes(router, {
     repo: deps.repo,
     envelopes: services.envelopes,
-    files: services.files,
   });
   registerMailboxRoutes(router, { repo: deps.repo, mailbox: services.mailbox });
   registerFileRoutes(router, { repo: deps.repo, files: services.files });

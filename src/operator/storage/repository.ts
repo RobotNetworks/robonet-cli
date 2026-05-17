@@ -839,6 +839,36 @@ export class FilesRepo {
       .get(id) as unknown as RawFileRow | undefined;
     return row === undefined ? null : rawToFile(row);
   }
+
+  /**
+   * Bind a pending file to the envelope that just claimed it.
+   *
+   * Returns `true` when the binding was set, `false` when no row
+   * matches (unknown id, wrong owner, or already attached to a
+   * different envelope). Single-use: a file can be bound to exactly
+   * one envelope, and the conditional UPDATE refuses to overwrite an
+   * existing binding.
+   *
+   * Callers MUST run inside a transaction that ALSO does the
+   * envelope insert; a refusal here should roll back the envelope so
+   * the failed claim doesn't leave a half-accepted envelope behind.
+   */
+  claim(input: {
+    readonly id: string;
+    readonly ownerHandle: Handle;
+    readonly envelopeId: EnvelopeId;
+  }): boolean {
+    const result = this.#db
+      .prepare(
+        `UPDATE files
+            SET attached_to_envelope_id = ?
+          WHERE id = ?
+            AND owner_handle = ?
+            AND attached_to_envelope_id IS NULL`,
+      )
+      .run(input.envelopeId, input.id, input.ownerHandle);
+    return result.changes > 0;
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -894,6 +924,7 @@ interface RawFileRow {
   size_bytes: number;
   relative_path: string;
   created_at_ms: number;
+  attached_to_envelope_id: string | null;
 }
 
 function parseJsonObject(json: string): Readonly<Record<string, unknown>> {
@@ -972,5 +1003,6 @@ function rawToFile(row: RawFileRow): FileRecord {
     sizeBytes: row.size_bytes,
     relativePath: row.relative_path,
     createdAtMs: row.created_at_ms,
+    attachedToEnvelopeId: row.attached_to_envelope_id,
   };
 }

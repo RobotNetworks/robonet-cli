@@ -74,4 +74,12 @@ export interface FileRecord {
   readonly sizeBytes: number;
   readonly relativePath: string;
   readonly createdAtMs: Timestamp;
+  /**
+   * Envelope this file is bound to, or `null` while pending. Set by
+   * the claim step on envelope-accept; one envelope per file
+   * (single-use). A pending file with no binding is visible only to
+   * its uploader; a bound file is visible to its uploader and to any
+   * party (sender, To, Cc) of the bound envelope.
+   */
+  readonly attachedToEnvelopeId: EnvelopeId | null;
 }

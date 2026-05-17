@@ -18,16 +18,17 @@
  *   the database wrapper. Cascading deletes are intentional: dropping an
  *   agent walks the allowlist + blocks + mailbox + envelopes-they-sent
  *   rows too.
- * - Files are local-disk-backed (the in-tree operator is dev-only). The
- *   `files` table records `(owner_handle, relative_path)` so a network
- *   reset removes both the metadata and the bytes together.
+ * - Files are local-disk-backed. The `files` table records
+ *   `(owner_handle, relative_path)` so a network reset removes both the
+ *   metadata and the bytes together. `attached_to_envelope_id` carries
+ *   the single-use file→envelope binding established at envelope-accept.
  *
  * Migrations are forward-only and idempotent. Each entry is a transaction
  * the database wrapper applies if `meta.value` for `schema_version` is
  * below the migration's version.
  */
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 interface Migration {
   readonly version: number;
@@ -146,13 +147,10 @@ export const MIGRATIONS: readonly Migration[] = [
       -- Upload metadata. Bytes live under the operator's per-network
       -- filesDir (<stateDir>/networks/<name>/files/<id>/<filename>).
       -- Files are uploaded by an agent; the upload returns an opaque
-      -- file_... id, the sender embeds it on a content part via the
-      -- file_id field, and the operator resolves it to a download URL
-      -- at envelope-accept time. The download path verifies the bearer can see the file
-      -- (currently: any agent that authenticates against this operator
-      -- can fetch any file, the local-dev posture, since the in-tree
-      -- operator is single-user). The shape leaves room for a stricter
-      -- check later without changing the wire surface.
+      -- file_... id; the sender embeds it on a content part via the
+      -- file_id field. The download endpoint authorizes the caller as
+      -- (uploader) OR (party to the envelope this file is attached to)
+      -- — see migration v2 below for the attached_to_envelope_id column.
       CREATE TABLE files (
         id TEXT NOT NULL PRIMARY KEY,
         owner_handle TEXT NOT NULL REFERENCES agents(handle) ON DELETE CASCADE,
@@ -164,6 +162,32 @@ export const MIGRATIONS: readonly Migration[] = [
       );
 
       CREATE INDEX files_by_owner ON files (owner_handle);
+    `,
+  },
+  {
+    version: 2,
+    sql: `
+      -- ── Bind uploaded files to the envelope that claims them ─────────
+      --
+      -- The attached_to_envelope_id column records which envelope a file
+      -- is bound to. NULL while the file is pending (uploaded but not yet
+      -- referenced by an envelope); set at envelope-accept by the claim
+      -- step. The download-path auth check uses this column to answer
+      -- "is the caller a party to the envelope this file is on?",
+      -- replacing the v1-era "any authenticated agent can fetch any
+      -- file" posture.
+      --
+      -- ON DELETE SET NULL preserves the file row through envelope
+      -- deletion (which is rare — envelopes are immutable on the wire,
+      -- but the cascade matters for owner-handle deletion).
+      ALTER TABLE files
+        ADD COLUMN attached_to_envelope_id TEXT
+        REFERENCES envelopes(id) ON DELETE SET NULL;
+
+      CREATE INDEX files_by_attached_envelope
+        ON files (attached_to_envelope_id);
+
+      UPDATE meta SET value = '2' WHERE key = 'schema_version';
     `,
   },
 ];

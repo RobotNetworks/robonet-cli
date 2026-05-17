@@ -13,6 +13,7 @@ import type {
   Timestamp,
   TypeHint,
 } from "../storage/types.js";
+import type { FileService } from "./files.js";
 import { canInitiate } from "./policy.js";
 import type { ConnectionRegistry } from "./transport.js";
 
@@ -64,15 +65,18 @@ export class EnvelopeService {
   readonly #repo: OperatorRepository;
   readonly #db: DatabaseSync;
   readonly #registry: ConnectionRegistry;
+  readonly #files: FileService;
 
   constructor(
     repo: OperatorRepository,
     db: DatabaseSync,
     registry: ConnectionRegistry,
+    files: FileService,
   ) {
     this.#repo = repo;
     this.#db = db;
     this.#registry = registry;
+    this.#files = files;
   }
 
   /**
@@ -122,7 +126,6 @@ export class EnvelopeService {
 
     const typeHint = computeTypeHint(input.contentParts);
     const sizeHint = estimateTokens(input.contentParts);
-    const bodyJson = buildBodyJson(from, input);
 
     const dispatches = withTransaction(this.#db, () => {
       // Evaluate recipient existence + trust policy + blocks first per
@@ -137,6 +140,16 @@ export class EnvelopeService {
           throw new NotFoundError("not found");
         }
       }
+
+      // Resolve file_id parts to URL form WITHOUT claiming. This
+      // shape is what gets stored on a fresh accept; on an idempotent
+      // replay it's what we compare against the stored bodyJson.
+      // Claim happens AFTER the envelope insert below so the
+      // files.attached_to_envelope_id FK has a row to point at.
+      const partsForStorage = this.#resolveContentPartsForReplay(
+        input.contentParts,
+      );
+      const bodyJson = buildBodyJson(from, input, partsForStorage);
 
       // Same-sender retry idempotency: a second POST with the same id
       // from the same sender returns the original envelope if its body
@@ -157,6 +170,7 @@ export class EnvelopeService {
           );
         }
         // Replay match — return the original 202 shape, no fan-out.
+        // Files were claimed by the prior accept; skip claim here.
         return [] as readonly Dispatch[];
       }
 
@@ -183,6 +197,13 @@ export class EnvelopeService {
           createdAtMs: input.createdAtMs,
         });
       }
+
+      // Claim each file_id reference against the just-inserted
+      // envelope (single-use binding). Done AFTER the envelope insert
+      // so the files.attached_to_envelope_id FK has a row to point at.
+      // A refusal (unknown id, wrong uploader, or already attached to
+      // a different envelope) raises and the transaction rolls back.
+      this.#claimContentPartFiles(from, input.id, input.contentParts);
 
       // Build push frames for fan-out after commit.
       const pushFrame = buildPushFrame({
@@ -281,6 +302,59 @@ export class EnvelopeService {
     }
     return envelopes;
   }
+
+  /**
+   * Bind each `file_id` part on the envelope being accepted to that
+   * envelope (single-use claim). Runs INSIDE the accept transaction,
+   * AFTER the envelope row is inserted so the
+   * `files.attached_to_envelope_id` FK has a row to point at. A
+   * refusal raises and the transaction rolls back, undoing the just-
+   * inserted envelope.
+   *
+   * Refuses with INVALID_FILE when any file_id is unknown, owned by
+   * another sender, or already bound to a different envelope.
+   */
+  #claimContentPartFiles(
+    sender: Handle,
+    envelopeId: EnvelopeId,
+    parts: readonly unknown[],
+  ): void {
+    for (const raw of parts) {
+      const part = raw as Record<string, unknown>;
+      if (part.type !== "image" && part.type !== "file") continue;
+      if (typeof part.file_id !== "string") continue;
+      const claimed = this.#repo.files.claim({
+        id: part.file_id,
+        ownerHandle: sender,
+        envelopeId,
+      });
+      if (!claimed) {
+        throw new BadRequestError(
+          "file_id is unknown, owned by another agent, or already claimed",
+          "INVALID_FILE",
+        );
+      }
+    }
+  }
+
+  /**
+   * Resolve `file_id` parts to URL form (no claim). Used for both the
+   * canonical stored bodyJson on a fresh accept AND the body-
+   * equivalence check on an idempotent replay — both paths must
+   * produce the same URL-only shape so the comparison is stable.
+   */
+  #resolveContentPartsForReplay(
+    parts: readonly unknown[],
+  ): readonly unknown[] {
+    return parts.map((raw) => {
+      const part = raw as Record<string, unknown>;
+      if (part.type !== "image" && part.type !== "file") return part;
+      if (typeof part.file_id !== "string") return part;
+      const fileId = part.file_id;
+      const { file_id: _drop, ...rest } = part;
+      return { ...rest, url: this.#files.buildFileUrl(fileId) };
+    });
+  }
 }
 
 interface Dispatch {
@@ -329,15 +403,21 @@ function estimateTokens(parts: readonly unknown[]): number {
 /**
  * Serialise the canonical envelope (with operator-stamped `from`) for
  * storage in `envelopes.body_json`. This is the exact body returned by
- * `GET /messages/{id}`.
+ * `GET /messages/{id}`. `contentParts` is the URL-rewritten projection
+ * (file_id parts resolved to operator URLs); the stored canonical body
+ * never carries operator-internal `file_id`.
  */
-function buildBodyJson(from: Handle, input: AcceptEnvelopeInput): string {
+function buildBodyJson(
+  from: Handle,
+  input: AcceptEnvelopeInput,
+  contentParts: readonly unknown[],
+): string {
   const body: Record<string, unknown> = {
     id: input.id,
     from,
     to: [...input.to],
     date_ms: input.dateMs,
-    content_parts: input.contentParts,
+    content_parts: contentParts,
   };
   if (input.cc !== undefined && input.cc.length > 0) body.cc = [...input.cc];
   if (input.subject !== undefined) body.subject = input.subject;

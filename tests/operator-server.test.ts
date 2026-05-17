@@ -576,6 +576,195 @@ describe("operator POST /messages + GET /mailbox + GET /messages/{id}", () => {
     assert.equal(missing.status, 400);
   });
 
+  async function uploadPng(
+    h: Harness,
+    agent: RegisteredAgent,
+    idempotencyKey: string,
+  ): Promise<string> {
+    const boundary = "----WebKitFormBoundary12345";
+    const pngHeader = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    ]);
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\n`),
+      Buffer.from(
+        `Content-Disposition: form-data; name="file"; filename="test.png"\r\n`,
+      ),
+      Buffer.from("Content-Type: image/png\r\n\r\n"),
+      pngHeader,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    const res = await fetch(`${h.baseUrl}/files`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${agent.token}`,
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "Idempotency-Key": idempotencyKey,
+      },
+      body,
+    });
+    if (res.status !== 201) {
+      throw new Error(`upload failed: ${res.status} ${await res.text()}`);
+    }
+    const json = (await res.json()) as { id: string };
+    return json.id;
+  }
+
+  it("recipient of an envelope can download the file by id", async () => {
+    // Bilaterally allowlisted so the send isn't refused by trust.
+    const alice = await registerAgent(h, "@alice.cli", { policy: "open" });
+    const bob = await registerAgent(h, "@bob.cli", { policy: "open" });
+    const fileId = await uploadPng(h, alice, "upload-1");
+
+    // Alice sends an envelope to Bob referencing the file by id.
+    const envelopeId = "01HW7Z9KQX1MS2D9P5VC3GZ8B1";
+    const send = await fetch(`${h.baseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${alice.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": envelopeId,
+      },
+      body: JSON.stringify({
+        id: envelopeId,
+        to: [bob.handle],
+        date_ms: 1_747_000_000_000,
+        content_parts: [{ type: "image", file_id: fileId }],
+      }),
+    });
+    assert.equal(send.status, 202);
+
+    // Bob — a party to the envelope but NOT the uploader — fetches
+    // the file. Pre-Phase-3 this would 404; post-Phase-3 (the in-tree
+    // operator's new auth model) it returns 200 with the bytes.
+    const downloadRes = await fetch(`${h.baseUrl}/files/${fileId}`, {
+      headers: { Authorization: `Bearer ${bob.token}` },
+    });
+    assert.equal(downloadRes.status, 200);
+  });
+
+  it("non-party agent gets 404 on GET /files/:id", async () => {
+    const alice = await registerAgent(h, "@alice.cli", { policy: "open" });
+    const bob = await registerAgent(h, "@bob.cli", { policy: "open" });
+    const eve = await registerAgent(h, "@eve.cli", { policy: "open" });
+    const fileId = await uploadPng(h, alice, "upload-1");
+
+    // Alice sends to Bob; Eve is neither sender, recipient, nor uploader.
+    const envelopeId = "01HW7Z9KQX1MS2D9P5VC3GZ8B2";
+    await fetch(`${h.baseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${alice.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": envelopeId,
+      },
+      body: JSON.stringify({
+        id: envelopeId,
+        to: [bob.handle],
+        date_ms: 1_747_000_000_000,
+        content_parts: [{ type: "image", file_id: fileId }],
+      }),
+    });
+
+    const res = await fetch(`${h.baseUrl}/files/${fileId}`, {
+      headers: { Authorization: `Bearer ${eve.token}` },
+    });
+    // Non-enumerating: same 404 a missing file produces.
+    assert.equal(res.status, 404);
+  });
+
+  it("non-uploader on pending file (never attached) gets 404", async () => {
+    const alice = await registerAgent(h, "@alice.cli", { policy: "open" });
+    const bob = await registerAgent(h, "@bob.cli", { policy: "open" });
+    // No envelope claim — file stays pending. Bob is not the uploader.
+    const fileId = await uploadPng(h, alice, "upload-1");
+
+    const res = await fetch(`${h.baseUrl}/files/${fileId}`, {
+      headers: { Authorization: `Bearer ${bob.token}` },
+    });
+    assert.equal(res.status, 404);
+  });
+
+  it("file_id is single-use: re-sending the same id returns INVALID_FILE", async () => {
+    const alice = await registerAgent(h, "@alice.cli", { policy: "open" });
+    const bob = await registerAgent(h, "@bob.cli", { policy: "open" });
+    const fileId = await uploadPng(h, alice, "upload-1");
+
+    // First send claims the file.
+    const first = await fetch(`${h.baseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${alice.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "01HW7Z9KQX1MS2D9P5VC3GZ8C1",
+      },
+      body: JSON.stringify({
+        id: "01HW7Z9KQX1MS2D9P5VC3GZ8C1",
+        to: [bob.handle],
+        date_ms: 1_747_000_000_000,
+        content_parts: [{ type: "image", file_id: fileId }],
+      }),
+    });
+    assert.equal(first.status, 202);
+
+    // Second send — DIFFERENT envelope id — referencing the SAME
+    // file_id must be refused. Single-use binding.
+    const second = await fetch(`${h.baseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${alice.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "01HW7Z9KQX1MS2D9P5VC3GZ8C2",
+      },
+      body: JSON.stringify({
+        id: "01HW7Z9KQX1MS2D9P5VC3GZ8C2",
+        to: [bob.handle],
+        date_ms: 1_747_000_000_001,
+        content_parts: [{ type: "image", file_id: fileId }],
+      }),
+    });
+    assert.equal(second.status, 400);
+    const body = (await second.json()) as { error: { code: string } };
+    assert.equal(body.error.code, "INVALID_FILE");
+  });
+
+  it("idempotent replay of a send referencing file_id returns 202 without re-claiming", async () => {
+    const alice = await registerAgent(h, "@alice.cli", { policy: "open" });
+    const bob = await registerAgent(h, "@bob.cli", { policy: "open" });
+    const fileId = await uploadPng(h, alice, "upload-1");
+
+    const envelopeId = "01HW7Z9KQX1MS2D9P5VC3GZ8D1";
+    const sendBody = JSON.stringify({
+      id: envelopeId,
+      to: [bob.handle],
+      date_ms: 1_747_000_000_000,
+      content_parts: [{ type: "image", file_id: fileId }],
+    });
+    const sendHeaders = {
+      Authorization: `Bearer ${alice.token}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": envelopeId,
+    };
+
+    const first = await fetch(`${h.baseUrl}/messages`, {
+      method: "POST",
+      headers: sendHeaders,
+      body: sendBody,
+    });
+    assert.equal(first.status, 202);
+
+    // Same envelope id, same body — must replay to 202 even though the
+    // claim() call would refuse on a fresh attempt (single-use). The
+    // service's replay branch skips the claim step.
+    const replay = await fetch(`${h.baseUrl}/messages`, {
+      method: "POST",
+      headers: sendHeaders,
+      body: sendBody,
+    });
+    assert.equal(replay.status, 202);
+  });
+
   it("supports POST /files + GET /files/:id round-trip", async () => {
     const alice = await registerAgent(h, "@alice.cli");
 
