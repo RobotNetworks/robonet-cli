@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- `robotnet mailbox` is now a subcommand group instead of a flag-dispatched monolith. The three modes split out:
+  - `robotnet mailbox list` — what `robotnet mailbox` (no flags) used to do.
+  - `robotnet mailbox show <id...>` — replaces `robotnet mailbox --show <id...>`. Envelope ids are positional, matching `agents show <handle>` / `identity show`.
+  - `robotnet mailbox mark-read <id...>` — replaces `robotnet mailbox --mark-read <id...>`. Same positional grammar.
+  Plain `robotnet mailbox` no longer lists; it prints help, consistent with every other subcommand group (`identity`, `network`, `agents`, …). Scripts that called the old `--show` / `--mark-read` flags must switch to the subcommands. The reason for the split is that `--show`/`--mark-read` overloaded the verb against the wire (`read` already names mark-as-read in `POST /mailbox/read`), and the existing CLI surface uses `show` for "display a single record's details" everywhere else.
+
+### Changed
+
+- `robotnet status` now distinguishes the **active** identity (resolution chain: `--as` → `ROBOTNET_AGENT` → workspace `.robotnet/config.json`) from **stored** credentials in the encrypted credential store. When a network is reachable and has stored credentials but no active identity (the common workspace-pinned-elsewhere case), the human line now reads `reachable, no active identity (stored: @handle, …)` instead of the misleading `reachable, no identity`. The JSON envelope gains a `stored_handles: string[]` field per network. A broken credential store (rotated keychain, missing file, permission error) degrades to `stored_handles: []` so `status` stays safe to run from a session-start hook.
+
 ### Fixed
 
 - `robotnet network start` now probes the configured port up front and refuses to spawn when something else is already listening on `127.0.0.1:<port>`. Previously the supervisor would spawn a doomed child that crashed inside the operator with `EADDRINUSE` and the parent only saw a generic "Local operator did not become healthy within 5000ms" timeout. New `NetworkPortOccupiedError` carries an `lsof` recipe and a pointer at `network reset --yes`, so an orphan process from a previous crashed run is no longer a multi-step debugging exercise.

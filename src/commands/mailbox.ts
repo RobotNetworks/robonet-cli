@@ -20,24 +20,43 @@ import { loadConfigForAgentCommand, out, tokenOption } from "./shared.js";
  * `robotnet mailbox` — list, fetch, and mark envelopes in the
  * calling agent's mailbox.
  *
- * Headers only by default. Use `--show <id>...` to fetch one or more
- * bodies (auto-marks read), or `--mark-read <id>...` to mark without
- * fetching. Pagination is keyset over `(created_at, envelope_id)`.
+ * Split into three subcommands so the verb each performs is unambiguous
+ * and the surface lines up with the rest of the CLI (`identity show`,
+ * `agents show`, `me show`, etc.):
  *
- * ``--direction`` chooses the feed:
- *   - ``in`` (default) — envelopes the agent has received. ASMTP wire
- *     spec; byte-for-byte compatible with any conformant operator.
- *   - ``out`` — envelopes the agent has sent. Operator extension.
- *   - ``both`` — combined feed; each header tagged with a ``direction``
- *     field (``in`` / ``out`` / ``self``). Operator extension.
+ *   - `mailbox list` — paginate the agent's feed (headers only).
+ *     Defaults to the recipient feed (`--direction in`); operator
+ *     extensions expose `out` (sent) and `both`.
+ *   - `mailbox show <id…>` — fetch one or more bodies; auto-marks the
+ *     fetched envelopes read because reading is what the verb means on
+ *     the wire (`GET /messages/{id}`).
+ *   - `mailbox mark-read <id…>` — mark one or more envelopes read
+ *     without fetching the body. Maps directly to `POST /mailbox/read`.
+ *
+ * Pagination on `list` is keyset over `(created_at, envelope_id)`.
+ *
+ * `--show`/`--mark-read` flags from earlier releases are gone — the new
+ * subcommands replace them; `mailbox` with no subcommand prints help.
  */
 export function registerMailboxCommand(program: Command): void {
   program.addCommand(makeMailboxCommand());
 }
 
 function makeMailboxCommand(): Command {
-  return new Command("mailbox")
-    .description("List, fetch, and mark envelopes in the calling agent's mailbox")
+  const mailbox = new Command("mailbox").description(
+    "List, fetch, and mark envelopes in the calling agent's mailbox",
+  );
+  mailbox.addCommand(makeListCmd());
+  mailbox.addCommand(makeShowCmd());
+  mailbox.addCommand(makeMarkReadCmd());
+  return mailbox;
+}
+
+function makeListCmd(): Command {
+  return new Command("list")
+    .description(
+      "Paginate the calling agent's mailbox feed (headers only; use `mailbox show` to fetch bodies)",
+    )
     .option("--as <handle>", "Act as this agent handle", handleArg)
     .option(
       "--direction <direction>",
@@ -45,7 +64,11 @@ function makeMailboxCommand(): Command {
       parseDirection,
       "in" as MailboxDirection,
     )
-    .option("--unread", "Restrict listing to unread envelopes (--direction=in only)", false)
+    .option(
+      "--unread",
+      "Restrict listing to unread envelopes (--direction=in only)",
+      false,
+    )
     .option(
       "--limit <n>",
       "Maximum entries to return (1..1000, default 20)",
@@ -68,21 +91,9 @@ function makeMailboxCommand(): Command {
       "Cursor leg: envelope id to resume after (must pair with --after-created-at)",
       envelopeIdArg,
     )
-    .option(
-      "--show <id>",
-      "Fetch the body for one or more envelope ids (auto-marks read; repeatable)",
-      collectRepeatable,
-      [] as string[],
-    )
-    .option(
-      "--mark-read <id>",
-      "Mark one or more envelope ids read without fetching (repeatable)",
-      collectRepeatable,
-      [] as string[],
-    )
     .addOption(tokenOption())
     .option("--json", "Emit machine-readable JSON", false)
-    .action(async (opts: MailboxOpts, cmd: Command) => {
+    .action(async (opts: ListOpts, cmd: Command) => {
       if (
         (opts.afterCreatedAt !== undefined) !==
         (opts.afterEnvelopeId !== undefined)
@@ -91,45 +102,6 @@ function makeMailboxCommand(): Command {
           "--after-created-at and --after-envelope-id must be supplied together.",
         );
       }
-      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
-      const { token, baseUrl } = await resolveAgentBearer(
-        config,
-        identity.handle,
-        opts.token,
-      );
-
-      // Body-fetch and mark-read modes short-circuit listing entirely —
-      // they're the explicit "I know the id(s) I care about" path.
-      if (opts.show.length > 0) {
-        const ids = ensureValidIds(opts.show);
-        const client = new MessagesClient(baseUrl, token);
-        const envelopes = await client.fetchBatch(ids);
-        if (opts.json) {
-          out(JSON.stringify({ envelopes }, null, 2));
-          return;
-        }
-        for (const envelope of envelopes) {
-          out(formatEnvelope(envelope));
-        }
-        if (envelopes.length < ids.length) {
-          out(
-            `(${ids.length - envelopes.length} envelope(s) omitted — not found or not entitled)`,
-          );
-        }
-        return;
-      }
-      if (opts.markRead.length > 0) {
-        const ids = ensureValidIds(opts.markRead);
-        const mailbox = new MailboxClient(baseUrl, token);
-        const result = await mailbox.markRead(ids);
-        if (opts.json) {
-          out(JSON.stringify(result, null, 2));
-          return;
-        }
-        out(`Marked ${result.read.length} envelope(s) read.`);
-        return;
-      }
-
       if (opts.unread && opts.direction !== "in") {
         // Surface the constraint explicitly rather than letting the
         // server silently ignore --unread; read-state is per-recipient
@@ -138,6 +110,12 @@ function makeMailboxCommand(): Command {
           "--unread is only meaningful with --direction=in (recipient feed).",
         );
       }
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const { token, baseUrl } = await resolveAgentBearer(
+        config,
+        identity.handle,
+        opts.token,
+      );
       const mailbox = new MailboxClient(baseUrl, token);
       const result = await mailbox.list({
         order: opts.order,
@@ -172,7 +150,68 @@ function makeMailboxCommand(): Command {
     });
 }
 
-interface MailboxOpts {
+function makeShowCmd(): Command {
+  return new Command("show")
+    .description(
+      "Fetch the body for one or more envelope ids (auto-marks each fetched envelope read)",
+    )
+    .argument("<ids...>", "Envelope ids (Crockford-base32 ULIDs)", collectIdsArg, [])
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
+    .option("--json", "Emit machine-readable JSON", false)
+    .action(async (rawIds: string[], opts: ShowOpts, cmd: Command) => {
+      const ids = ensureValidIds(rawIds);
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const { token, baseUrl } = await resolveAgentBearer(
+        config,
+        identity.handle,
+        opts.token,
+      );
+      const client = new MessagesClient(baseUrl, token);
+      const envelopes = await client.fetchBatch(ids);
+      if (opts.json) {
+        out(JSON.stringify({ envelopes }, null, 2));
+        return;
+      }
+      for (const envelope of envelopes) {
+        out(formatEnvelope(envelope));
+      }
+      if (envelopes.length < ids.length) {
+        out(
+          `(${ids.length - envelopes.length} envelope(s) omitted — not found or not entitled)`,
+        );
+      }
+    });
+}
+
+function makeMarkReadCmd(): Command {
+  return new Command("mark-read")
+    .description(
+      "Mark one or more envelopes read without fetching the body (POST /mailbox/read)",
+    )
+    .argument("<ids...>", "Envelope ids (Crockford-base32 ULIDs)", collectIdsArg, [])
+    .option("--as <handle>", "Act as this agent handle", handleArg)
+    .addOption(tokenOption())
+    .option("--json", "Emit machine-readable JSON", false)
+    .action(async (rawIds: string[], opts: MarkReadOpts, cmd: Command) => {
+      const ids = ensureValidIds(rawIds);
+      const { config, identity } = await loadConfigForAgentCommand(cmd, opts.as);
+      const { token, baseUrl } = await resolveAgentBearer(
+        config,
+        identity.handle,
+        opts.token,
+      );
+      const mailbox = new MailboxClient(baseUrl, token);
+      const result = await mailbox.markRead(ids);
+      if (opts.json) {
+        out(JSON.stringify(result, null, 2));
+        return;
+      }
+      out(`Marked ${result.read.length} envelope(s) read.`);
+    });
+}
+
+interface ListOpts {
   readonly as?: string;
   readonly token?: string;
   readonly direction: MailboxDirection;
@@ -181,12 +220,26 @@ interface MailboxOpts {
   readonly order: MailboxOrder;
   readonly afterCreatedAt?: Timestamp;
   readonly afterEnvelopeId?: EnvelopeId;
-  readonly show: string[];
-  readonly markRead: string[];
   readonly json: boolean;
 }
 
-function collectRepeatable(value: string, prev: string[]): string[] {
+interface ShowOpts {
+  readonly as?: string;
+  readonly token?: string;
+  readonly json: boolean;
+}
+
+interface MarkReadOpts {
+  readonly as?: string;
+  readonly token?: string;
+  readonly json: boolean;
+}
+
+/**
+ * Commander variadic positional collector. Each subsequent positional
+ * is appended to the accumulator so `show A B C` produces `[A, B, C]`.
+ */
+function collectIdsArg(value: string, prev: string[]): string[] {
   return [...prev, value];
 }
 
@@ -239,6 +292,9 @@ function envelopeIdArg(value: string): EnvelopeId {
 }
 
 function ensureValidIds(ids: readonly string[]): EnvelopeId[] {
+  if (ids.length === 0) {
+    throw new RobotNetCLIError("expected one or more envelope ids");
+  }
   return ids.map((id) => envelopeIdArg(id));
 }
 
